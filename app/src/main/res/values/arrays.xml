@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <array name="scope">
+        <item>com.android.providers.media.module</item>
+        <item>com.google.android.providers.media.module</item>
+    </array>
+</resources>
