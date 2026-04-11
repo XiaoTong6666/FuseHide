@@ -62,13 +62,6 @@ constexpr std::string_view kIsUidAllowedAccessToDataOrObbPathSymbols[] = {
     "112basic_stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEE",
 };
 
-constexpr std::string_view kGetDirectoryEntriesSymbols[] = {
-    "_ZN13mediaprovider4fuse20MediaProviderWrapper19GetDirectoryEntriesEjRKNSt6__ndk112basic_"
-    "stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEEP3DIR",
-    "_ZN13mediaprovider4fuse20MediaProviderWrapper19GetDirectoryEntriesEjRKNSt3__112basic_"
-    "stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEEP3DIR",
-};
-
 constexpr std::string_view kStrcasecmpSymbol = "strcasecmp";
 
 constexpr std::string_view kEqualsIgnoreCaseSymbols[] = {
@@ -82,10 +75,6 @@ using IsPackageOwnedPathFn = bool (*)(const std::string& lhs, const std::string&
 using IsBpfBackingPathFn = bool (*)(const std::string& path);
 using IsUidAllowedAccessToDataOrObbPathFn = bool (*)(void* wrapper, uint32_t uid,
                                                      const std::string& path);
-struct OpaqueDirectoryEntry;
-using DirectoryEntriesResult = std::vector<std::shared_ptr<OpaqueDirectoryEntry>>;
-using GetDirectoryEntriesFn = DirectoryEntriesResult (*)(void* wrapper, uint32_t uid,
-                                                         const std::string& path, DIR* dir);
 
 #if defined(__LP64__)
 using ElfHeader = Elf64_Ehdr;
@@ -207,7 +196,6 @@ IsAppAccessiblePathFn gOriginalIsAppAccessiblePath = nullptr;
 IsPackageOwnedPathFn gOriginalIsPackageOwnedPath = nullptr;
 IsBpfBackingPathFn gOriginalIsBpfBackingPath = nullptr;
 IsUidAllowedAccessToDataOrObbPathFn gOriginalIsUidAllowedAccessToDataOrObbPath = nullptr;
-GetDirectoryEntriesFn gOriginalGetDirectoryEntries = nullptr;
 void* gOriginalStrcasecmp = nullptr;
 void* gOriginalEqualsIgnoreCase = nullptr;
 
@@ -215,7 +203,6 @@ std::atomic<int> gAppAccessibleLogCount{0};
 std::atomic<int> gPackageOwnedLogCount{0};
 std::atomic<int> gBpfBackingLogCount{0};
 std::atomic<int> gDataOrObbLogCount{0};
-std::atomic<int> gGetDirectoryEntriesLogCount{0};
 std::atomic<int> gStrcasecmpLogCount{0};
 std::atomic<int> gEqualsIgnoreCaseLogCount{0};
 
@@ -765,38 +752,14 @@ bool WrappedIsUidAllowedAccessToDataOrObbPath(void* wrapper, uint32_t uid,
     return gOriginalIsUidAllowedAccessToDataOrObbPath(wrapper, uid, sanitized);
 }
 
-DirectoryEntriesResult WrappedGetDirectoryEntries(void* wrapper, uint32_t uid,
-                                                  const std::string& path, DIR* dir) {
-    if (gOriginalGetDirectoryEntries == nullptr) {
-        return {};
-    }
-    if (!NeedsSanitization(path)) {
-        if (ShouldLogLimited(gGetDirectoryEntriesLogCount)) {
-            __android_log_print(3, kLogTag, "get_dir_entries direct uid=%u path=%s", uid,
-                                DebugPreview(path).c_str());
-        }
-        return gOriginalGetDirectoryEntries(wrapper, uid, path, dir);
-    }
-
-    std::string sanitized(path);
-    RewriteString(sanitized);
-    if (ShouldLogLimited(gGetDirectoryEntriesLogCount)) {
-        __android_log_print(3, kLogTag, "get_dir_entries rewrite uid=%u old=%s new=%s", uid,
-                            DebugPreview(path).c_str(), DebugPreview(sanitized).c_str());
-    }
-    return gOriginalGetDirectoryEntries(wrapper, uid, sanitized, dir);
-}
-
 // WrappedStrcasecmp
 // Original: strlen both, then call CompareCaseFoldIgnoringDefaultIgnorables
 extern "C" int WrappedStrcasecmp(const char* lhs, const char* rhs) {
     const size_t lhsLen = (lhs != nullptr) ? std::strlen(lhs) : 0;
     const size_t rhsLen = (rhs != nullptr) ? std::strlen(rhs) : 0;
-    const auto* lhsData = reinterpret_cast<const uint8_t*>(lhs);
-    const auto* rhsData = reinterpret_cast<const uint8_t*>(rhs);
     const int result = CompareCaseFoldIgnoringDefaultIgnorables(
-        lhsData ? lhsData : reinterpret_cast<const uint8_t*>(""), lhsLen,
-        rhsData ? rhsData : reinterpret_cast<const uint8_t*>(""), rhsLen);
+        reinterpret_cast<const uint8_t*>(lhs ? lhs : ""), lhsLen,
+        reinterpret_cast<const uint8_t*>(rhs ? rhs : ""), rhsLen);
     if (ShouldLogLimited(gStrcasecmpLogCount)) {
         __android_log_print(3, kLogTag, "strcasecmp lhs=%s rhs=%s result=%d",
                             DebugPreview(std::string_view(lhs ? lhs : "", lhsLen)).c_str(),
@@ -1945,24 +1908,6 @@ void InstallFuseHooks() {
         __android_log_print(4, kLogTag, "inline hook ok %s target=%p backup=%p",
                             std::string(sym).c_str(), *target,
                             reinterpret_cast<void*>(gOriginalIsUidAllowedAccessToDataOrObbPath));
-        break;
-    }
-
-    for (const auto& sym : kGetDirectoryEntriesSymbols) {
-        auto target = useRuntimeElf ? ResolveTargetSymbolRuntime(*module, sym)
-                                    : ResolveTargetSymbol(*module, sym);
-        if (!target.has_value())
-            continue;
-        const int status =
-            gHookInstaller(*target, reinterpret_cast<void*>(+WrappedGetDirectoryEntries),
-                           reinterpret_cast<void**>(&gOriginalGetDirectoryEntries));
-        if (status != 0) {
-            __android_log_print(6, kLogTag, "hook GetDirectoryEntries failed: %d", status);
-            continue;
-        }
-        __android_log_print(4, kLogTag, "inline hook ok %s target=%p backup=%p",
-                            std::string(sym).c_str(), *target,
-                            reinterpret_cast<void*>(gOriginalGetDirectoryEntries));
         break;
     }
 
