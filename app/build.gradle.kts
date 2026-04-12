@@ -15,8 +15,18 @@ android {
         applicationId = "io.github.xiaotong6666.fusefixer"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        
+        val gitCommitCount = try {
+            ProcessBuilder("git", "rev-list", "--count", "HEAD")
+                .directory(rootDir)
+                .start()
+                .inputStream.bufferedReader().use { it.readText() }.trim().toInt()
+        } catch (e: Exception) {
+            1
+        }
+        
+        versionCode = gitCommitCount
+        versionName = "1.$gitCommitCount"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -30,13 +40,36 @@ android {
         }
     }
 
+    signingConfigs {
+        val keystoreFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
+        if (keystoreFile.exists()) {
+            register("debugKey") {
+                storeFile = keystoreFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
-        release {
-            isMinifyEnabled = false
+        getByName("release") {
+            val debugKey = signingConfigs.findByName("debugKey")
+            if (debugKey != null) {
+                signingConfig = debugKey
+            }
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+        getByName("debug") {
+            val debugKey = signingConfigs.findByName("debugKey")
+            if (debugKey != null) {
+                signingConfig = debugKey
+            }
         }
     }
     compileOptions {
