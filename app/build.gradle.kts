@@ -15,8 +15,18 @@ android {
         applicationId = "io.github.xiaotong6666.fusefixer"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        
+        val gitCommitCount = try {
+            ProcessBuilder("git", "rev-list", "--count", "HEAD")
+                .directory(rootDir)
+                .start()
+                .inputStream.bufferedReader().use { it.readText() }.trim().toInt()
+        } catch (e: Exception) {
+            1
+        }
+        
+        versionCode = gitCommitCount
+        versionName = "1.$gitCommitCount"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
