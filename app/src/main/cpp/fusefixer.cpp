@@ -60,6 +60,12 @@ namespace {
 constexpr const char* kLogTag = "FuseFixer";
 constexpr const char* kTargetLibrary = "libfuse_jni.so";
 
+#if defined(NDEBUG)
+constexpr bool kEnableDebugHooks = false;
+#else
+constexpr bool kEnableDebugHooks = true;
+#endif
+
 // Original binary directly imports u_hasBinaryProperty from libicu.so.
 using UHasBinaryPropertyFn = int8_t (*)(uint32_t codePoint, int32_t which);
 extern "C" int8_t u_hasBinaryProperty(uint32_t codePoint, int32_t which);
@@ -759,6 +765,10 @@ std::string InodePath(uint64_t ino) {
         return "(ROOT)";
     char buf[64];
     std::snprintf(buf, sizeof(buf), "(%p)", (void*)ino);
+    // Keep inode values opaque in debug output.
+    // On the analyzed device build, node::BuildPath() is a C++ member function with an
+    // out-parameter return ABI and internal locking, so this logging helper must not assume
+    // that an inode value can be converted into a valid node object or path string.
     return std::string(buf);
 }
 
@@ -801,7 +811,8 @@ extern "C" int WrappedNotifyInvalInode(void* se, uint64_t ino, off_t off, off_t 
     auto fn = reinterpret_cast<int (*)(void*, uint64_t, off_t, off_t)>(gOriginalNotifyInvalInode);
     int ret = fn ? fn(se, ino, off, len) : -1;
     // Device libfuse_jni routes a fallback invalidation path through notify_inval_inode().
-    // The ino passed here is not safe to hand to node::BuildPath(), so only log the raw handle.
+    // The callback receives an inode handle, not a verified node object, so only log the rawvalue
+    // here.
     __android_log_print(3, kLogTag, "notify_inval_inode: ino=0x%lx name=%s ret=%d",
                         (unsigned long)ino, ino == 1 ? "(ROOT)" : "", ret);
     return ret;
@@ -2207,11 +2218,192 @@ std::optional<void*> ResolveTargetSymbolRuntime(const ModuleInfo& module,
 
 // Inline hook installer (for path functions)
 
-bool InstallHookForSymbol(std::string_view symbolName, void* replacement, void** backup,
-                          const char* failureMessage) {
+struct CoreHookStatus {
+    bool appAccessible = false;
+    bool packageOwned = false;
+    bool bpfBacking = false;
+    bool strcasecmp = false;
+    bool equalsIgnoreCase = false;
+};
+
+struct FileElfContext {
+    MappedFile mapped;
+    DynamicInfo dynInfo;
+    ElfInfo elfInfo;
+};
+
+void RefreshCoreHookStatus(CoreHookStatus* status) {
+    if (status == nullptr) {
+        return;
+    }
+    status->appAccessible = gOriginalIsAppAccessiblePath != nullptr;
+    status->packageOwned = gOriginalIsPackageOwnedPath != nullptr;
+    status->bpfBacking = gOriginalIsBpfBackingPath != nullptr;
+    status->strcasecmp = gOriginalStrcasecmp != nullptr;
+    status->equalsIgnoreCase = gOriginalEqualsIgnoreCase != nullptr;
+}
+
+bool HasAllCoreHooks(const CoreHookStatus& status) {
+    return status.appAccessible && status.packageOwned && status.bpfBacking && status.strcasecmp &&
+           status.equalsIgnoreCase;
+}
+
+void LogCoreHookStatus(const char* stage, const CoreHookStatus& status) {
+    __android_log_print(4, kLogTag,
+                        "%s core hooks app=%d package=%d bpf=%d strcasecmp=%d equals=%d", stage,
+                        status.appAccessible, status.packageOwned, status.bpfBacking,
+                        status.strcasecmp, status.equalsIgnoreCase);
+}
+
+std::optional<FileElfContext> BuildFileElfContext(const ModuleInfo& module) {
+    auto mapped = MapReadOnlyFile(module.path);
+    if (!mapped.has_value()) {
+        return std::nullopt;
+    }
+
+    auto dynInfo = ParseDynamicInfo(*mapped);
+    if (!dynInfo.has_value()) {
+        return std::nullopt;
+    }
+
+    FileElfContext context;
+    context.mapped = std::move(*mapped);
+    context.dynInfo = std::move(*dynInfo);
+    const int pageSize = getpagesize();
+    context.elfInfo.loadBias = module.base;
+    context.elfInfo.pageSize = pageSize;
+    context.elfInfo.pageSizeRaw = pageSize;
+    context.elfInfo.mapped = &context.mapped;
+    context.elfInfo.dynInfo = &context.dynInfo;
+    return context;
+}
+
+bool TryInstallInlineHookAt(void* target, void* replacement, void** backup,
+                            const char* failureMessage) {
+    if (backup != nullptr && *backup != nullptr) {
+        return true;
+    }
     if (gHookInstaller == nullptr) {
         __android_log_print(6, kLogTag, "hook installer is null for %s", failureMessage);
         return false;
+    }
+    const int status = gHookInstaller(target, replacement, backup);
+    if (status != 0) {
+        __android_log_print(6, kLogTag, "%s: %d", failureMessage, status);
+        return false;
+    }
+    __android_log_print(4, kLogTag, "inline hook ok target=%p backup=%p", target,
+                        backup != nullptr ? *backup : nullptr);
+    return true;
+}
+
+bool TryInstallFileInlineHook(const ModuleInfo& module, std::string_view symbolName,
+                              void* replacement, void** backup, const char* failureMessage) {
+    auto target = ResolveTargetSymbol(module, symbolName);
+    if (!target.has_value()) {
+        __android_log_print(3, kLogTag, "resolve failed %s", std::string(symbolName).c_str());
+        return false;
+    }
+    return TryInstallInlineHookAt(*target, replacement, backup, failureMessage);
+}
+
+bool TryInstallRuntimeInlineHook(const ModuleInfo& module, std::string_view symbolName,
+                                 void* replacement, void** backup, const char* failureMessage) {
+    auto target = ResolveTargetSymbolRuntime(module, symbolName);
+    if (!target.has_value()) {
+        __android_log_print(3, kLogTag, "runtime resolve failed %s",
+                            std::string(symbolName).c_str());
+        return false;
+    }
+    return TryInstallInlineHookAt(*target, replacement, backup, failureMessage);
+}
+
+bool InstallHookForSymbol(std::string_view symbolName, void* replacement, void** backup,
+                          const char* failureMessage);
+
+template <size_t N>
+bool InstallFirstAvailableFileInlineHook(const ModuleInfo& module,
+                                         const std::string_view (&symbols)[N], void* replacement,
+                                         void** backup, const char* failureMessage) {
+    for (const auto& sym : symbols) {
+        if (TryInstallFileInlineHook(module, sym, replacement, backup, failureMessage)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+template <size_t N>
+bool InstallFirstAvailableInlineHook(const std::string_view (&symbols)[N], void* replacement,
+                                     void** backup, const char* failureMessage) {
+    for (const auto& sym : symbols) {
+        if (InstallHookForSymbol(sym, replacement, backup, failureMessage)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void InstallFileCompareHookIfNeeded(const ElfInfo& elfInfo, std::string_view primary,
+                                    std::string_view alt, void* replacement, void** backup,
+                                    const char* label) {
+    if (backup != nullptr && *backup != nullptr) {
+        return;
+    }
+    InstallCompareHook(elfInfo, primary, alt, replacement, backup, label);
+}
+
+void PatchRuntimeRelocationSlots(const RuntimeDynamicInfo& runtimeDyn, uintptr_t moduleBase,
+                                 int pageSize, std::string_view primary, std::string_view alt,
+                                 void* replacement, void** backup, const char* label) {
+    if (backup != nullptr && *backup != nullptr) {
+        return;
+    }
+
+    auto idx = FindRuntimeSymbolIndex(runtimeDyn, reinterpret_cast<const uint8_t*>(primary.data()),
+                                      primary.size());
+    std::vector<uintptr_t> slots;
+    if (idx.has_value()) {
+        slots = FindRuntimeRelocationSlotsForSymbol(runtimeDyn, *idx, moduleBase);
+    }
+    if (slots.empty() && !alt.empty()) {
+        idx = FindRuntimeSymbolIndex(runtimeDyn, reinterpret_cast<const uint8_t*>(alt.data()),
+                                     alt.size());
+        if (idx.has_value()) {
+            slots = FindRuntimeRelocationSlotsForSymbol(runtimeDyn, *idx, moduleBase);
+        }
+    }
+    if (slots.empty()) {
+        __android_log_print(6, kLogTag, "no %s found", label);
+        return;
+    }
+
+    __android_log_print(4, kLogTag, "compare hook %s slots=%zu", label, slots.size());
+    for (const auto slotAddr : slots) {
+        auto* slot = reinterpret_cast<void**>(slotAddr);
+        const uintptr_t pageMask = ~static_cast<uintptr_t>(pageSize - 1);
+        auto* pageStart = reinterpret_cast<void*>(slotAddr & pageMask);
+        if (mprotect(pageStart, pageSize, PROT_READ | PROT_WRITE) < 0) {
+            const int err = errno;
+            __android_log_print(6, kLogTag, "failed with %d %s: mprotect", err, strerror(err));
+            continue;
+        }
+        if (backup != nullptr) {
+            *backup = *slot;
+        }
+        *slot = replacement;
+        __android_log_print(3, kLogTag, "patched %s slot=%p old=%p new=%p", label,
+                            reinterpret_cast<void*>(slotAddr),
+                            backup != nullptr ? *backup : nullptr, replacement);
+        FlushCodeRange(pageStart, reinterpret_cast<void*>((slotAddr + pageSize) & pageMask));
+        mprotect(pageStart, pageSize, PROT_READ);
+    }
+}
+
+bool InstallHookForSymbol(std::string_view symbolName, void* replacement, void** backup,
+                          const char* failureMessage) {
+    if (backup != nullptr && *backup != nullptr) {
+        return true;
     }
     auto module = FindTargetModule();
     if (!module.has_value()) {
@@ -2219,21 +2411,166 @@ bool InstallHookForSymbol(std::string_view symbolName, void* replacement, void**
         return false;
     }
     const bool useRuntimeElf = module->path.find("!/") != std::string::npos;
-    auto target = useRuntimeElf ? ResolveTargetSymbolRuntime(*module, symbolName)
-                                : ResolveTargetSymbol(*module, symbolName);
-    if (!target.has_value()) {
-        __android_log_print(3, kLogTag, "resolve failed %s", std::string(symbolName).c_str());
-        return false;
+    return useRuntimeElf
+               ? TryInstallRuntimeInlineHook(*module, symbolName, replacement, backup,
+                                             failureMessage)
+               : TryInstallFileInlineHook(*module, symbolName, replacement, backup, failureMessage);
+}
+
+void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fileContext,
+                             CoreHookStatus* status) {
+    InstallFirstAvailableFileInlineHook(module, kIsAppAccessiblePathSymbols,
+                                        reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
+                                        reinterpret_cast<void**>(&gOriginalIsAppAccessiblePath),
+                                        "hook is_app_accessible_path failed");
+    InstallFirstAvailableFileInlineHook(module, kIsPackageOwnedPathSymbols,
+                                        reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
+                                        reinterpret_cast<void**>(&gOriginalIsPackageOwnedPath),
+                                        "hook is_package_owned_path failed");
+    InstallFirstAvailableFileInlineHook(
+        module, kIsBpfBackingPathSymbols, reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
+        reinterpret_cast<void**>(&gOriginalIsBpfBackingPath), "hook is_bpf_backing_path failed");
+
+    InstallFileCompareHookIfNeeded(fileContext.elfInfo, kStrcasecmpSymbol, kStrcasecmpSymbol,
+                                   reinterpret_cast<void*>(+WrappedStrcasecmp),
+                                   &gOriginalStrcasecmp, "strcasecmp");
+    InstallFileCompareHookIfNeeded(fileContext.elfInfo, kEqualsIgnoreCaseSymbols[0],
+                                   kEqualsIgnoreCaseSymbols[1],
+                                   reinterpret_cast<void*>(+WrappedEqualsIgnoreCaseAbi),
+                                   &gOriginalEqualsIgnoreCase, "EqualsIgnoreCase");
+
+    RefreshCoreHookStatus(status);
+}
+
+void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fileContext) {
+    InstallFileCompareHookIfNeeded(
+        fileContext.elfInfo, "fuse_lowlevel_notify_inval_entry", "fuse_lowlevel_notify_inval_entry",
+        (void*)WrappedNotifyInvalEntry, &gOriginalNotifyInvalEntry, "notify_inval_entry");
+    InstallFileCompareHookIfNeeded(
+        fileContext.elfInfo, "fuse_lowlevel_notify_inval_inode", "fuse_lowlevel_notify_inval_inode",
+        (void*)WrappedNotifyInvalInode, &gOriginalNotifyInvalInode, "notify_inval_inode");
+    InstallFileCompareHookIfNeeded(fileContext.elfInfo, "fuse_reply_entry", "fuse_reply_entry",
+                                   (void*)WrappedReplyEntry, &gOriginalReplyEntry, "reply_entry");
+    InstallFileCompareHookIfNeeded(fileContext.elfInfo, "fuse_reply_buf", "fuse_reply_buf",
+                                   (void*)WrappedReplyBuf, &gOriginalReplyBuf, "reply_buf");
+    InstallFileCompareHookIfNeeded(fileContext.elfInfo, "fuse_reply_err", "fuse_reply_err",
+                                   (void*)WrappedReplyErr, &gOriginalReplyErr, "reply_err");
+
+    if (gOriginalPfLookup == nullptr) {
+        TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL9pf_lookupEP8fuse_reqmPKc",
+                                 (void*)WrappedPfLookup, &gOriginalPfLookup,
+                                 "hook pf_lookup failed");
     }
-    const int status = gHookInstaller(*target, replacement, backup);
-    if (status != 0) {
-        __android_log_print(6, kLogTag, "%s: %d", failureMessage, status);
-        return false;
+    if (gOriginalPfLookupPostfilter == nullptr) {
+        TryInstallFileInlineHook(module,
+                                 "_ZN13mediaprovider4fuseL20pf_lookup_postfilterEP8fuse_"
+                                 "reqmjPKcP14fuse_entry_outP18fuse_"
+                                 "entry_bpf_out",
+                                 (void*)WrappedPfLookupPostfilter, &gOriginalPfLookupPostfilter,
+                                 "hook pf_lookup_postfilter failed");
     }
-    __android_log_print(4, kLogTag, "inline hook ok %s target=%p backup=%p",
-                        std::string(symbolName).c_str(), *target,
-                        backup != nullptr ? *backup : nullptr);
-    return true;
+}
+
+void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) {
+    if (!status->appAccessible) {
+        InstallFirstAvailableInlineHook(kIsAppAccessiblePathSymbols,
+                                        reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
+                                        reinterpret_cast<void**>(&gOriginalIsAppAccessiblePath),
+                                        "hook is_app_accessible_path failed");
+    }
+
+    if (!status->packageOwned) {
+        InstallFirstAvailableInlineHook(kIsPackageOwnedPathSymbols,
+                                        reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
+                                        reinterpret_cast<void**>(&gOriginalIsPackageOwnedPath),
+                                        "hook is_package_owned_path failed");
+    }
+
+    if (!status->bpfBacking) {
+        InstallFirstAvailableInlineHook(kIsBpfBackingPathSymbols,
+                                        reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
+                                        reinterpret_cast<void**>(&gOriginalIsBpfBackingPath),
+                                        "hook is_bpf_backing_path failed");
+    }
+
+    const bool useRuntimeElf = module.path.find("!/") != std::string::npos;
+    const int ps = getpagesize();
+    if (useRuntimeElf) {
+        auto runtimeDyn = ParseRuntimeDynamicInfo(module);
+        if (runtimeDyn.has_value()) {
+            if (!status->strcasecmp) {
+                PatchRuntimeRelocationSlots(*runtimeDyn, module.base, ps, kStrcasecmpSymbol,
+                                            kStrcasecmpSymbol,
+                                            reinterpret_cast<void*>(+WrappedStrcasecmp),
+                                            &gOriginalStrcasecmp, "strcasecmp");
+            }
+            if (!status->equalsIgnoreCase) {
+                PatchRuntimeRelocationSlots(*runtimeDyn, module.base, ps,
+                                            kEqualsIgnoreCaseSymbols[0],
+                                            kEqualsIgnoreCaseSymbols[1],
+                                            reinterpret_cast<void*>(+WrappedEqualsIgnoreCaseAbi),
+                                            &gOriginalEqualsIgnoreCase, "EqualsIgnoreCase");
+            }
+        }
+    } else if (auto fileContext = BuildFileElfContext(module); fileContext.has_value()) {
+        if (!status->strcasecmp) {
+            InstallFileCompareHookIfNeeded(
+                fileContext->elfInfo, kStrcasecmpSymbol, kStrcasecmpSymbol,
+                reinterpret_cast<void*>(+WrappedStrcasecmp), &gOriginalStrcasecmp, "strcasecmp");
+        }
+        if (!status->equalsIgnoreCase) {
+            InstallFileCompareHookIfNeeded(fileContext->elfInfo, kEqualsIgnoreCaseSymbols[0],
+                                           kEqualsIgnoreCaseSymbols[1],
+                                           reinterpret_cast<void*>(+WrappedEqualsIgnoreCaseAbi),
+                                           &gOriginalEqualsIgnoreCase, "EqualsIgnoreCase");
+        }
+    }
+
+    RefreshCoreHookStatus(status);
+}
+
+void InstallAdvancedDebugHooks(const ModuleInfo& module) {
+    if (!kEnableDebugHooks) {
+        return;
+    }
+    const bool useRuntimeElf = module.path.find("!/") != std::string::npos;
+    if (useRuntimeElf) {
+        auto runtimeDyn = ParseRuntimeDynamicInfo(module);
+        if (runtimeDyn) {
+            PatchRuntimeRelocationSlots(
+                *runtimeDyn, module.base, getpagesize(), "fuse_lowlevel_notify_inval_entry",
+                "fuse_lowlevel_notify_inval_entry", (void*)WrappedNotifyInvalEntry,
+                &gOriginalNotifyInvalEntry, "notify_inval_entry");
+            PatchRuntimeRelocationSlots(
+                *runtimeDyn, module.base, getpagesize(), "fuse_lowlevel_notify_inval_inode",
+                "fuse_lowlevel_notify_inval_inode", (void*)WrappedNotifyInvalInode,
+                &gOriginalNotifyInvalInode, "notify_inval_inode");
+            PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "fuse_reply_entry",
+                                        "fuse_reply_entry", (void*)WrappedReplyEntry,
+                                        &gOriginalReplyEntry, "reply_entry");
+            PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "fuse_reply_buf",
+                                        "fuse_reply_buf", (void*)WrappedReplyBuf,
+                                        &gOriginalReplyBuf, "reply_buf");
+            PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "fuse_reply_err",
+                                        "fuse_reply_err", (void*)WrappedReplyErr,
+                                        &gOriginalReplyErr, "reply_err");
+        }
+    } else if (auto fileContext = BuildFileElfContext(module); fileContext.has_value()) {
+        InstallMinimalDebugHooks(module, *fileContext);
+    }
+
+    if (gOriginalPfLookup == nullptr) {
+        InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_lookupEP8fuse_reqmPKc",
+                             (void*)WrappedPfLookup, &gOriginalPfLookup, "hook pf_lookup failed");
+    }
+    if (gOriginalPfLookupPostfilter == nullptr) {
+        InstallHookForSymbol(
+            "_ZN13mediaprovider4fuseL20pf_lookup_postfilterEP8fuse_reqmjPKcP14fuse_entry_"
+            "outP18fuse_"
+            "entry_bpf_out",
+            (void*)WrappedPfLookupPostfilter, &gOriginalPfLookupPostfilter,
+            "hook pf_lookup_postfilter failed");
+    }
 }
 
 // Main initialization — InstallFuseHooks
@@ -2253,47 +2590,29 @@ void InstallFuseHooks() {
         __android_log_print(4, kLogTag, "using in-memory ELF parser for embedded library path");
     }
 
-    // Path hooks (inline hook via framework installer)
+    CoreHookStatus coreStatus;
+    RefreshCoreHookStatus(&coreStatus);
 
-    // is_app_accessible_path
-    for (const auto& sym : kIsAppAccessiblePathSymbols) {
-        if (InstallHookForSymbol(sym, reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
-                                 reinterpret_cast<void**>(&gOriginalIsAppAccessiblePath),
-                                 "hook is_app_accessible_path failed")) {
-            break;
+    if (!useRuntimeElf) {
+        if (auto fileContext = BuildFileElfContext(*module); fileContext.has_value()) {
+            __android_log_print(4, kLogTag, "installing minimal file-backed hook path first");
+            InstallMinimalCoreHooks(*module, *fileContext, &coreStatus);
+            InstallMinimalDebugHooks(*module, *fileContext);
+            LogCoreHookStatus("after minimal", coreStatus);
+        } else {
+            __android_log_print(5, kLogTag,
+                                "minimal file-backed hook path unavailable, falling back");
         }
     }
 
-    // is_package_owned_path
-    for (const auto& sym : kIsPackageOwnedPathSymbols) {
-        auto target = useRuntimeElf ? ResolveTargetSymbolRuntime(*module, sym)
-                                    : ResolveTargetSymbol(*module, sym);
-        if (!target.has_value())
-            continue;
-        const int status =
-            gHookInstaller(*target, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
-                           reinterpret_cast<void**>(&gOriginalIsPackageOwnedPath));
-        if (status != 0) {
-            __android_log_print(6, kLogTag, "hook is_package_owned_path failed: %d", status);
-            continue;
-        }
-        break;
+    if (!HasAllCoreHooks(coreStatus) || useRuntimeElf) {
+        __android_log_print(4, kLogTag, "installing advanced hook fallback");
+        InstallAdvancedCoreHooks(*module, &coreStatus);
+        LogCoreHookStatus("after fallback", coreStatus);
     }
 
-    // is_bpf_backing_path
-    for (const auto& sym : kIsBpfBackingPathSymbols) {
-        auto target = useRuntimeElf ? ResolveTargetSymbolRuntime(*module, sym)
-                                    : ResolveTargetSymbol(*module, sym);
-        if (!target.has_value())
-            continue;
-        const int status =
-            gHookInstaller(*target, reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
-                           reinterpret_cast<void**>(&gOriginalIsBpfBackingPath));
-        if (status != 0) {
-            __android_log_print(6, kLogTag, "hook is_bpf_backing_path failed: %d", status);
-            continue;
-        }
-        break;
+    if (kEnableDebugHooks) {
+        InstallAdvancedDebugHooks(*module);
     }
 
     __android_log_print(4, kLogTag,
@@ -2302,193 +2621,6 @@ void InstallFuseHooks() {
                         reinterpret_cast<void*>(gOriginalIsPackageOwnedPath),
                         reinterpret_cast<void*>(gOriginalIsBpfBackingPath), gOriginalStrcasecmp,
                         gOriginalEqualsIgnoreCase, reinterpret_cast<void*>(gUHasBinaryProperty));
-
-    // Debug hooks installation
-    if (useRuntimeElf) {
-        auto runtimeDyn = ParseRuntimeDynamicInfo(*module);
-        if (runtimeDyn) {
-            auto installRuntimeDebugHook = [&](const char* sym, void* hook, void** backup,
-                                               const char* label) {
-                auto idx = FindRuntimeSymbolIndex(
-                    *runtimeDyn, reinterpret_cast<const uint8_t*>(sym), std::strlen(sym));
-                if (idx) {
-                    auto slots =
-                        FindRuntimeRelocationSlotsForSymbol(*runtimeDyn, *idx, module->base);
-                    for (auto slotAddr : slots) {
-                        auto* slot = reinterpret_cast<void**>(slotAddr);
-                        mprotect(reinterpret_cast<void*>(slotAddr & ~(getpagesize() - 1)),
-                                 getpagesize(), PROT_READ | PROT_WRITE);
-                        if (backup)
-                            *backup = *slot;
-                        *slot = hook;
-                        __android_log_print(3, kLogTag, "patched debug %s slot=%p", label,
-                                            (void*)slotAddr);
-                        mprotect(reinterpret_cast<void*>(slotAddr & ~(getpagesize() - 1)),
-                                 getpagesize(), PROT_READ);
-                    }
-                }
-            };
-
-            installRuntimeDebugHook("fuse_lowlevel_notify_inval_entry",
-                                    (void*)WrappedNotifyInvalEntry, &gOriginalNotifyInvalEntry,
-                                    "notify_inval_entry");
-            installRuntimeDebugHook("fuse_lowlevel_notify_inval_inode",
-                                    (void*)WrappedNotifyInvalInode, &gOriginalNotifyInvalInode,
-                                    "notify_inval_inode");
-            installRuntimeDebugHook("fuse_reply_entry", (void*)WrappedReplyEntry,
-                                    &gOriginalReplyEntry, "reply_entry");
-            installRuntimeDebugHook("fuse_reply_buf", (void*)WrappedReplyBuf, &gOriginalReplyBuf,
-                                    "reply_buf");
-            installRuntimeDebugHook("fuse_reply_err", (void*)WrappedReplyErr, &gOriginalReplyErr,
-                                    "reply_err");
-        }
-    } else {
-        auto mapped = MapReadOnlyFile(module->path);
-        if (mapped) {
-            auto dynInfo = ParseDynamicInfo(*mapped);
-            if (dynInfo) {
-                const int ps = getpagesize();
-                ElfInfo elfInfo;
-                elfInfo.loadBias = module->base;
-                elfInfo.pageSize = ps;
-                elfInfo.pageSizeRaw = ps;
-                elfInfo.mapped = &*mapped;
-                elfInfo.dynInfo = &*dynInfo;
-
-                InstallCompareHook(elfInfo, "fuse_lowlevel_notify_inval_entry",
-                                   "fuse_lowlevel_notify_inval_entry",
-                                   (void*)WrappedNotifyInvalEntry, &gOriginalNotifyInvalEntry,
-                                   "notify_inval_entry");
-                InstallCompareHook(elfInfo, "fuse_lowlevel_notify_inval_inode",
-                                   "fuse_lowlevel_notify_inval_inode",
-                                   (void*)WrappedNotifyInvalInode, &gOriginalNotifyInvalInode,
-                                   "notify_inval_inode");
-                InstallCompareHook(elfInfo, "fuse_reply_entry", "fuse_reply_entry",
-                                   (void*)WrappedReplyEntry, &gOriginalReplyEntry, "reply_entry");
-                InstallCompareHook(elfInfo, "fuse_reply_buf", "fuse_reply_buf",
-                                   (void*)WrappedReplyBuf, &gOriginalReplyBuf, "reply_buf");
-                InstallCompareHook(elfInfo, "fuse_reply_err", "fuse_reply_err",
-                                   (void*)WrappedReplyErr, &gOriginalReplyErr, "reply_err");
-            }
-        }
-    }
-
-    // Inline debug hooks
-    auto resolveAndHook = [&](std::string_view sym, void* hook, void** backup, const char* label) {
-        auto target = useRuntimeElf ? ResolveTargetSymbolRuntime(*module, sym)
-                                    : ResolveTargetSymbol(*module, sym);
-        if (target) {
-            gHookInstaller(*target, hook, backup);
-            __android_log_print(4, kLogTag, "inline debug hook ok %s", label);
-        }
-    };
-
-    resolveAndHook("_ZN13mediaprovider4fuseL9pf_lookupEP8fuse_reqmPKc", (void*)WrappedPfLookup,
-                   &gOriginalPfLookup, "pf_lookup");
-    resolveAndHook(
-        "_ZN13mediaprovider4fuseL20pf_lookup_postfilterEP8fuse_reqmjPKcP14fuse_entry_outP18fuse_"
-        "entry_bpf_out",
-        (void*)WrappedPfLookupPostfilter, &gOriginalPfLookupPostfilter, "pf_lookup_postfilter");
-
-    // Compare hooks (relocation/GOT patching)
-
-    // Need to build ELF info for compare hook installer
-    const int ps = getpagesize();
-    if (useRuntimeElf) {
-        auto runtimeDyn = ParseRuntimeDynamicInfo(*module);
-        if (!runtimeDyn.has_value()) {
-            __android_log_print(6, kLogTag, "init runtime elf failed");
-            return;
-        }
-        __android_log_print(
-            4, kLogTag,
-            "runtime dyn ok symtab=%p strtab=%p gnuHash=%p hash=%p jmprel=%p rela=%p rel=%p",
-            runtimeDyn->symtab, runtimeDyn->strtab, runtimeDyn->gnuHash, runtimeDyn->hash,
-            reinterpret_cast<void*>(runtimeDyn->jmprel), reinterpret_cast<void*>(runtimeDyn->rela),
-            reinterpret_cast<void*>(runtimeDyn->rel));
-
-        auto installRuntimeCompareHook = [&](std::string_view primary, std::string_view alt,
-                                             void* replacement, void** backup, const char* label) {
-            auto idx = FindRuntimeSymbolIndex(
-                *runtimeDyn, reinterpret_cast<const uint8_t*>(primary.data()), primary.size());
-            std::vector<uintptr_t> slots;
-            if (idx.has_value()) {
-                slots = FindRuntimeRelocationSlotsForSymbol(*runtimeDyn, *idx, module->base);
-            }
-            if (slots.empty() && !alt.empty()) {
-                idx = FindRuntimeSymbolIndex(
-                    *runtimeDyn, reinterpret_cast<const uint8_t*>(alt.data()), alt.size());
-                if (idx.has_value()) {
-                    slots = FindRuntimeRelocationSlotsForSymbol(*runtimeDyn, *idx, module->base);
-                }
-            }
-            if (slots.empty()) {
-                __android_log_print(6, kLogTag, "no %s found", label);
-                return;
-            }
-            __android_log_print(4, kLogTag, "compare hook %s slots=%zu", label, slots.size());
-            for (const auto slotAddr : slots) {
-                auto* slot = reinterpret_cast<void**>(slotAddr);
-                const uintptr_t pageMask = ~static_cast<uintptr_t>(ps - 1);
-                auto* pageStart = reinterpret_cast<void*>(slotAddr & pageMask);
-                if (mprotect(pageStart, ps, PROT_READ | PROT_WRITE) < 0) {
-                    const int err = errno;
-                    __android_log_print(6, kLogTag, "failed with %d %s: mprotect", err,
-                                        strerror(err));
-                    continue;
-                }
-                if (backup != nullptr) {
-                    *backup = *slot;
-                }
-                *slot = replacement;
-                __android_log_print(3, kLogTag, "patched %s slot=%p old=%p new=%p", label,
-                                    reinterpret_cast<void*>(slotAddr),
-                                    backup != nullptr ? *backup : nullptr, replacement);
-                FlushCodeRange(pageStart, reinterpret_cast<void*>((slotAddr + ps) & pageMask));
-                mprotect(pageStart, ps, PROT_READ);
-            }
-        };
-
-        installRuntimeCompareHook(kStrcasecmpSymbol, kStrcasecmpSymbol,
-                                  reinterpret_cast<void*>(+WrappedStrcasecmp), &gOriginalStrcasecmp,
-                                  "strcasecmp");
-        installRuntimeCompareHook(kEqualsIgnoreCaseSymbols[0], kEqualsIgnoreCaseSymbols[1],
-                                  reinterpret_cast<void*>(+WrappedEqualsIgnoreCaseAbi),
-                                  &gOriginalEqualsIgnoreCase, "EqualsIgnoreCase");
-    } else {
-        auto mapped = MapReadOnlyFile(module->path);
-        if (!mapped.has_value()) {
-            __android_log_print(6, kLogTag, "init elf failed");
-            return;
-        }
-
-        auto dynInfo = ParseDynamicInfo(*mapped);
-        if (!dynInfo.has_value()) {
-            __android_log_print(6, kLogTag, "init elf for dyn failed");
-            return;
-        }
-
-        __android_log_print(
-            4, kLogTag, "dyn ok symtab=%p strtab=%p gnuHash=%p hash=%p jmprel=%p rela=%p rel=%p",
-            reinterpret_cast<void*>(dynInfo->symtab), reinterpret_cast<void*>(dynInfo->strtab),
-            reinterpret_cast<void*>(dynInfo->gnuHash), reinterpret_cast<void*>(dynInfo->hash),
-            reinterpret_cast<void*>(dynInfo->jmprel), reinterpret_cast<void*>(dynInfo->rela),
-            reinterpret_cast<void*>(dynInfo->rel));
-
-        ElfInfo elfInfo;
-        elfInfo.loadBias = module->base;
-        elfInfo.pageSize = ps;
-        elfInfo.pageSizeRaw = ps;
-        elfInfo.mapped = &*mapped;
-        elfInfo.dynInfo = &*dynInfo;
-
-        InstallCompareHook(elfInfo, kStrcasecmpSymbol, kStrcasecmpSymbol,
-                           reinterpret_cast<void*>(+WrappedStrcasecmp), &gOriginalStrcasecmp,
-                           "strcasecmp");
-        InstallCompareHook(elfInfo, kEqualsIgnoreCaseSymbols[0], kEqualsIgnoreCaseSymbols[1],
-                           reinterpret_cast<void*>(+WrappedEqualsIgnoreCaseAbi),
-                           &gOriginalEqualsIgnoreCase, "EqualsIgnoreCase");
-    }
 }
 
 // Entry points
