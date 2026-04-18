@@ -199,6 +199,7 @@ class MainActivity : ComponentActivity() {
                 "getcon" -> runPathCheck(4)
                 "create" -> runPathCheck(5)
                 "mkdir" -> runPathCheck(6)
+                "move", "rename" -> runPathCheck(7)
                 "rmdir" -> runPathCheck(8)
                 "unlink" -> runPathCheck(9)
             }
@@ -332,12 +333,16 @@ class MainActivity : ComponentActivity() {
                 }
                 7 -> {
                     val rawPath2 = unescapeUnicodeLiterals(pathText2) ?: return
+                    if (rawPath2.isEmpty()) {
+                        appendOutput("Rename(Move) requires Path 2\n")
+                        return
+                    }
                     val displayPath2 = escapeNonAscii(rawPath2)
                     val res = Utils.rename(rawPath, rawPath2)
                     if (res == 0) {
-                        appendOutput("Move $displayPath -> $displayPath2 -> OK\n")
+                        appendOutput("Rename(Move) $displayPath -> $displayPath2 -> OK\n")
                     } else {
-                        appendOutput("Move $displayPath -> $displayPath2 -> ${OsConstants.errnoName(res)}\n")
+                        appendOutput("Rename(Move) $displayPath -> $displayPath2 -> ${OsConstants.errnoName(res)}\n")
                     }
                 }
                 8 -> {
@@ -441,7 +446,7 @@ class MainActivity : ComponentActivity() {
         4 -> "GetCon"
         5 -> "Create"
         6 -> "Mkdir"
-        7 -> "Move"
+        7 -> "Rename(Move)"
         8 -> "Rmdir"
         9 -> "Unlink"
         else -> "Unknown"
@@ -504,7 +509,7 @@ private fun fuseFixerScreen(
             value = pathText2,
             onValueChange = onPath2Changed,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Path 2 (for Move)") },
+            label = { Text("Path 2 (for Rename/Move syscall)") },
             singleLine = false,
         )
         actionRows(
@@ -561,7 +566,7 @@ private fun actionRows(
             "Get Con" to onGetConClick,
             "Create" to onCreateClick,
             "Mkdir" to onMkdirClick,
-            "Move" to onMoveClick,
+            "Rename(Move)" to onMoveClick,
         ),
     )
     actionRow(

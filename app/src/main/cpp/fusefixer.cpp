@@ -179,6 +179,8 @@ constexpr uintptr_t kDevicePfMknodOffset = 0x00176ba8;
 constexpr uintptr_t kDevicePfUnlinkOffset = 0x00177534;
 // Reverse-engineered record: pf_rmdir @ 0x00177920.
 constexpr uintptr_t kDevicePfRmdirOffset = 0x00177920;
+// Reverse-engineered record: pf_rename @ 0x00177ef4.
+constexpr uintptr_t kDevicePfRenameOffset = 0x00177ef4;
 // Reverse-engineered record: pf_create @ 0x0017a7c8.
 constexpr uintptr_t kDevicePfCreateOffset = 0x0017a7c8;
 // Reverse-engineered record: pf_readdir @ 0x00179c40.
@@ -988,6 +990,7 @@ void* gOriginalPfMknod = nullptr;
 void* gOriginalPfMkdir = nullptr;
 void* gOriginalPfUnlink = nullptr;
 void* gOriginalPfRmdir = nullptr;
+void* gOriginalPfRename = nullptr;
 void* gOriginalPfCreate = nullptr;
 void* gOriginalPfReaddir = nullptr;
 void* gOriginalPfReaddirPostfilter = nullptr;
@@ -1582,6 +1585,38 @@ extern "C" void WrappedPfRmdir(fuse_req_t req, uint64_t parent, const char* name
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, const char*)>(gOriginalPfRmdir);
     if (fn) {
         fn(req, parent, name);
+    }
+}
+
+// AOSP do_rename only validates the old and new parent directories before it passes the final
+// child paths into MediaProviderWrapper::Rename, so hidden names must be intercepted here as well.
+// https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1299
+// https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1369
+extern "C" void WrappedPfRename(fuse_req_t req, uint64_t parent, const char* name,
+                                uint64_t new_parent, const char* new_name, uint32_t flags) {
+    RememberFuseSession(req);
+    const uint32_t uid = ReqUid(req);
+    const HiddenNamedTargetKind srcKind = ClassifyHiddenNamedTarget(uid, parent, name);
+    const HiddenNamedTargetKind dstKind = ClassifyHiddenNamedTarget(uid, new_parent, new_name);
+    if (srcKind != HiddenNamedTargetKind::None || dstKind != HiddenNamedTargetKind::None) {
+        DebugLogPrint(4,
+                      "pf_rename hide named target src_root=%d src_desc=%d dst_root=%d dst_desc=%d "
+                      "flags=0x%x",
+                      srcKind == HiddenNamedTargetKind::Root ? 1 : 0,
+                      srcKind == HiddenNamedTargetKind::Descendant ? 1 : 0,
+                      dstKind == HiddenNamedTargetKind::Root ? 1 : 0,
+                      dstKind == HiddenNamedTargetKind::Descendant ? 1 : 0, flags);
+        ScheduleHiddenEntryInvalidation();
+        auto replyErr = reinterpret_cast<int (*)(fuse_req_t, int)>(gOriginalReplyErr);
+        if (replyErr != nullptr) {
+            replyErr(req, ENOENT);
+        }
+        return;
+    }
+    auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, const char*, uint64_t, const char*,
+                                        uint32_t)>(gOriginalPfRename);
+    if (fn) {
+        fn(req, parent, name, new_parent, new_name, flags);
     }
 }
 
@@ -3642,8 +3677,8 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
     RefreshCoreHookStatus(module, status);
 }
 
-// These hooks cover reply helpers and libc fallbacks that are useful while validating cache and
-// enumeration behavior against the analyzed device binary.
+// These hooks are functionally required for hidden-path semantics. Only the verbose trace logging
+// inside the wrappers stays gated by kEnableDebugHooks.
 void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fileContext) {
     InstallFileCompareHookIfNeeded(
         fileContext.elfInfo, "fuse_lowlevel_notify_inval_entry", "fuse_lowlevel_notify_inval_entry",
@@ -3700,6 +3735,12 @@ void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fi
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + kDevicePfRmdirOffset),
                                (void*)WrappedPfRmdir, &gOriginalPfRmdir, "hook pf_rmdir failed");
     }
+    if (gOriginalPfRename == nullptr) {
+        // rename follows the same parent-only access pattern as create/delete handlers, so keep an
+        // explicit device RVA fallback for builds that do not expose the local symbol.
+        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + kDevicePfRenameOffset),
+                               (void*)WrappedPfRename, &gOriginalPfRename, "hook pf_rename failed");
+    }
     if (gOriginalPfCreate == nullptr) {
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + kDevicePfCreateOffset),
                                (void*)WrappedPfCreate, &gOriginalPfCreate, "hook pf_create failed");
@@ -3755,6 +3796,11 @@ void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fi
     if (gOriginalPfRmdir == nullptr) {
         TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL8pf_rmdirEP8fuse_reqmPKc",
                                  (void*)WrappedPfRmdir, &gOriginalPfRmdir, "hook pf_rmdir failed");
+    }
+    if (gOriginalPfRename == nullptr) {
+        TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL9pf_renameEP8fuse_reqmPKcmS4_j",
+                                 (void*)WrappedPfRename, &gOriginalPfRename,
+                                 "hook pf_rename failed");
     }
     if (gOriginalPfCreate == nullptr) {
         TryInstallFileInlineHook(
@@ -3842,12 +3888,10 @@ void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) 
     RefreshCoreHookStatus(module, status);
 }
 
-// Advanced debug hooks extend the minimal set with device-specific inline hooks for lookup, create,
-// readdir, and invalidation code paths that are not reliably exposed through imported symbols.
+// Advanced debug hooks extend the functional set with device-specific inline hooks for lookup,
+// create, rename, readdir, and invalidation code paths that are not reliably exposed through
+// imported symbols.
 void InstallAdvancedDebugHooks(const ModuleInfo& module) {
-    if (!kEnableDebugHooks) {
-        return;
-    }
     const bool useRuntimeElf = module.path.find("!/") != std::string::npos;
     if (useRuntimeElf) {
         auto runtimeDyn = ParseRuntimeDynamicInfo(module);
@@ -3916,6 +3960,10 @@ void InstallAdvancedDebugHooks(const ModuleInfo& module) {
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + kDevicePfRmdirOffset),
                                (void*)WrappedPfRmdir, &gOriginalPfRmdir, "hook pf_rmdir failed");
     }
+    if (gOriginalPfRename == nullptr) {
+        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + kDevicePfRenameOffset),
+                               (void*)WrappedPfRename, &gOriginalPfRename, "hook pf_rename failed");
+    }
     if (gOriginalPfCreate == nullptr) {
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + kDevicePfCreateOffset),
                                (void*)WrappedPfCreate, &gOriginalPfCreate, "hook pf_create failed");
@@ -3971,6 +4019,10 @@ void InstallAdvancedDebugHooks(const ModuleInfo& module) {
     if (gOriginalPfRmdir == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL8pf_rmdirEP8fuse_reqmPKc",
                              (void*)WrappedPfRmdir, &gOriginalPfRmdir, "hook pf_rmdir failed");
+    }
+    if (gOriginalPfRename == nullptr) {
+        InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_renameEP8fuse_reqmPKcmS4_j",
+                             (void*)WrappedPfRename, &gOriginalPfRename, "hook pf_rename failed");
     }
     if (gOriginalPfCreate == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_createEP8fuse_reqmPKcjP14fuse_file_info",
@@ -4029,9 +4081,10 @@ void InstallFuseHooks() {
         LogCoreHookStatus("after fallback", coreStatus);
     }
 
-    if (kEnableDebugHooks) {
-        InstallAdvancedDebugHooks(*module);
-    }
+    // Release builds still need these hooks for reply filtering, named target interception, and
+    // cache invalidation. kEnableDebugHooks only suppresses the verbose trace logging inside the
+    // wrappers themselves.
+    InstallAdvancedDebugHooks(*module);
 
     __android_log_print(
         4, kLogTag,
