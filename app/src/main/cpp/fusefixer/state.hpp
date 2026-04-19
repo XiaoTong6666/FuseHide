@@ -297,6 +297,9 @@ extern thread_local uint64_t gCurrentLookupParentInode;
 extern thread_local bool gTrackRootHiddenLookup;
 extern thread_local bool gTrackHiddenSubtreeLookup;
 extern thread_local bool gZeroAttrCacheForCurrentGetattr;
+extern thread_local fuse_req_t gPendingHiddenErrReq;
+extern thread_local uint64_t gPendingHiddenErrReqUnique;
+extern thread_local int gPendingHiddenErrno;
 extern std::mutex gHiddenSubtreeInodesMutex;
 extern std::unordered_set<uint64_t> gHiddenSubtreeInodes;
 
@@ -326,6 +329,9 @@ enum class HiddenNamedTargetKind {
 HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, const char* name);
 bool ReplyHiddenNamedTargetError(fuse_req_t req, const char* opName, HiddenNamedTargetKind kind,
                                  int rootErr, int descendantErr);
+void ArmHiddenErrorRemap(fuse_req_t req, int err, const char* opName);
+int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller);
+void ArmHiddenCreateLeakRemap(fuse_req_t req, const char* opName);
 
 bool IsTrackedHiddenSubtreeInode(uint64_t ino);
 bool TrackHiddenSubtreeInode(uint64_t ino);

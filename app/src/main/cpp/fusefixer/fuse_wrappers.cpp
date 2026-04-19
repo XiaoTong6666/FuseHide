@@ -121,6 +121,7 @@ extern "C" void WrappedPfLookupPostfilter(fuse_req_t req, uint64_t parent, uint3
         if (ReplyErrorBridge::Reply(req, ENOENT, "pf_lookup_postfilter").has_value()) {
             return;
         }
+        ArmHiddenErrorRemap(req, ENOENT, "pf_lookup_postfilter");
     }
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, uint32_t, const char*,
                                         struct fuse_entry_out*, struct fuse_entry_bpf_out*)>(
@@ -245,6 +246,7 @@ extern "C" void WrappedPfRename(fuse_req_t req, uint64_t parent, const char* nam
         if (ReplyErrorBridge::Reply(req, ENOENT, "pf_rename").has_value()) {
             return;
         }
+        ArmHiddenErrorRemap(req, ENOENT, "pf_rename");
     }
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, const char*, uint64_t, const char*,
                                         uint32_t)>(gOriginalPfRename);
@@ -353,6 +355,9 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
     const bool hiddenLookupForUid = HiddenPathPolicy::IsTestHiddenUid(RuntimeState::ReqUid(req)) &&
                                     (gTrackRootHiddenLookup || gTrackHiddenSubtreeLookup);
     if (hiddenLookupForUid) {
+        if (gTrackRootHiddenLookup) {
+            ArmHiddenCreateLeakRemap(req, "fuse_reply_entry");
+        }
         if (auto ret = ReplyErrorBridge::Reply(req, ENOENT, "fuse_reply_entry"); ret.has_value()) {
             DebugLogPrint(4, "hide lookup entry uid=%u req=%lu ino=%s root=%d child=%d ret=%d",
                           static_cast<unsigned>(RuntimeState::ReqUid(req)),
@@ -513,6 +518,7 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
 
 extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
     auto fn = ReplyErrorBridge::Original();
+    err = MaybeRewriteHiddenLeakErrno(req, err, "fuse_reply_err");
     int ret = fn ? fn(req, err) : -1;
     if (gInPfLookupPostfilter) {
         DebugLogPrint(3, "pf_lookup_postfilter fuse_reply_err req=%p %d", req, err);

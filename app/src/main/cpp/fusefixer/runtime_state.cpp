@@ -49,6 +49,9 @@ thread_local uint64_t gCurrentLookupParentInode = 0;
 thread_local bool gTrackRootHiddenLookup = false;
 thread_local bool gTrackHiddenSubtreeLookup = false;
 thread_local bool gZeroAttrCacheForCurrentGetattr = false;
+thread_local fuse_req_t gPendingHiddenErrReq = nullptr;
+thread_local uint64_t gPendingHiddenErrReqUnique = 0;
+thread_local int gPendingHiddenErrno = 0;
 
 namespace ReplyErrorBridge {
 
@@ -101,6 +104,14 @@ std::optional<int> Reply(fuse_req_t req, int err, const char* caller) {
 
 std::mutex gHiddenSubtreeInodesMutex;
 std::unordered_set<uint64_t> gHiddenSubtreeInodes;
+std::mutex gUidErrRemapMutex;
+
+struct UidErrRemapState {
+    int baselineErr = 0;
+    std::chrono::steady_clock::time_point expiresAt{};
+};
+
+std::unordered_map<uint32_t, UidErrRemapState> gUidErrRemapStates;
 
 namespace {
 
@@ -229,7 +240,107 @@ bool ReplyHiddenNamedTargetError(fuse_req_t req, const char* opName, HiddenNamed
     if (ReplyErrorBridge::Reply(req, err, opName).has_value()) {
         return true;
     }
+    ArmHiddenErrorRemap(req, err, opName);
     return false;
+}
+
+namespace {
+
+bool IsExistenceLeakErrno(int err) {
+    switch (err) {
+        case EEXIST:
+        case EISDIR:
+        case ENOTEMPTY:
+        case ENOTDIR:
+            return true;
+        default:
+            return false;
+    }
+}
+
+}  // namespace
+
+void ArmHiddenErrorRemap(fuse_req_t req, int err, const char* opName) {
+    if (req == nullptr || err <= 0) {
+        return;
+    }
+    gPendingHiddenErrReq = req;
+    gPendingHiddenErrReqUnique = req->unique;
+    gPendingHiddenErrno = err;
+    const uint32_t uid = RuntimeState::ReqUid(req);
+    if (uid != 0) {
+        UidErrRemapState state;
+        state.baselineErr = err;
+        state.expiresAt = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        std::lock_guard<std::mutex> lock(gUidErrRemapMutex);
+        gUidErrRemapStates[uid] = state;
+    }
+    DebugLogPrint(4, "%s arm hidden errno remap req=%p unique=%lu baseline=%d", opName, req,
+                  req ? (unsigned long)req->unique : 0UL, err);
+}
+
+void ArmHiddenCreateLeakRemap(fuse_req_t req, const char* opName) {
+    if (req == nullptr) {
+        return;
+    }
+    const uint32_t uid = RuntimeState::ReqUid(req);
+    if (uid == 0 || !HiddenPathPolicy::IsTestHiddenUid(uid)) {
+        return;
+    }
+    UidErrRemapState state;
+    state.baselineErr = EPERM;
+    state.expiresAt = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    std::lock_guard<std::mutex> lock(gUidErrRemapMutex);
+    gUidErrRemapStates[uid] = state;
+    DebugLogPrint(4, "%s arm create leak remap uid=%u baseline=%d", opName,
+                  static_cast<unsigned>(uid), EPERM);
+}
+
+int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller) {
+    if (req == nullptr || gPendingHiddenErrReq != req ||
+        gPendingHiddenErrReqUnique != req->unique || gPendingHiddenErrno <= 0) {
+        return err;
+    }
+
+    const int baselineErr = gPendingHiddenErrno;
+    gPendingHiddenErrReq = nullptr;
+    gPendingHiddenErrReqUnique = 0;
+    gPendingHiddenErrno = 0;
+
+    if (err > 0 && IsExistenceLeakErrno(err) && err != baselineErr) {
+        DebugLogPrint(4, "%s remap leaked errno req=%p unique=%lu from=%d to=%d", caller, req,
+                      (unsigned long)req->unique, err, baselineErr);
+        return baselineErr;
+    }
+
+    if (req == nullptr || err <= 0 || !IsExistenceLeakErrno(err)) {
+        return err;
+    }
+
+    const uint32_t uid = RuntimeState::ReqUid(req);
+    if (uid == 0) {
+        return err;
+    }
+
+    int uidBaselineErr = 0;
+    {
+        std::lock_guard<std::mutex> lock(gUidErrRemapMutex);
+        const auto it = gUidErrRemapStates.find(uid);
+        if (it != gUidErrRemapStates.end()) {
+            if (it->second.expiresAt >= std::chrono::steady_clock::now() &&
+                it->second.baselineErr > 0) {
+                uidBaselineErr = it->second.baselineErr;
+            }
+            gUidErrRemapStates.erase(it);
+        }
+    }
+
+    if (uidBaselineErr > 0 && uidBaselineErr != err) {
+        DebugLogPrint(4, "%s remap leaked errno by uid=%u from=%d to=%d", caller,
+                      static_cast<unsigned>(uid), err, uidBaselineErr);
+        return uidBaselineErr;
+    }
+    return err;
 }
 
 // Device reverse engineering shows make_node_entry() and create_handle_for_node() both consult
