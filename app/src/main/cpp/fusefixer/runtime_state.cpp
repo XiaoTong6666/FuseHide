@@ -102,6 +102,19 @@ std::optional<int> Reply(fuse_req_t req, int err, const char* caller) {
 std::mutex gHiddenSubtreeInodesMutex;
 std::unordered_set<uint64_t> gHiddenSubtreeInodes;
 
+namespace {
+
+bool HasNonAsciiByte(std::string_view value) {
+    for (unsigned char ch : value) {
+        if ((ch & 0x80u) != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
 uint32_t RuntimeState::ReqUid(fuse_req_t req) {
     if (req == nullptr) {
         return 0;
@@ -262,21 +275,43 @@ bool HiddenPathPolicy::IsHiddenRootEntryName(std::string_view name) {
             return true;
         }
     }
+
+    if (!HasNonAsciiByte(name)) {
+        return false;
+    }
+
+    std::string sanitized(name);
+    if (!UnicodePolicy::NeedsSanitization(sanitized)) {
+        return false;
+    }
+    UnicodePolicy::RewriteString(sanitized);
+
+    for (const auto& rootEntryName : kHiddenRootEntryNames) {
+        if (sanitized == rootEntryName) {
+            return true;
+        }
+    }
     return false;
 }
 
 bool HiddenPathPolicy::IsAnyHiddenSubtreePath(std::string_view path) {
     for (const auto& root : kVisibleStorageRoots) {
-        for (const auto& rootEntryName : kHiddenRootEntryNames) {
-            const size_t prefixLen = root.size() + 1 + rootEntryName.size();
-            if (path.size() < prefixLen || path.compare(0, root.size(), root) != 0 ||
-                path[root.size()] != '/' ||
-                path.compare(root.size() + 1, rootEntryName.size(), rootEntryName) != 0) {
-                continue;
-            }
-            if (path.size() == prefixLen || path[prefixLen] == '/') {
-                return true;
-            }
+        if (path.size() <= root.size() || path.compare(0, root.size(), root) != 0 ||
+            path[root.size()] != '/') {
+            continue;
+        }
+
+        const size_t componentStart = root.size() + 1;
+        const size_t slashPos = path.find('/', componentStart);
+        const size_t componentEnd = slashPos == std::string_view::npos ? path.size() : slashPos;
+        if (componentEnd <= componentStart) {
+            continue;
+        }
+
+        const std::string_view rootEntry =
+            path.substr(componentStart, componentEnd - componentStart);
+        if (IsHiddenRootEntryName(rootEntry)) {
+            return true;
         }
     }
     return false;
@@ -284,13 +319,19 @@ bool HiddenPathPolicy::IsAnyHiddenSubtreePath(std::string_view path) {
 
 bool HiddenPathPolicy::IsExactHiddenTargetPath(std::string_view path) {
     for (const auto& root : kVisibleStorageRoots) {
-        for (const auto& rootEntryName : kHiddenRootEntryNames) {
-            const size_t prefixLen = root.size() + 1 + rootEntryName.size();
-            if (path.size() != prefixLen || path.compare(0, root.size(), root) != 0 ||
-                path[root.size()] != '/' ||
-                path.compare(root.size() + 1, rootEntryName.size(), rootEntryName) != 0) {
-                continue;
-            }
+        if (path.size() <= root.size() || path.compare(0, root.size(), root) != 0 ||
+            path[root.size()] != '/') {
+            continue;
+        }
+
+        const size_t componentStart = root.size() + 1;
+        const size_t slashPos = path.find('/', componentStart);
+        if (slashPos != std::string_view::npos) {
+            continue;
+        }
+
+        const std::string_view rootEntry = path.substr(componentStart);
+        if (IsHiddenRootEntryName(rootEntry)) {
             return true;
         }
     }

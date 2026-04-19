@@ -8,7 +8,6 @@ import android.content.IntentFilter
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
-import android.os.Process
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
@@ -436,7 +435,7 @@ class MainActivity : ComponentActivity() {
             .forEach { Log.i("FuseFixer", it) }
     }
 
-    private fun defaultPath(): String = "/storage/emulated/${Process.myUid() / 100000}/Android/\\u200ddata"
+    private fun defaultPath(): String = "/storage/emulated/0/xinhao"
 
     private fun modeLabel(mode: Int): String = when (mode) {
         0 -> "Stat"

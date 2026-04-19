@@ -82,7 +82,10 @@ namespace fusefixer {
 inline constexpr const char* kLogTag = "FuseFixer";
 inline constexpr const char* kTargetLibrary = "libfuse_jni.so";
 inline constexpr std::string_view kVisibleStorageRoots[] = {"/storage/emulated/0"};
-inline constexpr std::string_view kHiddenRootEntryNames[] = {"xinhao"};
+inline constexpr std::string_view kHiddenRootEntryNames[] = {
+    "xinhao",
+    "MT2",
+};
 inline constexpr std::string_view kHiddenPackages[] = {
     "com.eltavine.duckdetector",
     "io.github.xiaotong6666.fusefixer",
