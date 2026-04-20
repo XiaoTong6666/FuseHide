@@ -82,6 +82,14 @@ namespace fusefixer {
 inline constexpr const char* kLogTag = "FuseFixer";
 inline constexpr const char* kTargetLibrary = "libfuse_jni.so";
 inline constexpr std::string_view kVisibleStorageRoots[] = {"/storage/emulated/0"};
+// Optional stress mode: when enabled, treat every first-level entry under kVisibleStorageRoots
+// as hidden for test UIDs. Keep disabled by default to avoid breaking normal app behavior.
+inline constexpr bool kEnableHideAllRootEntries = false;
+// Entries listed here remain visible even when kEnableHideAllRootEntries is enabled.
+// Keeping Android visible avoids breaking /sdcard/Android/data and /sdcard/Android/obb.
+inline constexpr std::string_view kHideAllRootEntriesExemptions[] = {
+    "Android",
+};
 inline constexpr std::string_view kHiddenRootEntryNames[] = {
     "xinhao",
     "MT2",
@@ -172,6 +180,7 @@ extern std::atomic<int> gBpfBackingLogCount;
 extern std::atomic<int> gStrcasecmpLogCount;
 extern std::atomic<int> gEqualsIgnoreCaseLogCount;
 extern std::atomic<int> gReplyErrFallbackLogCount;
+extern std::atomic<int> gErrnoRemapLogCount;
 extern std::atomic<int> gSuspiciousDirectLogCount;
 extern std::mutex gUidHideCacheMutex;
 extern std::unordered_map<uint32_t, bool> gUidHideCache;
@@ -209,6 +218,7 @@ class HiddenPathPolicy final {
    public:
     static bool IsTestHiddenUid(uint32_t uid);
     static bool ShouldHideTestPath(uint32_t uid, std::string_view path);
+    static bool IsConfiguredHiddenRootEntryName(std::string_view name);
     static bool IsHiddenRootEntryName(std::string_view name);
     static bool IsAnyHiddenSubtreePath(std::string_view path);
     static bool IsExactHiddenTargetPath(std::string_view path);
@@ -319,6 +329,7 @@ void ScheduleHiddenEntryInvalidation();
 void ScheduleHiddenInodeInvalidation(uint64_t ino);
 std::string InodePath(uint64_t ino);
 bool IsHiddenLookupTarget(uint32_t uid, uint64_t parent, uint32_t error_in, const char* name);
+bool IsHiddenLookupCacheTarget(uint64_t parent, const char* name);
 
 enum class HiddenNamedTargetKind {
     None,
@@ -336,6 +347,7 @@ void ArmHiddenCreateLeakRemap(fuse_req_t req, const char* opName);
 bool IsTrackedHiddenSubtreeInode(uint64_t ino);
 bool TrackHiddenSubtreeInode(uint64_t ino);
 bool RemoveTrackedHiddenSubtreeInode(uint64_t ino);
+bool IsConfiguredHiddenRootEntryName(std::string_view name);
 bool IsHiddenRootEntryName(std::string_view name);
 bool IsAnyHiddenSubtreePath(std::string_view path);
 bool IsExactHiddenTargetPath(std::string_view path);

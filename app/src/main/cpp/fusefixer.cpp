@@ -18,6 +18,7 @@ std::atomic<int> gBpfBackingLogCount{0};
 std::atomic<int> gStrcasecmpLogCount{0};
 std::atomic<int> gEqualsIgnoreCaseLogCount{0};
 std::atomic<int> gReplyErrFallbackLogCount{0};
+std::atomic<int> gErrnoRemapLogCount{0};
 std::atomic<int> gSuspiciousDirectLogCount{0};
 std::mutex gUidHideCacheMutex;
 std::unordered_map<uint32_t, bool> gUidHideCache;

@@ -7,18 +7,16 @@ namespace fusefixer {
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#851
 extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* name) {
     RuntimeState::RememberFuseSession(req);
-    if (name != nullptr && IsHiddenRootEntryName(name) && parent != 0) {
+    if (name != nullptr && IsConfiguredHiddenRootEntryName(name) && parent != 0) {
         uint64_t expected = 0;
         if (gHiddenRootParentInode.compare_exchange_strong(expected, parent,
                                                            std::memory_order_relaxed)) {
             DebugLogPrint(4, "record hidden root parent=%s", InodePath(parent).c_str());
         }
     }
-    const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
     gInPfLookup = true;
     gCurrentLookupParentInode = parent;
-    gTrackRootHiddenLookup =
-        name != nullptr && IsHiddenRootEntryName(name) && (rootParent == 0 || parent == rootParent);
+    gTrackRootHiddenLookup = IsHiddenLookupCacheTarget(parent, name);
     gTrackHiddenSubtreeLookup = IsTrackedHiddenSubtreeInode(parent);
     DebugLogPrint(3, "lookup: req=%lu parent=%s name=%s", (unsigned long)req->unique,
                   InodePath(parent).c_str(), name ? DebugPreview(name).c_str() : "null");
@@ -561,12 +559,16 @@ extern "C" int WrappedLstat(const char* path, struct stat* st) {
     if (gInPfGetattr && gPfGetattrIno != 0 &&
         HiddenPathPolicy::IsHiddenRootDirectoryPath(pathView)) {
         uint64_t expected = 0;
-        if (gHiddenRootParentInode.compare_exchange_strong(expected, gPfGetattrIno,
-                                                           std::memory_order_relaxed)) {
+        const bool recorded = gHiddenRootParentInode.compare_exchange_strong(
+            expected, gPfGetattrIno, std::memory_order_relaxed);
+        if (recorded) {
             DebugLogPrint(4, "record hidden root parent from getattr=%s path=%s",
                           InodePath(gPfGetattrIno).c_str(), DebugPreview(pathView).c_str());
         }
         RemoveTrackedHiddenSubtreeInode(gPfGetattrIno);
+        if (recorded && kEnableHideAllRootEntries) {
+            RuntimeState::ScheduleHiddenEntryInvalidation();
+        }
     }
     NoteHiddenSubtreePathForCache(pathView);
     if (gInPfGetattr && HiddenPathPolicy::IsTestHiddenUid(gPfGetattrUid)) {
@@ -702,7 +704,13 @@ bool HiddenPathPolicy::IsTestHiddenUid(uint32_t uid) {
 }
 
 bool HiddenPathPolicy::ShouldHideTestPath(uint32_t uid, std::string_view path) {
-    return IsTestHiddenUid(uid) && IsAnyHiddenSubtreePath(path);
+    if (!IsTestHiddenUid(uid)) {
+        return false;
+    }
+    if (IsHiddenRootDirectoryPath(path)) {
+        return false;
+    }
+    return IsAnyHiddenSubtreePath(path);
 }
 
 // Mirror the original app-accessible gate: sanitize only when needed, then delegate.

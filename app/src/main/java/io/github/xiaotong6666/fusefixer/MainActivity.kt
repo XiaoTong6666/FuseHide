@@ -173,12 +173,25 @@ class MainActivity : ComponentActivity() {
         }
 
         startStatusCheck()
+        handleDebugIntent(intent)
+    }
 
-        val debugPath = intent.getStringExtra(EXTRA_DEBUG_PATH)
-        if (!debugPath.isNullOrEmpty()) {
-            pathText = debugPath
-            window.decorView.postDelayed({ runDebugProbe() }, 1500L)
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDebugIntent(intent)
+    }
+
+    private fun handleDebugIntent(intent: Intent?) {
+        val debugPath = intent?.getStringExtra(EXTRA_DEBUG_PATH)
+        if (debugPath.isNullOrEmpty()) {
+            return
         }
+        pathText = debugPath
+        val debugActions = intent.getStringExtra(EXTRA_DEBUG_ACTIONS)
+        Log.d("FuseFixer", "handleDebugIntent path=$debugPath actions=$debugActions")
+        appendOutput("ADB debug intent path=${escapeNonAscii(debugPath)} actions=${debugActions ?: "(default)"}\n")
+        window.decorView.postDelayed({ runDebugProbe() }, 1500L)
     }
 
     private fun runDebugProbe() {
@@ -189,6 +202,7 @@ class MainActivity : ComponentActivity() {
             ?: listOf("stat", "access", "list", "open")
         Log.d("FuseFixer", "runDebugProbe path=$pathText actions=$actions")
         outputText = ""
+        appendOutput("Running debug probe path=${escapeNonAscii(pathText)} actions=${actions.joinToString(",")}\n")
         actions.forEach { action ->
             when (action) {
                 "stat" -> runPathCheck(0)

@@ -124,6 +124,27 @@ bool HasNonAsciiByte(std::string_view value) {
     return false;
 }
 
+bool IsWildcardRootEntryCandidate(std::string_view name) {
+    if (name.empty() || name == "." || name == "..") {
+        return false;
+    }
+    if (name.find('/') != std::string_view::npos) {
+        return false;
+    }
+    for (const auto& exemptEntry : kHideAllRootEntriesExemptions) {
+        if (name == exemptEntry) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool ShouldHideWildcardRootEntryByParent(uint64_t parent, uint64_t rootParent,
+                                         std::string_view name) {
+    return kEnableHideAllRootEntries && rootParent != 0 && parent == rootParent &&
+           IsWildcardRootEntryCandidate(name);
+}
+
 }  // namespace
 
 uint32_t RuntimeState::ReqUid(fuse_req_t req) {
@@ -164,11 +185,31 @@ void RuntimeState::ScheduleHiddenEntryInvalidation() {
     std::thread([notifyEntry, session]() {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
+        std::unordered_set<std::string> namesToInvalidate;
         for (const auto& rootEntryName : kHiddenRootEntryNames) {
-            const int ret =
-                notifyEntry(session, rootParent, rootEntryName.data(), rootEntryName.size());
+            namesToInvalidate.emplace(rootEntryName);
+        }
+
+        if (kEnableHideAllRootEntries) {
+            for (const auto& rootPath : kVisibleStorageRoots) {
+                DIR* dir = opendir(std::string(rootPath).c_str());
+                if (dir == nullptr) {
+                    continue;
+                }
+                while (dirent* entry = readdir(dir)) {
+                    const std::string_view name(entry->d_name);
+                    if (IsWildcardRootEntryCandidate(name)) {
+                        namesToInvalidate.emplace(name);
+                    }
+                }
+                closedir(dir);
+            }
+        }
+
+        for (const auto& name : namesToInvalidate) {
+            const int ret = notifyEntry(session, rootParent, name.c_str(), name.size());
             DebugLogPrint(4, "scheduled hidden entry invalidation parent=0x%lx name=%s ret=%d",
-                          (unsigned long)rootParent, DebugPreview(rootEntryName).c_str(), ret);
+                          (unsigned long)rootParent, DebugPreview(name).c_str(), ret);
         }
         gHiddenEntryInvalidationPending.store(false, std::memory_order_release);
     }).detach();
@@ -203,11 +244,21 @@ std::string InodePath(uint64_t ino) {
 }
 
 bool IsHiddenLookupTarget(uint32_t uid, uint64_t parent, uint32_t error_in, const char* name) {
-    if (!IsTestHiddenUid(uid) || error_in != 0 || name == nullptr || !IsHiddenRootEntryName(name)) {
+    if (!IsTestHiddenUid(uid) || error_in != 0 || name == nullptr) {
+        return false;
+    }
+    return IsHiddenLookupCacheTarget(parent, name);
+}
+
+bool IsHiddenLookupCacheTarget(uint64_t parent, const char* name) {
+    if (name == nullptr) {
         return false;
     }
     const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
-    return rootParent == 0 || parent == rootParent;
+    if (ShouldHideWildcardRootEntryByParent(parent, rootParent, name)) {
+        return true;
+    }
+    return IsConfiguredHiddenRootEntryName(name) && (rootParent == 0 || parent == rootParent);
 }
 
 // Classify the current name-based operation as either the hidden root entry itself or a descendant
@@ -220,10 +271,10 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     if (parent != 0 && parent != rootParent && IsTrackedHiddenSubtreeInode(parent)) {
         return HiddenNamedTargetKind::Descendant;
     }
-    if (!IsHiddenRootEntryName(name)) {
-        return HiddenNamedTargetKind::None;
+    if (ShouldHideWildcardRootEntryByParent(parent, rootParent, name)) {
+        return HiddenNamedTargetKind::Root;
     }
-    if (rootParent == 0 || parent == rootParent) {
+    if (IsConfiguredHiddenRootEntryName(name) && (rootParent == 0 || parent == rootParent)) {
         return HiddenNamedTargetKind::Root;
     }
     return HiddenNamedTargetKind::None;
@@ -256,6 +307,15 @@ bool IsExistenceLeakErrno(int err) {
         default:
             return false;
     }
+}
+
+void LogErrnoRemapEvent(const char* source, fuse_req_t req, uint32_t uid, int fromErr, int toErr) {
+    if (!ShouldLogLimited(gErrnoRemapLogCount, 24)) {
+        return;
+    }
+    __android_log_print(4, kLogTag, "errno remap source=%s req=%p unique=%lu uid=%u from=%d to=%d",
+                        source, req, req ? (unsigned long)req->unique : 0UL,
+                        static_cast<unsigned>(uid), fromErr, toErr);
 }
 
 }  // namespace
@@ -310,6 +370,7 @@ int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller) {
     if (err > 0 && IsExistenceLeakErrno(err) && err != baselineErr) {
         DebugLogPrint(4, "%s remap leaked errno req=%p unique=%lu from=%d to=%d", caller, req,
                       (unsigned long)req->unique, err, baselineErr);
+        LogErrnoRemapEvent("req", req, RuntimeState::ReqUid(req), err, baselineErr);
         return baselineErr;
     }
 
@@ -338,6 +399,7 @@ int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller) {
     if (uidBaselineErr > 0 && uidBaselineErr != err) {
         DebugLogPrint(4, "%s remap leaked errno by uid=%u from=%d to=%d", caller,
                       static_cast<unsigned>(uid), err, uidBaselineErr);
+        LogErrnoRemapEvent("uid", req, uid, err, uidBaselineErr);
         return uidBaselineErr;
     }
     return err;
@@ -380,7 +442,7 @@ bool RemoveTrackedHiddenSubtreeInode(uint64_t ino) {
     return gHiddenSubtreeInodes.erase(ino) != 0;
 }
 
-bool HiddenPathPolicy::IsHiddenRootEntryName(std::string_view name) {
+bool HiddenPathPolicy::IsConfiguredHiddenRootEntryName(std::string_view name) {
     for (const auto& rootEntryName : kHiddenRootEntryNames) {
         if (name == rootEntryName) {
             return true;
@@ -403,6 +465,11 @@ bool HiddenPathPolicy::IsHiddenRootEntryName(std::string_view name) {
         }
     }
     return false;
+}
+
+bool HiddenPathPolicy::IsHiddenRootEntryName(std::string_view name) {
+    return IsConfiguredHiddenRootEntryName(name) ||
+           (kEnableHideAllRootEntries && IsWildcardRootEntryCandidate(name));
 }
 
 bool HiddenPathPolicy::IsAnyHiddenSubtreePath(std::string_view path) {
@@ -592,6 +659,10 @@ void NoteHiddenSubtreePathForCache(std::string_view path) {
             RuntimeState::ScheduleHiddenInodeInvalidation(gPfGetattrIno);
         }
     }
+}
+
+bool IsConfiguredHiddenRootEntryName(std::string_view name) {
+    return HiddenPathPolicy::IsConfiguredHiddenRootEntryName(name);
 }
 
 bool IsHiddenRootEntryName(std::string_view name) {
