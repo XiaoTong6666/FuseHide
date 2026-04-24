@@ -1,86 +1,275 @@
-# FuseFixer
+# FuseHide
 
 ## 简介
 
-FuseFixer 是一个面向 Android 12+ 的 LSPosed 模块与调试工具，用于在 `MediaProvider` 进程内注入 native hook，修复可忽略码点（如零宽空格/零宽连字符）导致的 `/sdcard/Android/{data,obb}/$package` 访问绕过问题，并提供简易自测界面。
+FuseHide 是一个面向 Android 12+ 的 LSPosed/Xposed 模块与 MediaProvider/FUSE 调试工具。
 
-作用域为 `com.android.providers.media.module` / `com.google.android.providers.media.module`，重启作用域进程后生效。
+当前实现会在 `MediaProvider` 进程中加载 `libfusehide.so`，并在 `libfuse_jni.so` 加载后安装 native hook，用于按运行时配置对指定应用隐藏 `/storage/emulated/0`（`/sdcard`）下的普通路径，同时保留对 `Android/data`、`Android/obb` 相关 Unicode 场景的调试与修复逻辑。
 
-#### 模块工作流：
+当前版本同时包含 `/storage/emulated/0/Android/{data,obb}` 可忽略码点绕过修复与运行时可配置的普通路径隐藏策略：
 
-1. LSPosed 通过 `xposed_init` 加载 `Entry`。
-2. 当目标进程命中 MediaProvider 包名时，加载 `libfusefixer.so`。
-3. native 层定位 `libfuse_jni.so` 关键符号并安装 hook。
-4. App 侧通过广播握手确认 hook 状态，并在 UI 中执行路径调试动作。
+- 对指定包名对应的 UID 生效。
+- 支持隐藏 `/storage/emulated/0` 下的一级目录名，例如默认的 `xinhao`、`MT2`。
+- 支持配置相对路径隐藏，例如 `Download/private` 这类嵌套目录。
+- 支持“隐藏所有一级目录”的压力测试模式，并允许配置例外项。
+- 支持在应用侧编辑配置，并将配置热同步到已注入的 MediaProvider 进程。
 
-#### 主要能力：
+默认作用域为：
 
-- LSPosed 模块入口与作用域声明（MediaProvider 双包名）。
-- Native hook 注入与状态广播确认。
-- Path 调试按钮：`Stat` / `Access` / `List` / `Open` / `Get Con`。
-- Unicode 辅助能力：支持 `\\uXXXX` 输入与 `ZWJ` 插入。
-- `StructStat` 格式化输出（权限、inode、device、uid/gid）。
-- `.gnu_debugdata` 的 XZ 解压与符号解析（含 APK 嵌套 ELF 映射场景）。
+- `com.android.providers.media.module`
+- `com.google.android.providers.media.module`
 
-#### 生效条件：
+启用模块后，需要重启 MediaProvider 作用域进程或重启设备。
 
-- 如果内核支持 fuse bpf（`getprop ro.fuse.bpf.is_running` 为 `1`），模块可直接生效。
-- 如果内核不支持 fuse bpf（`getprop ro.fuse.bpf.is_running` 为 `0`），需要配合 vold app data 隔离才有效。
-- vold app data 隔离可通过 HMA 开启，或执行 `setprop persist.sys.vold_app_data_isolation_enabled 1`。
-- 应用界面会显示 fuse bpf 与 app data isolation 当前状态，便于确认环境。
+## 工作原理
 
-#### 说明：
+### 模块加载流程
 
-1. fuse bpf 在较低版本内核（常见如 Android 12 的 5.10 及以下）通常不支持，较高版本一般支持，但仍取决于厂商是否启用相关选项。
-2. 如果已确认 fuse bpf 启用，则无需再开启 vold app data 隔离。
+1. LSPosed 通过 `assets/xposed_init` 加载 `io.github.xiaotong6666.fusehide.Entry`。
+2. `Entry` 在 `handleLoadPackage()` 中仅对 MediaProvider 包名生效。
+3. 命中作用域后，`Entry` 直接在目标进程中执行 `System.loadLibrary("fusehide")`。
+4. native 层通过 `assets/native_init` 暴露 `native_init()`，向宿主返回 `PostNativeInit` 回调。
+5. `PostNativeInit()` 在检测到 `libfuse_jni.so` 被加载后调用 `InstallFuseHooks()`。
+6. Java 层与注入进程通过广播、`HideConfigProvider`、`HideConfigRequestReceiver` 同步状态与隐藏配置。
 
-## 使用与自测
+### 普通路径隐藏说明
 
-#### 发布地址：
+普通路径隐藏并不依赖 fuse-bpf。
 
-- https://github.com/XiaoTong6666/FuseFixer/releases
+FuseHide 对 `/storage/emulated/0` 下普通目录的隐藏，是直接在 MediaProvider 的 FUSE 处理链路中完成的：
 
-#### 安装与使用：
+- `WrappedIsAppAccessiblePath()` 在路径访问判断处按 UID 与路径策略拒绝隐藏目标。
+- `WrappedReplyEntry()` 在隐藏目标 lookup 命中后，优先通过 `fuse_reply_err(ENOENT)` 把 positive lookup 改成不存在。
+- `WrappedReplyBuf()` 作为目录枚举最终出口，识别多种 FUSE reply payload 形式并过滤隐藏项。
+- `WrappedShouldNotCache()` 对隐藏子树强制返回 `true`，避免 positive dentry/file-cache 被跨 UID 复用。
+- `WrappedReplyAttr()` 在当前 `getattr` 命中隐藏子树时把 attr cache timeout 置 0。
+- `ScheduleHiddenEntryInvalidation()`、`ScheduleSpecificEntryInvalidation()`、`ScheduleHiddenInodeInvalidation()` 主动压掉 entry 与 inode cache，减少 positive cache 复活导致的泄漏。
+
+因此，对普通路径隐藏而言，核心依赖是 `libfuse_jni.so` 内部 FUSE handler 与 reply 链路的 hook，而不是内核是否启用了 fuse-bpf。
+
+项目保留了 `is_bpf_backing_path` 相关 hook。该部分用于 `Android/data`、`Android/obb` 这类特殊 pass-through / backing 路径场景的 Unicode 相关处理；这与普通路径隐藏不是同一条依赖链路。
+
+### Android/data 场景说明
+
+`/storage/emulated/0/Android/data` 与 `/storage/emulated/0/Android/obb` 不属于本项目用于普通目录隐藏的目录枚举过滤链路。
+
+MediaProvider 对这两类路径使用单独的访问控制路径。当前仓库中可直接对应的证据包括：
+
+- Java 调试层会在可调试构建中 hook 并记录 `MediaProvider.isUidAllowedAccessToDataOrObbPathForFuse()` 的返回值。
+- native 层保留了 `is_bpf_backing_path`、`is_package_owned_path`、`EqualsIgnoreCase` 相关 hook 安装逻辑。
+- 上游 MediaProvider/FuseDaemon 实现对 `Android/data`、`Android/obb` 使用 backing path 判定与后续专用处理，而不是普通公共目录的通用目录过滤路径。
+
+本项目在这部分的处理是修复特殊路径判断中的 Unicode 可忽略码点绕过，并保持 `Android/data`、`Android/obb` 的访问判定落入 MediaProvider 的专用访问控制路径。
+
+当前应用界面会展示这些系统属性：
+
+- `ro.fuse.bpf.is_running`
+- `persist.sys.vold_app_data_isolation_enabled`
+- `external_storage.sdcardfs.enabled`
+
+当前代码中的界面提示逻辑是：当 `ro.fuse.bpf.is_running=false` 且 `persist.sys.vold_app_data_isolation_enabled=false` 时，界面显示 `App data isolation is required to fix Android/data access.`，并显示 `setprop persist.sys.vold_app_data_isolation_enabled 1`。
+
+这部分内容对应的是当前应用的诊断输出与调试提示。
+
+## 当前主要能力
+
+### 运行时隐藏配置
+
+配置项包括：
+
+- `enableHideAllRootEntries`：隐藏 `/storage/emulated/0` 下所有一级目录，默认关闭。
+- `hideAllRootEntriesExemptions`：隐藏所有一级目录时的例外项，默认保留 `Android` 可见。
+- `hiddenRootEntryNames`：要隐藏的一级目录名，默认包括 `xinhao`、`MT2`。
+- `hiddenRelativePaths`：要隐藏的相对路径，默认为空，适合嵌套目标，例如 `Download/private`。
+- `hiddenPackages`：对哪些包名对应的 UID 生效，当前默认包括：
+  `com.eltavine.duckdetector`、`io.github.xiaotong6666.fusehide`、`io.github.a13e300.fusehide`。
+
+默认值来自 native 层的 `HideConfigNativeBridge`，Java/Kotlin 层通过 `HideConfigDefaults` 读取。
+
+配置保存后可通过广播热加载到 MediaProvider。注入进程优先通过 `HideConfigProvider` 读取配置；如果 provider 暂不可用，则通过 `HideConfigRequestReceiver` 请求配置。当前请求超时为 3 秒。注入进程还会在以下系统阶段触发配置重试：
+
+- `Intent.ACTION_LOCKED_BOOT_COMPLETED`
+- `Intent.ACTION_BOOT_COMPLETED`
+- `Intent.ACTION_USER_UNLOCKED`
+
+### Hook 覆盖范围
+
+native 层会尝试覆盖以下链路：
+
+- 路径访问判断：`is_app_accessible_path`
+- Android/data backing 判断：`is_bpf_backing_path`
+- 包路径判断：`is_package_owned_path`
+- 字符串比较：`strcasecmp`、`EqualsIgnoreCase`
+- lookup：`pf_lookup`、`pf_lookup_postfilter`、`fuse_reply_entry`
+- getattr：`pf_getattr`、`fuse_reply_attr`
+- 目录枚举：`pf_readdir`、`pf_readdirplus`、`pf_readdir_postfilter`、`do_readdir_common`、`GetDirectoryEntries`、`addDirectoryEntriesFromLowerFs`、`fuse_reply_buf`
+- 创建、删除与重命名：`pf_mkdir`、`pf_mknod`、`pf_create`、`pf_unlink`、`pf_rmdir`、`pf_rename`
+- lower-fs 兜底：`stat`、`lstat`、`getxattr`、`lgetxattr`、`mkdir`、`mknod`、`open`、`__open_2`
+- 缓存控制与失效：`ShouldNotCache`、`fuse_lowlevel_notify_inval_entry`、`fuse_lowlevel_notify_inval_inode`
+- 错误码修正：`fuse_reply_err`
+
+这些 hook 先通过符号、`.gnu_debugdata`、重定位槽和布局推导解析；解析不足时再回退到设备 profile offset。
+
+### 目录枚举过滤
+
+目录隐藏不是只拦单个 lookup。FuseHide 会在多个层级过滤目录项：
+
+1. `GetDirectoryEntries()` 返回的 native vector。
+2. `addDirectoryEntriesFromLowerFs()` 追加的 lower-fs 目录项。
+3. `pf_readdir` / `pf_readdirplus` / `pf_readdir_postfilter` 的上下文记录。
+4. `WrappedReplyBuf()` 中的最终 FUSE wire payload。
+
+`WrappedReplyBuf()` 是最后一层过滤点。它会结合 pending readdir context、inode-path cache、最近可见父目录路径等信息过滤隐藏项。
+
+### 缓存与错误码泄漏处理
+
+为了避免“路径已经隐藏，但缓存或错误码仍然暴露目标存在”，native 层还处理了：
+
+- hidden subtree inode 跟踪。
+- inode 到 path 的缓存。
+- 最近隐藏父路径记录，用于嵌套相对路径的 fallback 过滤。
+- hidden lookup 命中后的 entry/inode invalidation。
+- hidden getattr 的 attr timeout 置 0。
+- hidden entry 的 entry timeout / attr timeout 置 0。
+- `EEXIST`、`EISDIR`、`ENOTEMPTY`、`ENOTDIR` 等存在性错误码 remap。
+- create / mkdir / rename / unlink / rmdir 路径中的隐藏目标短路。
+
+## 使用方法
+
+### 安装
 
 1. 安装 APK。
-2. 在 LSPosed 中启用 FuseFixer 模块。
-3. 勾选作用域：`com.android.providers.media.module`、`com.google.android.providers.media.module`。
-4. 重启作用域进程或重启设备。
-5. 打开 App，确认 `Module status` 已显示 hooked；可点击状态行触发重新检查。
-6. 在路径输入框执行 `Stat/Access/List/Open/Get Con` 进行验证。
+2. 在 LSPosed 中启用 FuseHide。
+3. 勾选作用域：
+   - `com.android.providers.media.module`
+   - `com.google.android.providers.media.module`
+4. 重启 MediaProvider 作用域进程，或直接重启设备。
+5. 打开 FuseHide，确认 Hook 状态显示已 Hook。
 
-#### 自测说明：
+### 配置隐藏策略
 
-1. 自测界面包含路径输入框、操作按钮和结果输出。默认路径是当前用户的 `/storage/emulated/$userId/Android/\u200ddata`（默认带一个 ZWJ）。
-2. 按钮说明：`Stat` / `Access` / `List` / `Open` / `Get Con` 会对当前路径执行对应文件系统操作并追加输出；`Clear` 清空输出；`Reset` 恢复默认路径；`Insert ZWJ` 会在输入框末尾追加 `\u200d`；`Copy All` 复制全部结果；`Self Data` 输出当前应用的 `external files dir`。
-3. 测试 `/storage/emulated/$userId/Android/data` 的 `List`：返回 `None` 表示 `list` 失败或不可列；可列时会显示数量和文件列表。该路径一般可 `Stat` / `Access`，通常无需重点测这两项。
-4. 测试 `/storage/emulated/$userId/Android/data/$pkg` 的 `Access` / `Stat` / `Open`：返回 `OK` 或 `EACCES` 通常表示目录存在（包存在）；返回 `ENOENT` 表示目录不存在；其他错误可能与 ROM/内核改动有关。
-5. 请将 `$userId` 替换为实际用户 ID（主用户通常为 `0`），`$pkg` 替换为待测包名。
-6. 可在 `/storage/emulated/$userId/` 之后任意位置插入 ZWJ 或其他零宽字符（ZWC）验证绕过修复。支持直接输入 Unicode 转义 `\uXXXX`（仅该形式会被自动解码；`$'\uXXXX'`、`\xXX` 不会自动转义）。
-7. 输出中的路径会把非 ASCII 可打印字符转义为 `\uXXXX` 形式，便于比对日志。
-8. 自测功能在模块启用前后都可使用：启用后预期是“带 ZWC 的路径访问结果”与“移除所有 ZWC 后路径访问结果”一致；未启用时可用于观察系统原始行为。
+在“配置”页面可以编辑：
 
-#### 构建：
+- 是否隐藏所有一级目录。
+- 一级目录例外。
+- 隐藏目标。
+- 隐藏包名。
+
+“隐藏目标”每行一条：
+
+```text
+xinhao
+MT2
+Download/private
+```
+
+当前应用中的解析规则如下：
+
+- 不含 `/` 的值会作为一级目录名处理，进入 `hiddenRootEntryNames`。
+- 含 `/` 的值会作为相对路径处理，进入 `hiddenRelativePaths`。
+- 路径前后的 `/` 会被规范化。
+- 隐藏策略只对 `hiddenPackages` 中包名对应的 UID 生效。
+
+按钮说明：
+
+- “保存”：只保存到 FuseHide 应用本地配置。
+- “应用”：保存并向 MediaProvider 作用域广播重新加载配置。
+- “刷新已应用配置”：从已注入的 MediaProvider 进程读取当前 native 配置快照。
+- “恢复默认值”：恢复源码内置默认隐藏配置到编辑器。
+
+### 路径检测
+
+“检测”页面提供直接文件系统测试：
+
+- `Stat`
+- `Access`
+- `List`
+- `Open`
+- `Get Con`
+- `Create`
+- `Mkdir`
+- `Rename/Move`
+- `Rmdir`
+- `Unlink`
+- `All PKG`
+- `Self Data`
+- `Insert ZWJ`
+
+路径输入支持 `\uXXXX` 形式的 Unicode 转义。输出会把非 ASCII 字符转成 `\uXXXX`，便于和 logcat 对照。
+
+### 建议验证方式
+
+以默认配置为例，目标应用包名命中 `hiddenPackages` 后：
+
+1. 在 `/storage/emulated/0` 下创建 `xinhao` 或 `MT2`。
+2. 在目标应用上下文中访问该路径。
+3. 预期：
+   - `lookup/stat/access/open` 类操作表现为不存在或不可访问。
+   - `list /storage/emulated/0` 不应列出隐藏目录项。
+   - 重复访问后不应因为 dentry / inode cache 恢复可见。
+4. 对嵌套路径，例如 `Download/private`：
+   - 父目录 `Download` 应保持可见。
+   - `Download` 的目录枚举中应过滤 `private`。
+   - 直接访问 `Download/private` 应被隐藏。
+
+## 构建
 
 ```bash
 ./gradlew assembleDebug assembleRelease
 ```
 
-## 其他
+构建要求以当前 Gradle 配置为准。当前仓库使用的关键版本包括：
 
-#### 许可证：
+- Gradle Wrapper `9.4.1`
+- Android Gradle Plugin 9 系列
+- JDK 17+
+- Android SDK / NDK / CMake
+
+仓库中的 GitHub Actions 工作流会构建 debug 与 release APK，并上传 artifact；在主分支发布流程中还会创建 GitHub Release。
+
+## 兼容性与限制
+
+- 模块依赖 LSPosed 向 MediaProvider 进程注入代码。
+- Hook 目标是设备上的 `libfuse_jni.so`，不同 Android 版本、ROM、厂商构建可能存在差异。
+- 项目先通过符号、`.gnu_debugdata`、重定位槽和布局推导解析 hook 位置；解析不足时回退到设备 profile offset。
+- 设备 profile fallback 依赖目标设备 `libfuse_jni.so` 的实际布局；当布局不匹配时，MediaProvider 进程可能异常。
+- 普通路径隐藏不要求 fuse-bpf，但 `Android/data`、`Android/obb` 这类特殊路径仍与系统隔离机制有关。
+- 当前隐藏根只覆盖源码中配置的可见存储根 `/storage/emulated/0`。
+- 本项目用于调试、兼容性研究与个人设备实验；“隐藏所有一级目录”等配置应在验证后使用。
+
+## 日志与排错
+
+建议过滤：
+
+```bash
+adb logcat -s FuseHide
+```
+
+反馈问题时建议提供：
+
+- 设备型号
+- Android 版本 / ROM 版本
+- Kernel 版本
+- MediaProvider APK 或版本信息
+- `ro.fuse.bpf.is_running`
+- `persist.sys.vold_app_data_isolation_enabled`
+- 目标路径与目标包名
+- FuseHide 配置截图或配置文本
+- 关键 logcat
+
+## 发布地址
+
+- https://github.com/XiaoTong6666/FuseHide/releases
+
+## 许可证
 
 - `app/src/main/cpp/third_party/xz-embedded/*` 来自 xz-embedded，文件头声明 `SPDX-License-Identifier: 0BSD`。
-- 本仓库整体采用 MIT License（见 `LICENSE`）。
+- 本仓库整体采用 MIT License，详见 `LICENSE`。
 
-#### 问题反馈：
-
-- 提交 Issue 时建议附上：设备型号、Android 版本、ROM、`MediaProvider` 的 Apk、复现路径、关键 logcat。
-
-#### 致谢：
+## 致谢
 
 特别感谢 5ec1cff 佬提供的原型模块作为参考以及技术指导支持，谢谢喵。
 
-#### 免责声明：
+## 免责声明
 
-本项目用于学习、调试与兼容性研究。请仅在你有权限的设备与环境中使用，并自行承担相关风险。
+本项目仅用于学习、调试、兼容性研究与个人设备实验。请仅在你有权限的设备与环境中使用，并自行承担相关风险。
