@@ -96,7 +96,12 @@ public class Entry implements IXposedHookLoadPackage {
                 message = "reload token mismatch";
             } else {
                 applied = HideConfigStore.applyBundleToNative(bundle);
-                message = applied ? "hide config applied" : "apply failed";
+                if (applied) {
+                    HideConfigStore.saveInjectedProcessSnapshot(application, config, bundleToken);
+                    message = "hide config applied";
+                } else {
+                    message = "apply failed";
+                }
             }
             sendConfigStatus(application, requestedToken, applied, message);
             Log.d(
