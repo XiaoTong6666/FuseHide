@@ -48,6 +48,7 @@ object HideConfigStore {
     const val EXTRA_REPLY_PACKAGE: String = "reply_package"
     const val EXTRA_REPLY_ACTION: String = "reply_action"
     private const val PREFS_NAME = "hide_config"
+    private const val SNAPSHOT_PREFS_NAME = "hide_config_snapshot"
     private const val METHOD_GET_HIDE_CONFIG = "get_hide_config"
     private const val AUTHORITY = "io.github.xiaotong6666.fusehide.hideconfig"
     private const val KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES = "enable_hide_all_root_entries"
@@ -59,6 +60,14 @@ object HideConfigStore {
     private const val REQUEST_TIMEOUT_MS = 3000L
 
     private val providerUri: Uri = Uri.parse("content://$AUTHORITY")
+
+    private fun snapshotContext(context: Context): Context = if (Build.VERSION.SDK_INT >= 24) context.createDeviceProtectedStorageContext() else context
+
+    private fun hasStoredConfig(prefs: android.content.SharedPreferences): Boolean = prefs.contains(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES) ||
+        prefs.contains(KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS) ||
+        prefs.contains(KEY_HIDDEN_ROOT_ENTRY_NAMES) ||
+        prefs.contains(KEY_HIDDEN_RELATIVE_PATHS) ||
+        prefs.contains(KEY_HIDDEN_PACKAGES)
 
     fun interface ConfigBundleCallback {
         fun onBundle(bundle: Bundle?)
@@ -120,6 +129,67 @@ object HideConfigStore {
             .putString(KEY_HIDDEN_PACKAGES, encodeList(config.hiddenPackages))
             .putString(KEY_RELOAD_TOKEN, reloadToken)
             .apply()
+    }
+
+    @JvmStatic
+    fun saveInjectedProcessSnapshot(context: Context, config: HideConfig, reloadToken: String?) {
+        val snapshotContext = snapshotContext(context)
+        snapshotContext.getSharedPreferences(SNAPSHOT_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES, config.enableHideAllRootEntries)
+            .putString(
+                KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
+                encodeList(config.hideAllRootEntriesExemptions),
+            )
+            .putString(KEY_HIDDEN_ROOT_ENTRY_NAMES, encodeList(config.hiddenRootEntryNames))
+            .putString(KEY_HIDDEN_RELATIVE_PATHS, encodeList(config.hiddenRelativePaths))
+            .putString(KEY_HIDDEN_PACKAGES, encodeList(config.hiddenPackages))
+            .putString(KEY_RELOAD_TOKEN, reloadToken)
+            .apply()
+    }
+
+    @JvmStatic
+    fun loadInjectedProcessSnapshotBundle(context: Context): Bundle? {
+        val snapshotContext = snapshotContext(context)
+        val prefs = snapshotContext.getSharedPreferences(SNAPSHOT_PREFS_NAME, Context.MODE_PRIVATE)
+        if (!hasStoredConfig(prefs)) {
+            return null
+        }
+        val defaults = HideConfigDefaults.value
+        return toBundle(
+            HideConfig(
+                enableHideAllRootEntries = prefs.getBoolean(
+                    KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES,
+                    defaults.enableHideAllRootEntries,
+                ),
+                hideAllRootEntriesExemptions = parseStoredList(
+                    prefs.getString(
+                        KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
+                        encodeList(defaults.hideAllRootEntriesExemptions),
+                    ),
+                ),
+                hiddenRootEntryNames = parseStoredList(
+                    prefs.getString(
+                        KEY_HIDDEN_ROOT_ENTRY_NAMES,
+                        encodeList(defaults.hiddenRootEntryNames),
+                    ),
+                ),
+                hiddenRelativePaths = parseStoredList(
+                    prefs.getString(
+                        KEY_HIDDEN_RELATIVE_PATHS,
+                        encodeList(defaults.hiddenRelativePaths),
+                    ),
+                ),
+                hiddenPackages = parseStoredList(
+                    prefs.getString(
+                        KEY_HIDDEN_PACKAGES,
+                        encodeList(defaults.hiddenPackages),
+                    ),
+                ),
+            ),
+        ).apply {
+            putString(KEY_RELOAD_TOKEN, prefs.getString(KEY_RELOAD_TOKEN, null))
+        }
     }
 
     @JvmStatic
@@ -236,13 +306,23 @@ object HideConfigStore {
 
     @JvmStatic
     fun reloadInjectedProcessConfig(context: Context, callback: ReloadConfigCallback?): Boolean {
+        val localSnapshotBundle = loadInjectedProcessSnapshotBundle(context)
+        if (applyBundleToNative(localSnapshotBundle)) {
+            Log.d("FuseHide", "initial config loaded from media snapshot")
+            callback?.onResult(true)
+            return true
+        }
         val providerBundle = loadViaProviderBundle(context)
         if (applyBundleToNative(providerBundle)) {
+            fromBundle(providerBundle)?.let { saveInjectedProcessSnapshot(context, it, reloadTokenFromBundle(providerBundle)) }
             callback?.onResult(true)
             return true
         }
         requestInjectedProcessConfigBundle(context) { bundle ->
             val applied = applyBundleToNative(bundle)
+            if (applied) {
+                fromBundle(bundle)?.let { saveInjectedProcessSnapshot(context, it, reloadTokenFromBundle(bundle)) }
+            }
             Log.d("FuseHide", "initial config fallback applied=$applied")
             callback?.onResult(applied)
         }
