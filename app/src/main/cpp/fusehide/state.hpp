@@ -102,12 +102,7 @@ inline constexpr bool kEnableHideAllRootEntries = false;
 // Entries listed here remain visible even when kEnableHideAllRootEntries is enabled.
 // Keeping Android visible avoids breaking /sdcard/Android/data and /sdcard/Android/obb.
 inline constexpr std::string_view kHideAllRootEntriesExemptions[] = {
-    "Android",
-    "DCIM",
-    "Document",
-    "Download",
-    "Movies",
-    "Pictures",
+    "Android", "DCIM", "Document", "Download", "Movies", "Pictures",
 };
 inline constexpr std::string_view kHiddenRootEntryNames[] = {
     "xinhao",

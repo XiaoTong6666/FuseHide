@@ -30,6 +30,7 @@ import android.system.Os
 import android.system.OsConstants
 import android.system.StructUtsname
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -59,33 +60,31 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.platform.LocalView
-import android.view.HapticFeedbackConstants
-
 import io.github.xiaotong6666.fusehide.ui.theme.fuseHideTheme
 import kotlinx.coroutines.launch
-
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Checkbox
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-
 import java.io.File
 import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
@@ -94,8 +93,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 
 private data class HideConfigDiff(
     val hasDifferences: Boolean,
@@ -107,7 +104,7 @@ private data class HideConfigDiff(
 private data class GridActionItem(
     val label: String,
     val action: () -> Unit,
-    val isError: Boolean = false
+    val isError: Boolean = false,
 )
 class MainActivity : ComponentActivity() {
     companion object {
@@ -1044,7 +1041,10 @@ private fun configScreen(
             )
             Spacer(Modifier.height(12.dp))
             Card(
-                onClick = { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onEnableHideAllRootEntriesChanged(!enableHideAllRootEntries) },
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onEnableHideAllRootEntriesChanged(!enableHideAllRootEntries)
+                },
                 colors = CardDefaults.defaultColors(
                     color = MiuixTheme.colorScheme.surfaceContainerHighest,
                     contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
@@ -1060,7 +1060,10 @@ private fun configScreen(
                 ) {
                     Checkbox(
                         state = if (enableHideAllRootEntries) ToggleableState.On else ToggleableState.Off,
-                        onClick = { view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK); onEnableHideAllRootEntriesChanged(!enableHideAllRootEntries) },
+                        onClick = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            onEnableHideAllRootEntriesChanged(!enableHideAllRootEntries)
+                        },
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(stringResource(R.string.field_hide_all_title), style = MiuixTheme.textStyles.headline2)
@@ -1227,7 +1230,8 @@ private fun configScreen(
                     text = if (showAppliedSnapshot) stringResource(R.string.button_hide) else stringResource(R.string.button_show),
                     onClick = {
                         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        showAppliedSnapshot = !showAppliedSnapshot },
+                        showAppliedSnapshot = !showAppliedSnapshot
+                    },
                 )
             }
             if (showAppliedSnapshot) {
@@ -1498,7 +1502,7 @@ private fun actionGrid(actions: List<GridActionItem>) {
                         overflow = TextOverflow.Ellipsis,
                         textAlign = TextAlign.Center,
                         color = if (item.isError) MiuixTheme.colorScheme.onError else androidx.compose.ui.graphics.Color.Unspecified,
-                        style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium)
+                        style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium),
                     )
                 }
             }
@@ -1730,9 +1734,9 @@ private fun monospaceBlock(text: String, modifier: Modifier = Modifier) {
 }
 
 // For Android Studio preview compose interface.
-@Preview(showBackground = true, device = "id:pixel_9_pro",heightDp = 1890)
+@Preview(showBackground = true, device = "id:pixel_9_pro", heightDp = 1890)
 @Composable
-private fun PreviewFuseFixerHomeScreen() {
+private fun previewFuseFixerHomeScreen() {
     io.github.xiaotong6666.fusehide.ui.theme.fuseHideTheme {
         fuseFixerHomeScreen(
             selectedTab = 0, // 0 预览配置页，改成 1 预览测试页
@@ -1750,7 +1754,7 @@ private fun PreviewFuseFixerHomeScreen() {
             draftVsAppliedDiff = HideConfigDiff(
                 hasDifferences = false,
                 summary = "None",
-                details = ""
+                details = "",
             ),
             appliedConfigSnapshotText = "Current native config snapshot...",
             highlightConfigResults = false,
@@ -1789,7 +1793,7 @@ private fun PreviewFuseFixerHomeScreen() {
             onClearClick = {},
             onResetClick = {},
             onCopyAllClick = {},
-            onSelfDataClick = {}
+            onSelfDataClick = {},
         )
     }
 }
