@@ -255,7 +255,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             fuseHideTheme {
-                fuseFixerHomeScreen(
+                fuseHideHomeScreen(
                     selectedTab = selectedTab,
                     onTabSelected = { selectedTab = it },
                     infoText = infoText,
@@ -756,7 +756,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun fuseFixerHomeScreen(
+private fun fuseHideHomeScreen(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
     infoText: String,
@@ -1736,9 +1736,9 @@ private fun monospaceBlock(text: String, modifier: Modifier = Modifier) {
 // For Android Studio preview compose interface.
 @Preview(showBackground = true, device = "id:pixel_9_pro", heightDp = 1890)
 @Composable
-private fun previewFuseFixerHomeScreen() {
+private fun previewFuseHideHomeScreen() {
     io.github.xiaotong6666.fusehide.ui.theme.fuseHideTheme {
-        fuseFixerHomeScreen(
+        fuseHideHomeScreen(
             selectedTab = 0, // 0 预览配置页，改成 1 预览测试页
             onTabSelected = {},
             infoText = "Kernel: 6.1.118\nDevice: Fuxi\nSDK: 3600000",
