@@ -17,6 +17,7 @@
 package io.github.xiaotong6666.fusehide
 
 import android.content.Context
+import io.github.xiaotong6666.fusehide.ui.HideConfigDiff
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.github.xiaotong6666.fusehide
+package io.github.xiaotong6666.fusehide.ui
 
 data class HideConfigDiff(
     val hasDifferences: Boolean,

@@ -33,6 +33,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import io.github.xiaotong6666.fusehide.ui.ConfigCallbacks
+import io.github.xiaotong6666.fusehide.ui.ConfigUiState
+import io.github.xiaotong6666.fusehide.ui.DebugCallbacks
+import io.github.xiaotong6666.fusehide.ui.DebugUiState
+import io.github.xiaotong6666.fusehide.ui.FuseHideHomeScreen
+import io.github.xiaotong6666.fusehide.ui.HookStatusUiState
 import io.github.xiaotong6666.fusehide.ui.theme.fuseHideTheme
 import java.lang.ref.WeakReference
 import java.util.UUID
