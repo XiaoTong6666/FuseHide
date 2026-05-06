@@ -7,8 +7,11 @@ add_library(
     SHARED
     fusehide.cpp
     fusehide/unicode_policy.cpp
+    fusehide/path_policy.cpp
     fusehide/runtime_state.cpp
+    fusehide/dirent_filter.cpp
     fusehide/fuse_wrappers.cpp
+    fusehide/reply_buf_filter.cpp
     fusehide/elf_utils.cpp
     fusehide/hook_install.cpp
     fusehide/jni_entry.cpp
