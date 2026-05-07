@@ -28,6 +28,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import org.json.JSONArray
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -128,20 +129,29 @@ object HideConfigStore {
 
     fun save(context: Context, config: HideConfig, reloadToken: String?) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES, config.enableHideAllRootEntries)
-            .putString(
-                KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
-                encodeList(config.hideAllRootEntriesExemptions),
-            )
-            .putString(KEY_HIDDEN_ROOT_ENTRY_NAMES, encodeList(config.hiddenRootEntryNames))
-            .putString(KEY_HIDDEN_RELATIVE_PATHS, encodeList(config.hiddenRelativePaths))
-            .putString(KEY_HIDDEN_PACKAGES, encodeList(config.hiddenPackages))
-            .putString(KEY_PACKAGE_RULE_PACKAGES, encodeList(config.packageRules.map { it.packageName }))
-            .putString(KEY_PACKAGE_RULE_ROOT_ENTRY_NAMES, encodeNestedList(config.packageRules.map { it.hiddenRootEntryNames }))
-            .putString(KEY_PACKAGE_RULE_RELATIVE_PATHS, encodeNestedList(config.packageRules.map { it.hiddenRelativePaths }))
-            .putString(KEY_RELOAD_TOKEN, reloadToken)
-            .apply()
+            .edit {
+                putBoolean(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES, config.enableHideAllRootEntries)
+                    .putString(
+                        KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
+                        encodeList(config.hideAllRootEntriesExemptions),
+                    )
+                    .putString(KEY_HIDDEN_ROOT_ENTRY_NAMES, encodeList(config.hiddenRootEntryNames))
+                    .putString(KEY_HIDDEN_RELATIVE_PATHS, encodeList(config.hiddenRelativePaths))
+                    .putString(KEY_HIDDEN_PACKAGES, encodeList(config.hiddenPackages))
+                    .putString(
+                        KEY_PACKAGE_RULE_PACKAGES,
+                        encodeList(config.packageRules.map { it.packageName }),
+                    )
+                    .putString(
+                        KEY_PACKAGE_RULE_ROOT_ENTRY_NAMES,
+                        encodeNestedList(config.packageRules.map { it.hiddenRootEntryNames }),
+                    )
+                    .putString(
+                        KEY_PACKAGE_RULE_RELATIVE_PATHS,
+                        encodeNestedList(config.packageRules.map { it.hiddenRelativePaths }),
+                    )
+                    .putString(KEY_RELOAD_TOKEN, reloadToken)
+            }
     }
 
     @JvmStatic
