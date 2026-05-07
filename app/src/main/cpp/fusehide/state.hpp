@@ -337,31 +337,6 @@ class UnicodePolicy final {
                                                         const uint8_t* rhsData, size_t rhsLen);
 };
 
-class HiddenPathPolicy final {
-   public:
-    static bool IsTestHiddenUid(uint32_t uid);
-    static bool ShouldHideTestPath(uint32_t uid, std::string_view path);
-    static bool IsConfiguredHiddenRootEntryName(std::string_view name);
-    static bool IsHiddenRootEntryName(std::string_view name);
-    static bool IsAnyHiddenSubtreePath(std::string_view path);
-    static bool IsExactHiddenTargetPath(std::string_view path);
-    static bool IsHiddenRootDirectoryPath(std::string_view path);
-    static std::string JoinPathComponent(std::string_view parent, std::string_view child);
-    static bool ShouldFilterHiddenRootDirent(uint32_t uid, uint64_t ino, std::string_view name,
-                                             bool requireParentMatch);
-};
-
-class DirentFilter final {
-   public:
-    static bool BuildFilteredDirentPayload(const char* data, size_t size, uint32_t uid,
-                                           uint64_t ino, std::vector<char>* out,
-                                           size_t* removedCount, bool requireParentMatch = true);
-    static bool BuildFilteredDirentplusPayload(const char* data, size_t size, uint32_t uid,
-                                               uint64_t ino, std::vector<char>* out,
-                                               size_t* removedCount,
-                                               bool requireParentMatch = true);
-};
-
 class RuntimeState final {
    public:
     static uint32_t ReqUid(fuse_req_t req);
@@ -448,11 +423,6 @@ struct PendingReaddirContext {
     uint64_t ino = 0;
     std::string path;
 };
-
-struct FilteredDirentMatch {
-    std::string name;
-    uint64_t ino = 0;
-};
 extern std::mutex gPendingReaddirContextsMutex;
 extern std::unordered_map<uint64_t, PendingReaddirContext> gPendingReaddirContexts;
 extern thread_local uint64_t gCurrentReaddirReqUnique;
@@ -496,35 +466,9 @@ void ArmHiddenCreateLeakRemap(fuse_req_t req, const char* opName);
 bool IsTrackedHiddenSubtreeInode(uint64_t ino);
 bool TrackHiddenSubtreeInode(uint64_t ino);
 bool RemoveTrackedHiddenSubtreeInode(uint64_t ino);
-bool IsConfiguredHiddenRootEntryName(std::string_view name);
-bool IsHiddenRootEntryName(std::string_view name);
-bool IsAnyHiddenSubtreePath(std::string_view path);
-bool IsExactHiddenTargetPath(std::string_view path);
 std::optional<std::string> LookupTrackedPathForInode(uint64_t ino);
 std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path);
 void RememberTrackedPathForInode(uint64_t ino, std::string_view path);
-bool IsHiddenRootDirectoryPath(std::string_view path);
-bool IsParentOfExactHiddenTargetPath(std::string_view path);
-std::string JoinPathComponent(std::string_view parent, std::string_view child);
-size_t AlignDirentName(size_t nameLen);
-size_t FuseDirentRecordSize(const fuse_dirent* dirent);
-size_t FuseDirentplusRecordSize(const fuse_dirent* dirent);
-bool ShouldFilterHiddenRootDirent(uint32_t uid, uint64_t ino, std::string_view name,
-                                  bool requireParentMatch);
-bool BuildFilteredDirentPayload(const char* data, size_t size, uint32_t uid, uint64_t ino,
-                                std::vector<char>* out, size_t* removedCount,
-                                bool requireParentMatch = true);
-bool BuildFilteredDirentPayloadForParentPath(
-    const char* data, size_t size, uint32_t uid, std::string_view parentPath,
-    std::vector<char>* out, size_t* removedCount,
-    std::vector<FilteredDirentMatch>* removedEntries = nullptr);
-bool BuildFilteredDirentplusPayload(const char* data, size_t size, uint32_t uid, uint64_t ino,
-                                    std::vector<char>* out, size_t* removedCount,
-                                    bool requireParentMatch = true);
-bool BuildFilteredDirentplusPayloadForParentPath(
-    const char* data, size_t size, uint32_t uid, std::string_view parentPath,
-    std::vector<char>* out, size_t* removedCount,
-    std::vector<FilteredDirentMatch>* removedEntries = nullptr);
 void NoteHiddenSubtreePathForCache(std::string_view path);
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path);
 std::optional<std::string> LookupRecentHiddenParentPath(uint32_t uid,

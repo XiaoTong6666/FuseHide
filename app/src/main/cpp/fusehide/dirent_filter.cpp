@@ -74,7 +74,7 @@ bool DirentFilter::BuildFilteredDirentPayload(const char* data, size_t size, uin
         }
         const std::string_view name(dirent->name, dirent->namelen);
         if (ShouldFilterTrackedHiddenDirentInode(uid, dirent->ino, name) ||
-            ShouldFilterHiddenRootDirent(uid, ino, name, requireParentMatch)) {
+            HiddenPathPolicy::ShouldFilterHiddenRootDirent(uid, ino, name, requireParentMatch)) {
             removed++;
         } else {
             out->insert(out->end(), data + offset, data + offset + recordSize);
@@ -145,7 +145,7 @@ bool DirentFilter::BuildFilteredDirentplusPayload(const char* data, size_t size,
         }
         const std::string_view name(dirent->name, dirent->namelen);
         if (ShouldFilterTrackedHiddenDirentInode(uid, dirent->ino, name) ||
-            ShouldFilterHiddenRootDirent(uid, ino, name, requireParentMatch)) {
+            HiddenPathPolicy::ShouldFilterHiddenRootDirent(uid, ino, name, requireParentMatch)) {
             removed++;
         } else {
             out->insert(out->end(), data + offset, data + offset + recordSize);

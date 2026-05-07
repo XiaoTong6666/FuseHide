@@ -56,29 +56,33 @@ ReplyBufFilterResult FilterReplyBufPayload(const char* buf, size_t size,
         }
     }
 
-    if (DirentFilter::BuildFilteredDirentplusPayload(buf, size, context.filterUid, 0,
-                                                     filteredStorage, &removedCount, false)) {
-        return {filteredStorage->data(), filteredStorage->size(), "auto_direntplus", removedCount};
-    }
-    if (DirentFilter::BuildFilteredDirentPayload(buf, size, context.filterUid, 0, filteredStorage,
-                                                 &removedCount, false)) {
-        return {filteredStorage->data(), filteredStorage->size(), "auto_dirent", removedCount};
-    }
-    if (size >= sizeof(fuse_read_out)) {
-        const auto* readOut = reinterpret_cast<const fuse_read_out*>(buf);
-        const size_t payloadSize = std::min<size_t>(readOut->size, size - sizeof(fuse_read_out));
-        std::vector<char> filteredPayload;
-        if (DirentFilter::BuildFilteredDirentPayload(buf + sizeof(fuse_read_out), payloadSize,
-                                                     context.filterUid, 0, &filteredPayload,
-                                                     &removedCount, false)) {
-            fuse_read_out patched = *readOut;
-            patched.size = static_cast<uint32_t>(filteredPayload.size());
-            filteredStorage->resize(sizeof(patched) + filteredPayload.size());
-            std::memcpy(filteredStorage->data(), &patched, sizeof(patched));
-            std::memcpy(filteredStorage->data() + sizeof(patched), filteredPayload.data(),
-                        filteredPayload.size());
-            return {filteredStorage->data(), filteredStorage->size(), "auto_read_out_dirent",
+    if (context.enableAutoFallback) {
+        if (DirentFilter::BuildFilteredDirentplusPayload(buf, size, context.filterUid, 0,
+                                                         filteredStorage, &removedCount, false)) {
+            return {filteredStorage->data(), filteredStorage->size(), "auto_direntplus",
                     removedCount};
+        }
+        if (DirentFilter::BuildFilteredDirentPayload(buf, size, context.filterUid, 0,
+                                                     filteredStorage, &removedCount, false)) {
+            return {filteredStorage->data(), filteredStorage->size(), "auto_dirent", removedCount};
+        }
+        if (size >= sizeof(fuse_read_out)) {
+            const auto* readOut = reinterpret_cast<const fuse_read_out*>(buf);
+            const size_t payloadSize =
+                std::min<size_t>(readOut->size, size - sizeof(fuse_read_out));
+            std::vector<char> filteredPayload;
+            if (DirentFilter::BuildFilteredDirentPayload(buf + sizeof(fuse_read_out), payloadSize,
+                                                         context.filterUid, 0, &filteredPayload,
+                                                         &removedCount, false)) {
+                fuse_read_out patched = *readOut;
+                patched.size = static_cast<uint32_t>(filteredPayload.size());
+                filteredStorage->resize(sizeof(patched) + filteredPayload.size());
+                std::memcpy(filteredStorage->data(), &patched, sizeof(patched));
+                std::memcpy(filteredStorage->data() + sizeof(patched), filteredPayload.data(),
+                            filteredPayload.size());
+                return {filteredStorage->data(), filteredStorage->size(), "auto_read_out_dirent",
+                        removedCount};
+            }
         }
     }
     return result;

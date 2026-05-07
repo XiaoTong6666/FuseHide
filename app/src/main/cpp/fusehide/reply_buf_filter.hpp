@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "state.hpp"
+#include "dirent_filter.hpp"
 
 namespace fusehide {
 
@@ -25,7 +25,7 @@ struct ReplyBufFilterContext {
     bool filterPostfilterReaddir = false;
     bool filterReaddirplus = false;
     bool requireParentMatch = true;
-    std::optional<std::string> fallbackParentPath;
+    bool enableAutoFallback = true;
 };
 
 struct ReplyBufFilterResult {

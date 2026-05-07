@@ -14,6 +14,10 @@
 
 #include "wrappers.hpp"
 
+#include "dirent_filter.hpp"
+#include "path_policy.hpp"
+#include "reply_buf_filter.hpp"
+
 namespace fusehide {
 
 namespace {
@@ -131,7 +135,7 @@ void InvalidateFilteredParentChildren(std::string_view parentPath,
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#851
 extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* name) {
     RuntimeState::RememberFuseSession(req);
-    if (name != nullptr && IsConfiguredHiddenRootEntryName(name) && parent != 0) {
+    if (name != nullptr && HiddenPathPolicy::IsConfiguredHiddenRootEntryName(name) && parent != 0) {
         uint64_t expected = 0;
         if (gHiddenRootParentInode.compare_exchange_strong(expected, parent,
                                                            std::memory_order_relaxed)) {
@@ -669,7 +673,7 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
                               static_cast<unsigned>(RuntimeState::ReqUid(req)),
                               DebugPreview(*childPath).c_str(), InodePath(e->ino).c_str());
             }
-            if (IsParentOfExactHiddenTargetPath(*childPath)) {
+            if (fusehide::IsParentOfExactHiddenTargetPath(*childPath)) {
                 RememberRecentHiddenParentPath(RuntimeState::ReqUid(req), *childPath);
                 DebugLogPrint(4, "remember recent hidden parent uid=%u path=%s",
                               static_cast<unsigned>(RuntimeState::ReqUid(req)),
@@ -781,40 +785,23 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
     }
 
     if (HiddenPathPolicy::IsTestHiddenUid(filterUid)) {
-        if (filterPlainReaddir) {
-            if (DirentFilter::BuildFilteredDirentPayload(buf, size, filterUid, filterIno,
-                                                         &filteredStorage, &removedCount,
-                                                         requireParentMatch)) {
-                replyBuf = filteredStorage.data();
-                replySize = filteredStorage.size();
-                filterMode = "readdir";
-            }
-        } else if (filterReaddirplus) {
-            if (DirentFilter::BuildFilteredDirentplusPayload(buf, size, filterUid, filterIno,
-                                                             &filteredStorage, &removedCount,
-                                                             requireParentMatch)) {
-                replyBuf = filteredStorage.data();
-                replySize = filteredStorage.size();
-                filterMode = "readdirplus";
-            }
-        } else if (filterPostfilterReaddir && size >= sizeof(fuse_read_out)) {
-            const auto* readOut = reinterpret_cast<const fuse_read_out*>(buf);
-            const size_t payloadSize =
-                std::min<size_t>(readOut->size, size - sizeof(fuse_read_out));
-            std::vector<char> filteredPayload;
-            if (DirentFilter::BuildFilteredDirentPayload(buf + sizeof(fuse_read_out), payloadSize,
-                                                         filterUid, filterIno, &filteredPayload,
-                                                         &removedCount, requireParentMatch)) {
-                fuse_read_out patched = *readOut;
-                patched.size = static_cast<uint32_t>(filteredPayload.size());
-                filteredStorage.resize(sizeof(patched) + filteredPayload.size());
-                std::memcpy(filteredStorage.data(), &patched, sizeof(patched));
-                std::memcpy(filteredStorage.data() + sizeof(patched), filteredPayload.data(),
-                            filteredPayload.size());
-                replyBuf = filteredStorage.data();
-                replySize = filteredStorage.size();
-                filterMode = "readdir_postfilter";
-            }
+        const ReplyBufFilterResult primaryResult =
+            FilterReplyBufPayload(buf, size,
+                                  ReplyBufFilterContext{
+                                      .filterUid = filterUid,
+                                      .filterIno = filterIno,
+                                      .filterPlainReaddir = filterPlainReaddir,
+                                      .filterPostfilterReaddir = filterPostfilterReaddir,
+                                      .filterReaddirplus = filterReaddirplus,
+                                      .requireParentMatch = requireParentMatch,
+                                      .enableAutoFallback = false,
+                                  },
+                                  &filteredStorage);
+        if (primaryResult.mode != nullptr) {
+            replyBuf = primaryResult.data;
+            replySize = primaryResult.size;
+            filterMode = primaryResult.mode;
+            removedCount = primaryResult.removedCount;
         }
 
         // When the active device path bypasses our readdir wrappers, reply_buf still sees the final
@@ -864,34 +851,19 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
         }
 
         if (filterMode == nullptr) {
-            if (DirentFilter::BuildFilteredDirentplusPayload(
-                    buf, size, filterUid, 0, &filteredStorage, &removedCount, false)) {
-                replyBuf = filteredStorage.data();
-                replySize = filteredStorage.size();
-                filterMode = "auto_direntplus";
-            } else if (DirentFilter::BuildFilteredDirentPayload(
-                           buf, size, filterUid, 0, &filteredStorage, &removedCount, false)) {
-                replyBuf = filteredStorage.data();
-                replySize = filteredStorage.size();
-                filterMode = "auto_dirent";
-            } else if (size >= sizeof(fuse_read_out)) {
-                const auto* readOut = reinterpret_cast<const fuse_read_out*>(buf);
-                const size_t payloadSize =
-                    std::min<size_t>(readOut->size, size - sizeof(fuse_read_out));
-                std::vector<char> filteredPayload;
-                if (DirentFilter::BuildFilteredDirentPayload(
-                        buf + sizeof(fuse_read_out), payloadSize, filterUid, 0, &filteredPayload,
-                        &removedCount, false)) {
-                    fuse_read_out patched = *readOut;
-                    patched.size = static_cast<uint32_t>(filteredPayload.size());
-                    filteredStorage.resize(sizeof(patched) + filteredPayload.size());
-                    std::memcpy(filteredStorage.data(), &patched, sizeof(patched));
-                    std::memcpy(filteredStorage.data() + sizeof(patched), filteredPayload.data(),
-                                filteredPayload.size());
-                    replyBuf = filteredStorage.data();
-                    replySize = filteredStorage.size();
-                    filterMode = "auto_read_out_dirent";
-                }
+            const ReplyBufFilterResult autoResult =
+                FilterReplyBufPayload(buf, size,
+                                      ReplyBufFilterContext{
+                                          .filterUid = filterUid,
+                                          .requireParentMatch = false,
+                                          .enableAutoFallback = true,
+                                      },
+                                      &filteredStorage);
+            if (autoResult.mode != nullptr) {
+                replyBuf = autoResult.data;
+                replySize = autoResult.size;
+                filterMode = autoResult.mode;
+                removedCount = autoResult.removedCount;
             }
         }
     }
@@ -992,7 +964,7 @@ extern "C" int WrappedLstat(const char* path, struct stat* st) {
         if (ret == 0 && gInPfGetattr && gPfGetattrIno != 0) {
             RememberTrackedPathForInode(gPfGetattrIno, pathView);
             if (HiddenPathPolicy::IsTestHiddenUid(gPfGetattrUid) &&
-                IsParentOfExactHiddenTargetPath(pathView)) {
+                fusehide::IsParentOfExactHiddenTargetPath(pathView)) {
                 // Some device builds enumerate the parent directory after only touching it through
                 // pf_getattr/lstat, without a visible parent lookup that would reach reply_entry.
                 // Seed the fallback parent path here so reply_buf can still filter nested children.

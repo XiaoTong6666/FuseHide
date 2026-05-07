@@ -14,12 +14,40 @@
 
 #pragma once
 
-#include "state.hpp"
+#include "path_policy.hpp"
 
 namespace fusehide {
+
+struct FilteredDirentMatch {
+    std::string name;
+    uint64_t ino = 0;
+};
+
+class DirentFilter final {
+   public:
+    static bool BuildFilteredDirentPayload(const char* data, size_t size, uint32_t uid,
+                                           uint64_t ino, std::vector<char>* out,
+                                           size_t* removedCount, bool requireParentMatch = true);
+    static bool BuildFilteredDirentplusPayload(const char* data, size_t size, uint32_t uid,
+                                               uint64_t ino, std::vector<char>* out,
+                                               size_t* removedCount,
+                                               bool requireParentMatch = true);
+};
+
+size_t AlignDirentName(size_t nameLen);
+size_t FuseDirentRecordSize(const fuse_dirent* dirent);
+size_t FuseDirentplusRecordSize(const fuse_dirent* dirent);
 
 bool ShouldFilterTrackedHiddenDirentInode(uint32_t uid, uint64_t childIno, std::string_view name);
 bool ShouldFilterDirentForParentPath(uint32_t uid, std::string_view parentPath, uint64_t childIno,
                                      std::string_view name);
+bool BuildFilteredDirentPayloadForParentPath(
+    const char* data, size_t size, uint32_t uid, std::string_view parentPath,
+    std::vector<char>* out, size_t* removedCount,
+    std::vector<FilteredDirentMatch>* removedEntries = nullptr);
+bool BuildFilteredDirentplusPayloadForParentPath(
+    const char* data, size_t size, uint32_t uid, std::string_view parentPath,
+    std::vector<char>* out, size_t* removedCount,
+    std::vector<FilteredDirentMatch>* removedEntries = nullptr);
 
 }  // namespace fusehide

@@ -277,7 +277,8 @@ bool IsHiddenLookupCacheTarget(uint64_t parent, const char* name) {
     if (ShouldHideWildcardRootEntryByParent(parent, rootParent, name)) {
         return true;
     }
-    return IsConfiguredHiddenRootEntryName(name) && (rootParent == 0 || parent == rootParent);
+    return HiddenPathPolicy::IsConfiguredHiddenRootEntryName(name) &&
+           (rootParent == 0 || parent == rootParent);
 }
 
 std::optional<HiddenNamedTargetKind> ClassifyHiddenNamedTargetByTrackedPath(uint64_t parent,
@@ -312,7 +313,8 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     if (ShouldHideWildcardRootEntryByParent(parent, rootParent, name)) {
         return HiddenNamedTargetKind::Root;
     }
-    if (IsConfiguredHiddenRootEntryName(name) && (rootParent == 0 || parent == rootParent)) {
+    if (HiddenPathPolicy::IsConfiguredHiddenRootEntryName(name) &&
+        (rootParent == 0 || parent == rootParent)) {
         return HiddenNamedTargetKind::Root;
     }
     if (const auto trackedPathKind = ClassifyHiddenNamedTargetByTrackedPath(parent, name);
@@ -459,7 +461,7 @@ int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller) {
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#510
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1428
 extern "C" bool WrappedShouldNotCache(void* fuse, const std::string& path) {
-    if (IsAnyHiddenSubtreePath(path)) {
+    if (HiddenPathPolicy::IsAnyHiddenSubtreePath(path)) {
         DebugLogPrint(4, "force uncached subtree path=%s", DebugPreview(path).c_str());
         return true;
     }
@@ -580,7 +582,7 @@ void ClearRecentHiddenParentPath(uint32_t uid) {
 // Once the daemon sees any path inside the hidden subtree, force cache invalidation globally for
 // that subtree so positive dentries from other apps stop leaking into the target uid.
 void NoteHiddenSubtreePathForCache(std::string_view path) {
-    if (!IsAnyHiddenSubtreePath(path)) {
+    if (!HiddenPathPolicy::IsAnyHiddenSubtreePath(path)) {
         return;
     }
 
@@ -591,7 +593,8 @@ void NoteHiddenSubtreePathForCache(std::string_view path) {
 
     if (gInPfLookup && gCurrentLookupParentInode != 0) {
         const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
-        if (IsExactHiddenTargetPath(path) && gCurrentLookupParentInode == rootParent) {
+        if (HiddenPathPolicy::IsExactHiddenTargetPath(path) &&
+            gCurrentLookupParentInode == rootParent) {
             RemoveTrackedHiddenSubtreeInode(gCurrentLookupParentInode);
             return;
         }
@@ -611,49 +614,6 @@ void NoteHiddenSubtreePathForCache(std::string_view path) {
             RuntimeState::ScheduleHiddenInodeInvalidation(gPfGetattrIno);
         }
     }
-}
-
-bool IsConfiguredHiddenRootEntryName(std::string_view name) {
-    return HiddenPathPolicy::IsConfiguredHiddenRootEntryName(name);
-}
-
-bool IsHiddenRootEntryName(std::string_view name) {
-    return HiddenPathPolicy::IsHiddenRootEntryName(name);
-}
-
-bool IsAnyHiddenSubtreePath(std::string_view path) {
-    return HiddenPathPolicy::IsAnyHiddenSubtreePath(path);
-}
-
-bool IsExactHiddenTargetPath(std::string_view path) {
-    return HiddenPathPolicy::IsExactHiddenTargetPath(path);
-}
-
-bool IsHiddenRootDirectoryPath(std::string_view path) {
-    return HiddenPathPolicy::IsHiddenRootDirectoryPath(path);
-}
-
-std::string JoinPathComponent(std::string_view parent, std::string_view child) {
-    return HiddenPathPolicy::JoinPathComponent(parent, child);
-}
-
-bool ShouldFilterHiddenRootDirent(uint32_t uid, uint64_t ino, std::string_view name,
-                                  bool requireParentMatch) {
-    return HiddenPathPolicy::ShouldFilterHiddenRootDirent(uid, ino, name, requireParentMatch);
-}
-
-bool BuildFilteredDirentPayload(const char* data, size_t size, uint32_t uid, uint64_t ino,
-                                std::vector<char>* out, size_t* removedCount,
-                                bool requireParentMatch) {
-    return DirentFilter::BuildFilteredDirentPayload(data, size, uid, ino, out, removedCount,
-                                                    requireParentMatch);
-}
-
-bool BuildFilteredDirentplusPayload(const char* data, size_t size, uint32_t uid, uint64_t ino,
-                                    std::vector<char>* out, size_t* removedCount,
-                                    bool requireParentMatch) {
-    return DirentFilter::BuildFilteredDirentplusPayload(data, size, uid, ino, out, removedCount,
-                                                        requireParentMatch);
 }
 
 uint32_t ReqUid(fuse_req_t req) {
