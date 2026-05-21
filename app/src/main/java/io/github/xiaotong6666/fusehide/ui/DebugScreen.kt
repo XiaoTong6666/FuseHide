@@ -29,15 +29,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun DebugScreen(
@@ -58,14 +64,14 @@ fun DebugScreen(
         SectionCard {
             Text(
                 stringResource(R.string.section_probe_target),
-                style = MiuixTheme.textStyles.title3.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             Text(
                 text = stringResource(R.string.section_probe_target_desc),
-                style = MiuixTheme.textStyles.body1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
             Row(
@@ -99,103 +105,157 @@ fun DebugScreen(
         SectionCard {
             Text(
                 stringResource(R.string.section_paths),
-                style = MiuixTheme.textStyles.title3.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(12.dp))
-            TextField(
+            OutlinedTextField(
                 value = state.pathText,
                 onValueChange = callbacks.onPathChanged,
                 modifier = Modifier.fillMaxWidth(),
-                label = stringResource(R.string.label_primary_path),
-                backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
-                labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                borderColor = MiuixTheme.colorScheme.primary,
-                textStyle = MiuixTheme.textStyles.main.copy(color = MiuixTheme.colorScheme.onSurface),
+                label = { Text(stringResource(R.string.label_primary_path)) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 singleLine = false,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.field_primary_path_help),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
-            TextField(
+            OutlinedTextField(
                 value = state.pathText2,
                 onValueChange = callbacks.onPath2Changed,
                 modifier = Modifier.fillMaxWidth(),
-                label = stringResource(R.string.label_secondary_path),
-                backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
-                labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                borderColor = MiuixTheme.colorScheme.primary,
-                textStyle = MiuixTheme.textStyles.main.copy(color = MiuixTheme.colorScheme.onSurface),
+                label = { Text(stringResource(R.string.label_secondary_path)) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 singleLine = false,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.field_secondary_path_help),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
         SectionCard {
             Text(
                 stringResource(R.string.section_common_probes),
-                style = MiuixTheme.textStyles.title3.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(12.dp))
-            ActionGrid(
-                listOf(
-                    GridActionItem(stringResource(R.string.button_stat), callbacks.onStatClick),
-                    GridActionItem(stringResource(R.string.button_access), callbacks.onAccessClick),
-                    GridActionItem(stringResource(R.string.button_list), callbacks.onListClick),
-                    GridActionItem(stringResource(R.string.button_open), callbacks.onOpenClick),
-                ),
-            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = callbacks.onStatClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_stat), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+                Button(onClick = callbacks.onAccessClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_access), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = callbacks.onListClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_list), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+                Button(onClick = callbacks.onOpenClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_open), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
             Text(
                 stringResource(R.string.section_mutation_probes),
-                style = MiuixTheme.textStyles.title4.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(10.dp))
-            ActionGrid(
-                listOf(
-                    GridActionItem(stringResource(R.string.button_get_con), callbacks.onGetConClick),
-                    GridActionItem(stringResource(R.string.button_create), callbacks.onCreateClick),
-                    GridActionItem(stringResource(R.string.button_mkdir), callbacks.onMkdirClick),
-                    GridActionItem(stringResource(R.string.button_rename_move), callbacks.onMoveClick),
-                    GridActionItem(stringResource(R.string.button_rmdir), callbacks.onRmdirClick, isError = true),
-                    GridActionItem(stringResource(R.string.button_unlink), callbacks.onUnlinkClick),
-                ),
-            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = callbacks.onGetConClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_get_con), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+                OutlinedButton(onClick = callbacks.onCreateClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_create), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = callbacks.onMkdirClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_mkdir), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+                OutlinedButton(onClick = callbacks.onMoveClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_rename_move), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = callbacks.onRmdirClick,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(stringResource(R.string.button_rmdir), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+                OutlinedButton(onClick = callbacks.onUnlinkClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_unlink), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+
             Spacer(Modifier.height(12.dp))
             Text(
                 stringResource(R.string.section_utilities),
-                style = MiuixTheme.textStyles.title3.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(10.dp))
-            ActionGrid(
-                listOf(
-                    GridActionItem(stringResource(R.string.button_all_pkg), callbacks.onAllPkgClick),
-                    GridActionItem(stringResource(R.string.button_insert_zwj), callbacks.onInsertZwjClick),
-                    GridActionItem(stringResource(R.string.button_clear_output), callbacks.onClearClick),
-                    GridActionItem(stringResource(R.string.button_reset_path), callbacks.onResetClick),
-                    GridActionItem(stringResource(R.string.button_copy_output), callbacks.onCopyAllClick),
-                    GridActionItem(stringResource(R.string.button_self_data), callbacks.onSelfDataClick),
-                ),
-            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FilledTonalButton(onClick = callbacks.onAllPkgClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_all_pkg), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+                FilledTonalButton(onClick = callbacks.onInsertZwjClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_insert_zwj), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FilledTonalButton(onClick = callbacks.onClearClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_clear_output), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+                FilledTonalButton(onClick = callbacks.onResetClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_reset_path), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FilledTonalButton(onClick = callbacks.onCopyAllClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_copy_output), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+                FilledTonalButton(onClick = callbacks.onSelfDataClick, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.small) {
+                    Text(stringResource(R.string.button_self_data), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                }
+            }
         }
 
         SectionCard {
             Text(
                 stringResource(R.string.section_probe_output),
-                style = MiuixTheme.textStyles.title4.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(10.dp))
             InfoPanel(

@@ -30,9 +30,16 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -40,12 +47,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
-import top.yukonga.miuix.kmp.basic.Button
-import top.yukonga.miuix.kmp.basic.ButtonDefaults
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.Locale
 
 @Composable
@@ -58,82 +59,61 @@ fun DualActionRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (primaryFilled) {
             Button(
                 onClick = onPrimaryClick,
-                modifier = Modifier.weight(1f).height(56.dp),
-                colors = ButtonDefaults.buttonColorsPrimary(),
+                modifier = Modifier.weight(1f).height(48.dp),
             ) {
-                Text(primaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
+                Text(
+                    primaryLabel,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium,
+                )
             }
         } else {
-            Button(
+            OutlinedButton(
                 onClick = onPrimaryClick,
-                modifier = Modifier.weight(1f).height(56.dp),
-                colors = ButtonDefaults.buttonColors().copy(color = MiuixTheme.colorScheme.secondary),
+                modifier = Modifier.weight(1f).height(48.dp),
             ) {
-                Text(primaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
+                Text(
+                    primaryLabel,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium,
+                )
             }
         }
-        Button(
+        OutlinedButton(
             onClick = onSecondaryClick,
-            modifier = Modifier.weight(1f).height(56.dp),
-            colors = ButtonDefaults.buttonColors().copy(color = MiuixTheme.colorScheme.secondary),
+            modifier = Modifier.weight(1f).height(48.dp),
         ) {
-            Text(secondaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
+            Text(
+                secondaryLabel,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleMedium,
+            )
         }
-    }
-}
-
-@Composable
-fun ActionGrid(actions: List<GridActionItem>) {
-    actions.chunked(2).forEach { rowActions ->
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            rowActions.forEach { item ->
-
-                val currentBgColor = if (item.isError) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.secondary
-
-                Button(
-                    onClick = item.action,
-                    modifier = Modifier.weight(1f).height(56.dp),
-                    colors = ButtonDefaults.buttonColors().copy(color = currentBgColor),
-                    insideMargin = PaddingValues(horizontal = 12.dp, vertical = 14.dp),
-                ) {
-                    Text(
-                        text = item.label,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                        color = if (item.isError) MiuixTheme.colorScheme.onError else androidx.compose.ui.graphics.Color.Unspecified,
-                        style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium),
-                    )
-                }
-            }
-            if (rowActions.size == 1) {
-                Spacer(modifier = Modifier.weight(1f))
-            }
-        }
-        Spacer(Modifier.height(10.dp))
     }
 }
 
 @Composable
 fun SectionCard(content: @Composable ColumnScope.() -> Unit) {
-    Card(
+    ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.surfaceContainerHigh.copy(0.45f),
-            contentColor = MiuixTheme.colorScheme.onSurfaceContainerHigh,
-        ),
-        insideMargin = PaddingValues(0.dp),
+        colors = CardDefaults.elevatedCardColors(),
+        shape = MaterialTheme.shapes.medium,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
             content = content,
         )
     }
@@ -150,20 +130,24 @@ fun StatusChip(
     onClick: (() -> Unit)? = null,
 ) {
     val containerColor = if (emphasized) {
-        MiuixTheme.colorScheme.primaryVariant
+        MaterialTheme.colorScheme.primaryContainer
     } else {
-        MiuixTheme.colorScheme.surfaceContainerHighest
+        MaterialTheme.colorScheme.surfaceContainerHighest
     }
     val contentColor = if (emphasized) {
-        MiuixTheme.colorScheme.onPrimaryVariant
+        MaterialTheme.colorScheme.onPrimaryContainer
     } else {
-        MiuixTheme.colorScheme.onSurfaceContainerHighest
+        MaterialTheme.colorScheme.onSurface
     }
-    Card(
+
+    ElevatedCard(
         modifier = modifier.heightIn(min = 118.dp),
-        colors = CardDefaults.defaultColors(color = containerColor, contentColor = contentColor),
-        onClick = onClick,
-        insideMargin = PaddingValues(0.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        onClick = onClick ?: {},
+        shape = MaterialTheme.shapes.small,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -171,30 +155,30 @@ fun StatusChip(
         ) {
             Text(
                 text = label.uppercase(Locale.US),
-                style = MiuixTheme.textStyles.footnote2,
+                style = MaterialTheme.typography.labelSmall,
                 color = if (emphasized) {
-                    MiuixTheme.colorScheme.onPrimaryVariant.copy(alpha = 0.72f)
+                    contentColor.copy(alpha = 0.72f)
                 } else {
-                    MiuixTheme.colorScheme.onSurfaceVariantSummary
+                    MaterialTheme.colorScheme.onSurfaceVariant
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = value,
-                style = MiuixTheme.textStyles.title3.copy(fontWeight = FontWeight.Medium),
-                color = if (emphasized) Color.White else MiuixTheme.colorScheme.onSurfaceContainerHighest,
+                style = MaterialTheme.typography.titleLarge,
+                color = if (emphasized) contentColor else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (supportingText != null) {
                 Text(
                     text = supportingText,
-                    style = MiuixTheme.textStyles.footnote1,
+                    style = MaterialTheme.typography.bodySmall,
                     color = if (emphasized) {
-                        MiuixTheme.colorScheme.onPrimaryVariant.copy(alpha = 0.84f)
+                        contentColor.copy(alpha = 0.84f)
                     } else {
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -203,11 +187,11 @@ fun StatusChip(
             if (metaText != null) {
                 Text(
                     text = metaText,
-                    style = MiuixTheme.textStyles.footnote1,
+                    style = MaterialTheme.typography.bodySmall,
                     color = if (emphasized) {
-                        MiuixTheme.colorScheme.onPrimaryVariant.copy(alpha = 0.84f)
+                        contentColor.copy(alpha = 0.84f)
                     } else {
-                        MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -225,13 +209,16 @@ fun MetricCard(
     valueMaxLines: Int = 2,
     monospace: Boolean = false,
 ) {
-    Card(
+    val containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+    val contentColor = MaterialTheme.colorScheme.onSurface
+
+    ElevatedCard(
         modifier = modifier.heightIn(min = 96.dp),
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
         ),
-        insideMargin = PaddingValues(0.dp),
+        shape = MaterialTheme.shapes.small,
     ) {
         Column(
             modifier = Modifier
@@ -241,14 +228,14 @@ fun MetricCard(
         ) {
             Text(
                 text = label.uppercase(Locale.US),
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = value,
-                style = MiuixTheme.textStyles.main,
+                style = MaterialTheme.typography.bodyLarge,
                 fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
                 maxLines = valueMaxLines,
                 overflow = TextOverflow.Ellipsis,
@@ -290,19 +277,22 @@ fun InfoPanel(
     emphasized: Boolean = false,
 ) {
     val containerColor = if (emphasized) {
-        MiuixTheme.colorScheme.errorContainer
+        MaterialTheme.colorScheme.errorContainer
     } else {
-        MiuixTheme.colorScheme.surfaceContainerHighest
+        MaterialTheme.colorScheme.surfaceContainerHighest
     }
     val contentColor = if (emphasized) {
-        MiuixTheme.colorScheme.onErrorContainer
+        MaterialTheme.colorScheme.onErrorContainer
     } else {
-        MiuixTheme.colorScheme.onSurfaceContainerHighest
+        MaterialTheme.colorScheme.onSurface
     }
-    Card(
+    ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(color = containerColor, contentColor = contentColor),
-        insideMargin = PaddingValues(0.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        shape = MaterialTheme.shapes.small,
     ) {
         Column(
             modifier = Modifier
@@ -311,7 +301,11 @@ fun InfoPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             if (title.isNotEmpty()) {
-                Text(title, style = MiuixTheme.textStyles.footnote2, color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.45f))
+                Text(
+                    title,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor.copy(alpha = 0.6f),
+                )
             }
             SelectionContainer {
                 Text(
@@ -320,7 +314,7 @@ fun InfoPanel(
                         .fillMaxWidth()
                         .wrapContentHeight(),
                     fontFamily = if (monospace) FontFamily.Monospace else FontFamily.Default,
-                    style = MiuixTheme.textStyles.body1,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
         }
@@ -336,7 +330,8 @@ fun MonospaceBlock(text: String, modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .wrapContentHeight(),
             fontFamily = FontFamily.Monospace,
-            style = MiuixTheme.textStyles.body1,
+            style = MaterialTheme.typography.bodyMedium,
         )
     }
 }
+

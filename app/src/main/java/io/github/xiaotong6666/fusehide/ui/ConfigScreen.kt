@@ -31,26 +31,27 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
-import top.yukonga.miuix.kmp.basic.Card
-import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.Checkbox
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TextButton
-import top.yukonga.miuix.kmp.basic.TextField
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 fun ConfigScreen(
@@ -88,14 +89,14 @@ fun ConfigScreen(
         SectionCard {
             Text(
                 stringResource(R.string.section_runtime_policy),
-                style = MiuixTheme.textStyles.title3.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(6.dp))
             Text(
                 text = stringResource(R.string.section_runtime_policy_desc),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
             Row(
@@ -129,106 +130,115 @@ fun ConfigScreen(
         SectionCard {
             Text(
                 stringResource(R.string.section_editable_draft),
-                style = MiuixTheme.textStyles.title3.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.section_editable_draft_desc),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(12.dp))
-            Card(
+            ElevatedCard(
                 onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     callbacks.onEnableHideAllRootEntriesChanged(!state.enableHideAllRootEntries)
                 },
-                colors = CardDefaults.defaultColors(
-                    color = MiuixTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
                 ),
-                insideMargin = PaddingValues(0.dp),
+                shape = MaterialTheme.shapes.small,
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = androidx.compose.ui.Alignment.Top,
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment = Alignment.Top,
                 ) {
                     Checkbox(
-                        state = if (state.enableHideAllRootEntries) ToggleableState.On else ToggleableState.Off,
-                        onClick = {
+                        checked = state.enableHideAllRootEntries,
+                        onCheckedChange = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             callbacks.onEnableHideAllRootEntriesChanged(!state.enableHideAllRootEntries)
                         },
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(stringResource(R.string.field_hide_all_title), style = MiuixTheme.textStyles.headline2)
+                        Text(
+                            stringResource(R.string.field_hide_all_title),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                         Text(
                             text = stringResource(R.string.field_hide_all_desc),
-                            style = MiuixTheme.textStyles.footnote1,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
-            TextField(
+            OutlinedTextField(
                 value = state.hideAllRootEntriesExemptionsText,
                 onValueChange = callbacks.onHideAllRootEntriesExemptionsChanged,
                 modifier = Modifier.fillMaxWidth(),
-                label = stringResource(R.string.field_visible_exemptions),
-                backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
-                labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                borderColor = MiuixTheme.colorScheme.primary,
-                textStyle = MiuixTheme.textStyles.main.copy(color = MiuixTheme.colorScheme.onSurfaceSecondary),
+                label = { Text(stringResource(R.string.field_visible_exemptions)) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 minLines = 5,
                 maxLines = 5,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.field_visible_exemptions_help),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
-            TextField(
+            OutlinedTextField(
                 value = state.hiddenTargetsText,
                 onValueChange = callbacks.onHiddenTargetsChanged,
                 modifier = Modifier.fillMaxWidth(),
-                label = stringResource(R.string.field_hidden_targets),
-                backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
-                labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                borderColor = MiuixTheme.colorScheme.primary,
-                textStyle = MiuixTheme.textStyles.main.copy(color = MiuixTheme.colorScheme.onSurfaceSecondary),
+                label = { Text(stringResource(R.string.field_hidden_targets)) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 minLines = 5,
                 maxLines = 5,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.field_hidden_targets_help),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
-            TextField(
+            OutlinedTextField(
                 value = state.hiddenPackagesText,
                 onValueChange = callbacks.onHiddenPackagesChanged,
                 modifier = Modifier.fillMaxWidth(),
-                label = stringResource(R.string.field_hidden_package_names),
-                backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
-                labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                borderColor = MiuixTheme.colorScheme.primary,
-                textStyle = MiuixTheme.textStyles.main.copy(color = MiuixTheme.colorScheme.onSurfaceSecondary),
+                label = { Text(stringResource(R.string.field_hidden_package_names)) },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    focusedLabelColor = MaterialTheme.colorScheme.primary,
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                 minLines = 5,
                 maxLines = 5,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text = stringResource(R.string.field_hidden_package_names_help),
-                style = MiuixTheme.textStyles.footnote1,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(14.dp))
             DualActionRow(
@@ -250,14 +260,14 @@ fun ConfigScreen(
         SectionCard {
             Text(
                 stringResource(R.string.section_apply_feedback),
-                style = MiuixTheme.textStyles.title3.copy(fontWeight = FontWeight.Medium),
-                color = MiuixTheme.colorScheme.onSurface,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = androidx.compose.ui.Alignment.Top,
+                verticalAlignment = Alignment.Top,
             ) {
                 MetricCard(stringResource(R.string.label_last_ack), state.lastAckResultText, Modifier.weight(1f))
                 MetricCard(stringResource(R.string.label_applied_at), state.lastApplyTimeText, Modifier.weight(1f))
@@ -285,14 +295,18 @@ fun ConfigScreen(
             SectionCard {
                 Text(
                     stringResource(R.string.section_detailed_diff),
-                    style = MiuixTheme.textStyles.title4,
-                    color = MiuixTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(6.dp))
                 TextButton(
-                    text = if (showDetailedDiff) stringResource(R.string.button_hide_detailed_diff) else stringResource(R.string.button_show_detailed_diff),
                     onClick = { showDetailedDiff = !showDetailedDiff },
-                )
+                ) {
+                    Text(
+                        if (showDetailedDiff) stringResource(R.string.button_hide_detailed_diff)
+                        else stringResource(R.string.button_show_detailed_diff),
+                    )
+                }
                 if (showDetailedDiff) {
                     Spacer(Modifier.height(6.dp))
                     InfoPanel(
@@ -315,22 +329,26 @@ fun ConfigScreen(
                 ) {
                     Text(
                         stringResource(R.string.section_snapshot),
-                        style = MiuixTheme.textStyles.title4,
-                        color = MiuixTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         text = stringResource(R.string.section_snapshot_desc),
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 TextButton(
-                    text = if (showAppliedSnapshot) stringResource(R.string.button_hide) else stringResource(R.string.button_show),
                     onClick = {
                         view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                         showAppliedSnapshot = !showAppliedSnapshot
                     },
-                )
+                ) {
+                    Text(
+                        if (showAppliedSnapshot) stringResource(R.string.button_hide)
+                        else stringResource(R.string.button_show),
+                    )
+                }
             }
             if (showAppliedSnapshot) {
                 Spacer(Modifier.height(10.dp))
