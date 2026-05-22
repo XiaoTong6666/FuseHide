@@ -21,9 +21,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.system.Os
 import android.system.StructUtsname
 import android.util.Log
@@ -90,6 +93,7 @@ class MainActivity : ComponentActivity() {
     private var pathText by mutableStateOf(PathDebugActions.defaultPath())
     private var pathText2 by mutableStateOf("")
     private var outputText by mutableStateOf("")
+    private var manageStorageGranted by mutableStateOf(false)
 
     private var hookedPackage: String? = null
     private var hookedPid: Int = -1
@@ -119,6 +123,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        refreshManageStorageState()
         appendInfo()
         applyConfigToEditor(HideConfigStore.load(this))
         configStatusText = getString(R.string.config_loaded_saved) + "\n"
@@ -215,6 +220,24 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleDebugIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshManageStorageState()
+    }
+
+    private fun refreshManageStorageState() {
+        manageStorageGranted = Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()
+    }
+
+    private fun launchManageStorageSettings() {
+        if (Build.VERSION.SDK_INT < 30) return
+        val intent = Intent(
+            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+            Uri.parse("package:$packageName")
+        )
+        startActivity(intent)
     }
 
     private fun handleDebugIntent(intent: Intent?) {
@@ -392,6 +415,7 @@ class MainActivity : ComponentActivity() {
         pathText = pathText,
         pathText2 = pathText2,
         outputText = outputText,
+        manageStorageGranted = manageStorageGranted,
     )
 
     private fun configCallbacks(): ConfigCallbacks = ConfigCallbacks(
@@ -426,6 +450,7 @@ class MainActivity : ComponentActivity() {
         onResetClick = { pathText = PathDebugActions.defaultPath() },
         onCopyAllClick = ::copyAll,
         onSelfDataClick = { appendOutput("external files dir: ${getExternalFilesDir("")}\n") },
+        onToggleManageStorage = { launchManageStorageSettings() },
     )
 
     private fun saveHideConfig() {

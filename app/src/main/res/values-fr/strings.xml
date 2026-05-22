@@ -91,4 +91,5 @@
     <string name="diff_summary_mismatch">La configuration non enregistrée ne correspond pas à la configuration appliquée de MediaProvider.</string>
     <string name="diff_summary_match">La configuration non enregistrée correspond à la configuration appliquée de MediaProvider.</string>
     <string name="probe_output_empty">Aucune sortie de vérification pour le moment.</string>
-</resources>
+    <string name="hint_manage_storage">Autorisation d\u0027accès à tous les fichiers : Activez l\u0027interrupteur pour effectuer des opérations réelles (ex. Mkdir, Rmdir). Lorsqu\u0027il est désactivé, les vérifications avancées n\u0027ont aucun effet réel sur le système de fichiers.</string>    <string name="button_close">Annuler</string>
+    <string name="button_go_settings">Aller aux paramètres</string></resources>

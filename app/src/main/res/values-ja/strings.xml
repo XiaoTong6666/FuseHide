@@ -91,4 +91,7 @@
     <string name="diff_summary_mismatch">未保存設定と適用済みの MediaProvider 設定が一致していません。</string>
     <string name="diff_summary_match">未保存設定と適用済みの MediaProvider 設定が一致しています。</string>
     <string name="probe_output_empty">検査出力はまだありません。</string>
+    <string name="hint_manage_storage">すべてのファイルアクセス権限：スイッチをオンにすると実際の操作（Mkdir、Rmdirなど）が実行されます。オフの場合は高度なチェック機能は実際のファイルシステムに影響しません。</string>
+    <string name="button_close">キャンセル</string>
+    <string name="button_go_settings">設定へ</string>
 </resources>

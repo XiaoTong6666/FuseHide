@@ -158,7 +158,7 @@ fun FuseHideHomeScreen(
 private fun PreviewFuseHideHomeScreen() {
     io.github.xiaotong6666.fusehide.ui.theme.fuseHideTheme {
         FuseHideHomeScreen(
-            selectedTab = 1, // 0 预览配置页，改成 1 预览测试页
+            selectedTab = 0, // 0 预览配置页，改成 1 预览测试页
             onTabSelected = {},
             hookStatus = HookStatusUiState(
                 infoText = "Kernel: 6.1.118\nDevice: Fuxi\nSDK: 3600000",
@@ -190,6 +190,7 @@ private fun PreviewFuseHideHomeScreen() {
                 pathText = "/storage/emulated/0/Android",
                 pathText2 = "",
                 outputText = "Stat /storage/emulated/0/Android -> OK",
+                manageStorageGranted = true,
             ),
             configCallbacks = ConfigCallbacks(
                 onStatusClick = {},
@@ -222,6 +223,7 @@ private fun PreviewFuseHideHomeScreen() {
                 onResetClick = {},
                 onCopyAllClick = {},
                 onSelfDataClick = {},
+                onToggleManageStorage = {},
             ),
         )
     }
