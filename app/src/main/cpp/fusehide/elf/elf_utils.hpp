@@ -154,6 +154,12 @@ struct ModuleInfo {
     std::string path;
     const ElfProgramHeader* phdrs = nullptr;
     uint16_t phnum = 0;
+    uintptr_t mappedStart = 0;
+    uintptr_t mappedEnd = 0;
+    size_t fileOffset = 0;
+    uintptr_t execStart = 0;
+    uintptr_t execEnd = 0;
+    int execPerms = 0;
 };
 
 struct MappedFile {
@@ -273,7 +279,7 @@ inline void FlushCodeRange(void* begin, void* end) {
 
 std::optional<ModuleInfo> FindTargetModule();
 std::optional<ModuleInfo> FindModuleFromMaps();
-std::optional<MappedFile> MapReadOnlyFile(const std::string& path);
+std::optional<MappedFile> MapReadOnlyFile(const std::string& path, size_t fileOffset = 0);
 std::optional<MappedFile> MakeOwnedFile(std::vector<std::byte> bytes);
 uint16_t ReadLe16(const std::byte* ptr);
 uint32_t ReadLe32(const std::byte* ptr);

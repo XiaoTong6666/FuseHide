@@ -18,6 +18,98 @@ namespace fusehide {
 
 // Module discovery
 
+namespace {
+
+int ProtFromPerms(const char* perms) {
+    int out = 0;
+    if (perms == nullptr) {
+        return out;
+    }
+    if (perms[0] == 'r') {
+        out |= PROT_READ;
+    }
+    if (perms[1] == 'w') {
+        out |= PROT_WRITE;
+    }
+    if (perms[2] == 'x') {
+        out |= PROT_EXEC;
+    }
+    return out;
+}
+
+std::string TrimMapsPath(std::string path) {
+    while (!path.empty() && (path.back() == '\n' || path.back() == '\r' || path.back() == ' ' ||
+                             path.back() == '\t')) {
+        path.pop_back();
+    }
+    return path;
+}
+
+bool IsReadableFilePath(const std::string& path) {
+    const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0) {
+        return false;
+    }
+    close(fd);
+    return true;
+}
+
+void EnrichModuleFromMaps(ModuleInfo* module) {
+    if (module == nullptr || module->base == 0) {
+        return;
+    }
+    FILE* maps = std::fopen("/proc/self/maps", "re");
+    if (maps == nullptr) {
+        return;
+    }
+
+    bool modulePathUsable = module->path.empty() || module->path.find("!/") != std::string::npos ||
+                            IsReadableFilePath(module->path);
+    char* line = nullptr;
+    size_t lineCap = 0;
+    while (getline(&line, &lineCap, maps) > 0) {
+        unsigned long long start = 0;
+        unsigned long long end = 0;
+        unsigned long long offset = 0;
+        char perms[5] = {};
+        int pathOffset = 0;
+        if (std::sscanf(line, "%llx-%llx %4s %llx %*x:%*x %*lu %n", &start, &end, perms, &offset,
+                        &pathOffset) < 4) {
+            continue;
+        }
+        std::string path = pathOffset > 0 ? TrimMapsPath(line + pathOffset) : std::string();
+        if (path.find(kTargetLibrary) == std::string::npos) {
+            continue;
+        }
+
+        const auto mapStart = static_cast<uintptr_t>(start);
+        const auto mapEnd = static_cast<uintptr_t>(end);
+        const int prot = ProtFromPerms(perms);
+        const bool pathOpenable = IsReadableFilePath(path);
+        if (pathOpenable && !modulePathUsable) {
+            module->path = path;
+            modulePathUsable = true;
+        }
+        if (module->mappedStart == 0 || mapStart < module->mappedStart) {
+            module->mappedStart = mapStart;
+            module->fileOffset = static_cast<size_t>(offset);
+        }
+        if (mapEnd > module->mappedEnd) {
+            module->mappedEnd = mapEnd;
+        }
+        if ((prot & PROT_EXEC) != 0 && module->execStart == 0) {
+            module->execStart = mapStart;
+            module->execEnd = mapEnd;
+            module->execPerms = prot;
+        }
+    }
+
+    if (line != nullptr) {
+        std::free(line);
+    }
+    std::fclose(maps);
+}
+
 int DlIterateCallback(dl_phdr_info* info, size_t, void* data) {
     auto* module = reinterpret_cast<ModuleInfo*>(data);
     if (info == nullptr || info->dlpi_name == nullptr) {
@@ -34,6 +126,8 @@ int DlIterateCallback(dl_phdr_info* info, size_t, void* data) {
     return 1;
 }
 
+}  // namespace
+
 std::optional<ModuleInfo> FindModuleFromMaps() {
     FILE* maps = std::fopen("/proc/self/maps", "re");
     if (maps == nullptr) {
@@ -43,23 +137,39 @@ std::optional<ModuleInfo> FindModuleFromMaps() {
     char* line = nullptr;
     size_t lineCap = 0;
     uintptr_t lowestBase = 0;
+    uintptr_t highestEnd = 0;
     std::string path;
+    size_t fileOffset = 0;
+    uintptr_t execStart = 0;
+    uintptr_t execEnd = 0;
+    int execPerms = 0;
     while (getline(&line, &lineCap, maps) > 0) {
-        const char* found = std::strstr(line, kTargetLibrary);
-        if (found == nullptr) {
+        unsigned long long start = 0;
+        unsigned long long end = 0;
+        unsigned long long offset = 0;
+        char perms[5] = {};
+        int pathOffset = 0;
+        if (std::sscanf(line, "%llx-%llx %4s %llx %*x:%*x %*lu %n", &start, &end, perms, &offset,
+                        &pathOffset) < 4) {
             continue;
         }
-        unsigned long long start = 0;
-        if (std::sscanf(line, "%llx-", &start) != 1) {
+        std::string currentPath = pathOffset > 0 ? TrimMapsPath(line + pathOffset) : std::string();
+        if (currentPath.find(kTargetLibrary) == std::string::npos) {
             continue;
         }
         if (lowestBase == 0 || static_cast<uintptr_t>(start) < lowestBase) {
             lowestBase = static_cast<uintptr_t>(start);
+            fileOffset = static_cast<size_t>(offset);
+            path = currentPath;
         }
-        path = found;
-        while (!path.empty() &&
-               (path.back() == '\n' || path.back() == '\r' || path.back() == ' ')) {
-            path.pop_back();
+        if (static_cast<uintptr_t>(end) > highestEnd) {
+            highestEnd = static_cast<uintptr_t>(end);
+        }
+        const int prot = ProtFromPerms(perms);
+        if ((prot & PROT_EXEC) != 0 && execStart == 0) {
+            execStart = static_cast<uintptr_t>(start);
+            execEnd = static_cast<uintptr_t>(end);
+            execPerms = prot;
         }
     }
 
@@ -71,13 +181,23 @@ std::optional<ModuleInfo> FindModuleFromMaps() {
     if (lowestBase == 0 || path.empty()) {
         return std::nullopt;
     }
-    return ModuleInfo{lowestBase, path};
+    ModuleInfo module;
+    module.base = lowestBase;
+    module.path = path;
+    module.mappedStart = lowestBase;
+    module.mappedEnd = highestEnd;
+    module.fileOffset = fileOffset;
+    module.execStart = execStart;
+    module.execEnd = execEnd;
+    module.execPerms = execPerms;
+    return module;
 }
 
 std::optional<ModuleInfo> FindTargetModule() {
     ModuleInfo module;
     dl_iterate_phdr(DlIterateCallback, &module);
     if (module.base != 0 && !module.path.empty()) {
+        EnrichModuleFromMaps(&module);
         return module;
     }
     return FindModuleFromMaps();
@@ -85,7 +205,7 @@ std::optional<ModuleInfo> FindTargetModule() {
 
 // ELF file mapping and parsing
 
-std::optional<MappedFile> MapReadOnlyFile(const std::string& path) {
+std::optional<MappedFile> MapReadOnlyFile(const std::string& path, size_t fileOffset) {
     const int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
         __android_log_print(6, kLogTag, "failed with %d %s: elf_parser: open %s", errno,
@@ -101,7 +221,32 @@ std::optional<MappedFile> MapReadOnlyFile(const std::string& path) {
         return std::nullopt;
     }
 
-    void* address = mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0);
+    size_t effectiveOffset = 0;
+    if (fileOffset != 0 && fileOffset < static_cast<size_t>(st.st_size)) {
+        char elfMagic[SELFMAG];
+        const ssize_t bytesRead =
+            pread(fd, elfMagic, sizeof(elfMagic), static_cast<off_t>(fileOffset));
+        if (bytesRead == SELFMAG && std::memcmp(elfMagic, ELFMAG, SELFMAG) == 0) {
+            effectiveOffset = fileOffset;
+        } else {
+            __android_log_print(4, kLogTag, "elf_parser: offset %zu in %s is not an ELF header",
+                                fileOffset, path.c_str());
+            close(fd);
+            return std::nullopt;
+        }
+    } else if (fileOffset != 0) {
+        __android_log_print(4, kLogTag, "elf_parser: offset %zu is outside %s size %zu", fileOffset,
+                            path.c_str(), static_cast<size_t>(st.st_size));
+        close(fd);
+        return std::nullopt;
+    }
+
+    const size_t pageSize = static_cast<size_t>(getpagesize());
+    const size_t mapOffset = effectiveOffset & ~(pageSize - 1);
+    const size_t delta = effectiveOffset - mapOffset;
+    const size_t mapSize = static_cast<size_t>(st.st_size) - mapOffset;
+    void* address =
+        mmap(nullptr, mapSize, PROT_READ, MAP_PRIVATE, fd, static_cast<off_t>(mapOffset));
     close(fd);
     if (address == MAP_FAILED) {
         __android_log_print(6, kLogTag, "failed with %d %s: elf_parser: mmap %s", errno,
@@ -109,8 +254,8 @@ std::optional<MappedFile> MapReadOnlyFile(const std::string& path) {
         return std::nullopt;
     }
 
-    return MappedFile{address, static_cast<size_t>(st.st_size),
-                      reinterpret_cast<const std::byte*>(address), static_cast<size_t>(st.st_size)};
+    const auto* mappedBytes = reinterpret_cast<const std::byte*>(address);
+    return MappedFile{address, mapSize, mappedBytes + delta, mapSize - delta};
 }
 
 std::optional<MappedFile> MakeOwnedFile(std::vector<std::byte> bytes) {

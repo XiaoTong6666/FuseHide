@@ -113,7 +113,7 @@ void InstallCompareHook(const ElfInfo& elfInfo, std::string_view symbolName,
 // Unified symbol resolution (dynamic-first, section fallback)
 
 std::optional<void*> ResolveTargetSymbol(const ModuleInfo& module, std::string_view symbolName) {
-    auto mapped = MapReadOnlyFile(module.path);
+    auto mapped = MapReadOnlyFile(module.path, module.fileOffset);
     if (!mapped.has_value()) {
         return std::nullopt;
     }
@@ -214,7 +214,7 @@ std::optional<void*> ResolveTargetSymbolRuntime(const ModuleInfo& module,
     if (module.path.find("!/") != std::string::npos) {
         mapped = MapEmbeddedStoredElf(module.path);
     } else {
-        mapped = MapReadOnlyFile(module.path);
+        mapped = MapReadOnlyFile(module.path, module.fileOffset);
     }
 
     if (!mapped.has_value()) {
@@ -284,7 +284,7 @@ std::optional<uintptr_t> ResolveLargestSymbolOffsetContaining(const ModuleInfo& 
     if (module.path.find("!/") != std::string::npos) {
         mapped = MapEmbeddedStoredElf(module.path);
     } else {
-        mapped = MapReadOnlyFile(module.path);
+        mapped = MapReadOnlyFile(module.path, module.fileOffset);
     }
     if (!mapped.has_value()) {
         return std::nullopt;
@@ -850,7 +850,7 @@ void LogCoreHookStatus(const char* stage, const CoreHookStatus& status) {
 }
 
 std::optional<FileElfContext> BuildFileElfContext(const ModuleInfo& module) {
-    auto mapped = MapReadOnlyFile(module.path);
+    auto mapped = MapReadOnlyFile(module.path, module.fileOffset);
     if (!mapped.has_value()) {
         return std::nullopt;
     }
