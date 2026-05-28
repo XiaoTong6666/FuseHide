@@ -56,7 +56,6 @@ data class DebugUiState(
     val pathText: String,
     val pathText2: String,
     val outputText: String,
-    val manageStorageGranted: Boolean,
 )
 
 data class ConfigCallbacks(
@@ -91,5 +90,4 @@ data class DebugCallbacks(
     val onResetClick: () -> Unit,
     val onCopyAllClick: () -> Unit,
     val onSelfDataClick: () -> Unit,
-    val onToggleManageStorage: (Boolean) -> Unit,
 )

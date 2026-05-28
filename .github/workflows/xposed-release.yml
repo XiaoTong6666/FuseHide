@@ -1,0 +1,115 @@
+name: Xposed Release
+
+on:
+  workflow_call:
+    inputs:
+      main_repo:
+        required: true
+        type: string
+      target_repo:
+        required: true
+        type: string
+      version_name:
+        required: true
+        type: string
+      version_code:
+        required: true
+        type: string
+      community_tag:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
+      commit_full_sha:
+        required: true
+        type: string
+      build_duration:
+        required: true
+        type: string
+      release_apk_name:
+        required: true
+        type: string
+      release_sha256:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  xposed-release:
+    name: Sync Xposed community release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download APK files
+        uses: actions/download-artifact@v4
+        with:
+          name: apk-files
+          path: dist/apks
+
+      - name: Download build metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: build-metadata
+          path: dist/metadata
+
+      - name: Sync community release
+        env:
+          GH_TOKEN: ${{ secrets.XPOSED_REPO_TOKEN }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+          MAIN_REPO: ${{ inputs.main_repo }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          COMMUNITY_TAG: ${{ inputs.community_tag }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          COMMIT_FULL_SHA: ${{ inputs.commit_full_sha }}
+          BUILD_DURATION: ${{ inputs.build_duration }}
+          RELEASE_APK_NAME: ${{ inputs.release_apk_name }}
+          RELEASE_SHA256: ${{ inputs.release_sha256 }}
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}"
+
+          MAIN_REPO_URL="https://github.com/${MAIN_REPO}"
+          COMMIT_URL="${MAIN_REPO_URL}/commit/${COMMIT_FULL_SHA}"
+          RELEASE_APK="dist/apks/release/${RELEASE_APK_NAME}"
+
+          test -f "$RELEASE_APK"
+
+          {
+            echo "同步自 [主仓库](${MAIN_REPO_URL}) 构建产物喵"
+            echo
+            echo "- **Version:** \`${VERSION_NAME}\`"
+            echo "- **VersionCode:** \`${VERSION_CODE}\`"
+            echo "- **Commit:** [\`${COMMIT_SHA}\`](${COMMIT_URL})"
+            echo "- **Build time:** \`${BUILD_DURATION}\`"
+            echo "- **SHA256:** \`${RELEASE_SHA256}\`"
+            echo
+            echo "## Message"
+            echo
+            echo '```text'
+            cat dist/metadata/commit-message.txt
+            echo '```'
+          } > community-release-note.md
+
+          if gh release view "$COMMUNITY_TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            gh release edit "$COMMUNITY_TAG" \
+              --repo "$TARGET_REPO" \
+              --title "$VERSION_NAME" \
+              --notes-file community-release-note.md
+          else
+            gh release create "$COMMUNITY_TAG" \
+              --repo "$TARGET_REPO" \
+              --title "$VERSION_NAME" \
+              --notes-file community-release-note.md
+          fi
+
+          gh release upload "$COMMUNITY_TAG" "$RELEASE_APK" \
+            --repo "$TARGET_REPO" \
+            --clobber

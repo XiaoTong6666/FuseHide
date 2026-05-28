@@ -18,14 +18,16 @@
 
 package io.github.xiaotong6666.fusehide.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
-import io.github.xiaotong6666.fusehide.ui.LocalUiMode
-import io.github.xiaotong6666.fusehide.ui.UiMode
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.darkColorScheme
+import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 @Composable
-fun fuseHideTheme(content: @Composable () -> Unit) {
-    when (LocalUiMode.current) {
-        UiMode.Miuix -> MiuixFuseHideTheme(content)
-        UiMode.Material -> MaterialFuseHideTheme(content)
-    }
+fun MiuixFuseHideTheme(content: @Composable () -> Unit) {
+    MiuixTheme(
+        colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme(),
+        content = content,
+    )
 }

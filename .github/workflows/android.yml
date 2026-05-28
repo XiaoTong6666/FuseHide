@@ -15,13 +15,11 @@
 name: Android CI
 
 on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: 'Publish GitHub Release?'
-        required: true
-        type: boolean
-        default: false
 
 permissions:
   contents: write
@@ -41,11 +39,11 @@ jobs:
   release:
     name: Publish GitHub release
     needs: build
-    if: ${{ inputs.publish_release }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     uses: ./.github/workflows/release.yml
     with:
       release_tag: v${{ needs.build.outputs.version_code }}
-      release_title: FuseHide Material ${{ needs.build.outputs.version_name }}
+      release_title: FuseHide ${{ needs.build.outputs.version_name }}
       delete_existing_assets: true
       version_name: ${{ needs.build.outputs.version_name }}
       version_code: ${{ needs.build.outputs.version_code }}
@@ -56,4 +54,24 @@ jobs:
       debug_apk_name: ${{ needs.build.outputs.debug_apk_name }}
       release_sha256: ${{ needs.build.outputs.release_sha256 }}
       debug_sha256: ${{ needs.build.outputs.debug_sha256 }}
+    secrets: inherit
+
+  xposed-release:
+    name: Sync Xposed community release
+    needs:
+      - build
+      - release
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    uses: ./.github/workflows/xposed-release.yml
+    with:
+      main_repo: XiaoTong6666/FuseHide
+      target_repo: Xposed-Modules-Repo/io.github.xiaotong6666.fusehide
+      version_name: ${{ needs.build.outputs.version_name }}
+      version_code: ${{ needs.build.outputs.version_code }}
+      community_tag: ${{ needs.build.outputs.community_tag }}
+      commit_sha: ${{ needs.build.outputs.commit_sha }}
+      commit_full_sha: ${{ needs.build.outputs.commit_full_sha }}
+      build_duration: ${{ needs.build.outputs.build_duration }}
+      release_apk_name: ${{ needs.build.outputs.release_apk_name }}
+      release_sha256: ${{ needs.build.outputs.release_sha256 }}
     secrets: inherit

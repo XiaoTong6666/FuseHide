@@ -91,7 +91,4 @@
     <string name="diff_summary_mismatch">Die nicht gespeicherte Konfiguration stimmt nicht mit der angewendeten MediaProvider-Konfiguration überein.</string>
     <string name="diff_summary_match">Die nicht gespeicherte Konfiguration stimmt mit der angewendeten MediaProvider-Konfiguration überein.</string>
     <string name="probe_output_empty">Noch keine Prüfausgabe.</string>
-    <string name="hint_manage_storage">Berechtigung für alle Dateien: Schalter aktivieren, um tatsächliche Vorgänge (z. B. Mkdir, Rmdir) auszuführen. Wenn deaktiviert, haben die erweiterten Prüfungen keine tatsächliche Auswirkung auf das Dateisystem.</string>
-    <string name="button_close">Abbrechen</string>
-    <string name="button_go_settings">Zu den Einstellungen</string>
 </resources>

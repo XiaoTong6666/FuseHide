@@ -91,7 +91,4 @@
     <string name="diff_summary_mismatch">미저장 설정이 적용된 MediaProvider 설정과 일치하지 않습니다.</string>
     <string name="diff_summary_match">미저장 설정이 적용된 MediaProvider 설정과 일치합니다.</string>
     <string name="probe_output_empty">아직 검사 출력이 없습니다.</string>
-    <string name="hint_manage_storage">모든 파일 접근 권한: 스위치를 켜면 실제 작업(Mkdir, Rmdir 등)이 수행됩니다. 끄면 고급 검사 기능이 실제 파일 시스템에 영향을 주지 않습니다.</string>
-    <string name="button_close">취소</string>
-    <string name="button_go_settings">설정으로</string>
 </resources>

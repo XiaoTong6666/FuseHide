@@ -21,18 +21,16 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.IntentFilter
-import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
 import android.system.Os
 import android.system.StructUtsname
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -93,7 +91,7 @@ class MainActivity : ComponentActivity() {
     private var pathText by mutableStateOf(PathDebugActions.defaultPath())
     private var pathText2 by mutableStateOf("")
     private var outputText by mutableStateOf("")
-    private var manageStorageGranted by mutableStateOf(false)
+    private var uiMode by mutableStateOf(UiMode.Miuix)
 
     private var hookedPackage: String? = null
     private var hookedPid: Int = -1
@@ -123,7 +121,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        refreshManageStorageState()
+        uiMode = UiMode.fromPrefs(this)
         appendInfo()
         applyConfigToEditor(HideConfigStore.load(this))
         configStatusText = getString(R.string.config_loaded_saved) + "\n"
@@ -198,16 +196,23 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            fuseHideTheme {
-                FuseHideHomeScreen(
-                    selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it },
-                    hookStatus = hookStatusUiState(),
-                    configState = configUiState(),
-                    debugState = debugUiState(),
-                    configCallbacks = configCallbacks(),
-                    debugCallbacks = debugCallbacks(),
-                )
+            CompositionLocalProvider(LocalUiMode provides uiMode) {
+                fuseHideTheme {
+                    FuseHideHomeScreen(
+                        selectedTab = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        hookStatus = hookStatusUiState(),
+                        configState = configUiState(),
+                        debugState = debugUiState(),
+                        configCallbacks = configCallbacks(),
+                        debugCallbacks = debugCallbacks(),
+                        onToggleUiMode = {
+                            val next = if (uiMode == UiMode.Miuix) UiMode.Material else UiMode.Miuix
+                            UiMode.saveToPrefs(this@MainActivity, next)
+                            uiMode = next
+                        },
+                    )
+                }
             }
         }
 
@@ -220,24 +225,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleDebugIntent(intent)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        refreshManageStorageState()
-    }
-
-    private fun refreshManageStorageState() {
-        manageStorageGranted = Build.VERSION.SDK_INT >= 30 && Environment.isExternalStorageManager()
-    }
-
-    private fun launchManageStorageSettings() {
-        if (Build.VERSION.SDK_INT < 30) return
-        val intent = Intent(
-            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-            Uri.parse("package:$packageName"),
-        )
-        startActivity(intent)
     }
 
     private fun handleDebugIntent(intent: Intent?) {
@@ -415,7 +402,6 @@ class MainActivity : ComponentActivity() {
         pathText = pathText,
         pathText2 = pathText2,
         outputText = outputText,
-        manageStorageGranted = manageStorageGranted,
     )
 
     private fun configCallbacks(): ConfigCallbacks = ConfigCallbacks(
@@ -450,7 +436,6 @@ class MainActivity : ComponentActivity() {
         onResetClick = { pathText = PathDebugActions.defaultPath() },
         onCopyAllClick = ::copyAll,
         onSelfDataClick = { appendOutput("external files dir: ${getExternalFilesDir("")}\n") },
-        onToggleManageStorage = { launchManageStorageSettings() },
     )
 
     private fun saveHideConfig() {

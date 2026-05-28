@@ -91,7 +91,4 @@
     <string name="diff_summary_mismatch">未儲存設定與已套用的 MediaProvider 設定不一致。</string>
     <string name="diff_summary_match">未儲存設定與已套用的 MediaProvider 設定一致。</string>
     <string name="probe_output_empty">目前沒有檢測輸出。</string>
-    <string name="hint_manage_storage">所有檔案存取權限：開啟開關則執行實際操作（如Mkdir、Rmdir等），不開啟則不對進階檢測部分功能造成實際操作影響。</string>
-    <string name="button_close">取消</string>
-    <string name="button_go_settings">去設定</string>
 </resources>

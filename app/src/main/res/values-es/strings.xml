@@ -91,7 +91,4 @@
     <string name="diff_summary_mismatch">La configuración sin guardar no coincide con la configuración aplicada de MediaProvider.</string>
     <string name="diff_summary_match">La configuración sin guardar coincide con la configuración aplicada de MediaProvider.</string>
     <string name="probe_output_empty">Todavía no hay salida de comprobación.</string>
-    <string name="hint_manage_storage">Permiso de acceso a todos los archivos: Active el interruptor para realizar operaciones reales (ej. Mkdir, Rmdir). Cuando está apagado, las comprobaciones avanzadas no tendrán ningún efecto real en el sistema de archivos.</string>
-    <string name="button_close">Cancelar</string>
-    <string name="button_go_settings">Ir a Ajustes</string>
 </resources>

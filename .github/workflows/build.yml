@@ -129,8 +129,8 @@ jobs:
           VERSION_CODE="$(git rev-list --count HEAD)"
           VERSION_NAME="1.${VERSION_CODE}"
           COMMUNITY_TAG="${VERSION_CODE}-${VERSION_NAME}"
-          DEBUG_APK_NAME="FuseHide-Material_Debug_v${VERSION_CODE}.apk"
-          RELEASE_APK_NAME="FuseHide-Material_v${VERSION_CODE}.apk"
+          DEBUG_APK_NAME="FuseHide_Debug_v${VERSION_CODE}.apk"
+          RELEASE_APK_NAME="FuseHide_v${VERSION_CODE}.apk"
           DEBUG_ARTIFACT_NAME="app-debug"
           RELEASE_ARTIFACT_NAME="app-release"
 

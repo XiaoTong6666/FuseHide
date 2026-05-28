@@ -139,7 +139,7 @@ jobs:
           overwrite_files: ${{ inputs.delete_existing_assets }}
           fail_on_unmatched_files: true
           files: |
-            dist/apks/debug/FuseHide-Material-Debug_v*.apk
-            dist/apks/release/FuseHide-Material_v*.apk
+            dist/apks/debug/FuseHide_Debug_v*.apk
+            dist/apks/release/FuseHide_v*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

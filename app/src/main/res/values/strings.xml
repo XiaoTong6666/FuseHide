@@ -91,7 +91,4 @@
     <string name="diff_summary_mismatch">The unsaved config does not match the applied MediaProvider config.</string>
     <string name="diff_summary_match">The unsaved config matches the applied MediaProvider config.</string>
     <string name="probe_output_empty">No check output yet.</string>
-    <string name="hint_manage_storage">All files access permission: Turn on the switch to perform actual file operations (e.g., Mkdir, Rmdir). When off, the advanced check buttons will not affect the real filesystem.</string>
-    <string name="button_close">Cancel</string>
-    <string name="button_go_settings">Go to Settings</string>
 </resources>
