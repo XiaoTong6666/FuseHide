@@ -235,7 +235,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT < 30) return
         val intent = Intent(
             Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-            Uri.parse("package:$packageName")
+            Uri.parse("package:$packageName"),
         )
         startActivity(intent)
     }

@@ -31,9 +31,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -303,8 +303,11 @@ fun ConfigScreen(
                     onClick = { showDetailedDiff = !showDetailedDiff },
                 ) {
                     Text(
-                        if (showDetailedDiff) stringResource(R.string.button_hide_detailed_diff)
-                        else stringResource(R.string.button_show_detailed_diff),
+                        if (showDetailedDiff) {
+                            stringResource(R.string.button_hide_detailed_diff)
+                        } else {
+                            stringResource(R.string.button_show_detailed_diff)
+                        },
                     )
                 }
                 if (showDetailedDiff) {
@@ -345,8 +348,11 @@ fun ConfigScreen(
                     },
                 ) {
                     Text(
-                        if (showAppliedSnapshot) stringResource(R.string.button_hide)
-                        else stringResource(R.string.button_show),
+                        if (showAppliedSnapshot) {
+                            stringResource(R.string.button_hide)
+                        } else {
+                            stringResource(R.string.button_show)
+                        },
                     )
                 }
             }
