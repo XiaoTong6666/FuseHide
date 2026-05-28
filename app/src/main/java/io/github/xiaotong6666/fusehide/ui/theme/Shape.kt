@@ -14,18 +14,16 @@
  * limitations under the License.
  */
 
-@file:Suppress("ktlint:standard:function-naming")
-
 package io.github.xiaotong6666.fusehide.ui.theme
 
-import androidx.compose.runtime.Composable
-import io.github.xiaotong6666.fusehide.ui.LocalUiMode
-import io.github.xiaotong6666.fusehide.ui.UiMode
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
+import androidx.compose.ui.unit.dp
 
-@Composable
-fun fuseHideTheme(content: @Composable () -> Unit) {
-    when (LocalUiMode.current) {
-        UiMode.Miuix -> MiuixFuseHideTheme(content)
-        UiMode.Material -> MaterialFuseHideTheme(content)
-    }
-}
+val FuseHideShapes = Shapes(
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(24.dp),
+    extraLarge = RoundedCornerShape(28.dp),
+)

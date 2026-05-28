@@ -30,6 +30,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -90,6 +91,7 @@ class MainActivity : ComponentActivity() {
     private var pathText by mutableStateOf(PathDebugActions.defaultPath())
     private var pathText2 by mutableStateOf("")
     private var outputText by mutableStateOf("")
+    private var uiMode by mutableStateOf(UiMode.Miuix)
 
     private var hookedPackage: String? = null
     private var hookedPid: Int = -1
@@ -119,6 +121,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        uiMode = UiMode.fromPrefs(this)
         appendInfo()
         applyConfigToEditor(HideConfigStore.load(this))
         configStatusText = getString(R.string.config_loaded_saved) + "\n"
@@ -193,16 +196,23 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            fuseHideTheme {
-                FuseHideHomeScreen(
-                    selectedTab = selectedTab,
-                    onTabSelected = { selectedTab = it },
-                    hookStatus = hookStatusUiState(),
-                    configState = configUiState(),
-                    debugState = debugUiState(),
-                    configCallbacks = configCallbacks(),
-                    debugCallbacks = debugCallbacks(),
-                )
+            CompositionLocalProvider(LocalUiMode provides uiMode) {
+                fuseHideTheme {
+                    FuseHideHomeScreen(
+                        selectedTab = selectedTab,
+                        onTabSelected = { selectedTab = it },
+                        hookStatus = hookStatusUiState(),
+                        configState = configUiState(),
+                        debugState = debugUiState(),
+                        configCallbacks = configCallbacks(),
+                        debugCallbacks = debugCallbacks(),
+                        onToggleUiMode = {
+                            val next = if (uiMode == UiMode.Miuix) UiMode.Material else UiMode.Miuix
+                            UiMode.saveToPrefs(this@MainActivity, next)
+                            uiMode = next
+                        },
+                    )
+                }
             }
         }
 
