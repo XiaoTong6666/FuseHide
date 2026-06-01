@@ -45,12 +45,7 @@ spotless {
         targetExclude("**/api/**", "**/build/**")
         ktlint().editorConfigOverride(
             mapOf(
-                "standard:backing-property-naming" to "disabled",
-                "standard:no-wildcard-imports" to "disabled",
-                "standard:property-naming" to "disabled",
-                "standard:function-naming" to "disabled",
-                "standard:max-line-length" to "disabled",
-                "standard:comment-wrapping" to "disabled"
+                "ktlint_standard_max-line-length" to "disabled"
             )
         )
     }
