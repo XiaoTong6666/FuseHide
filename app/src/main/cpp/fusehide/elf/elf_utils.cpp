@@ -213,7 +213,7 @@ std::optional<MappedFile> MapReadOnlyFile(const std::string& path, size_t fileOf
         return std::nullopt;
     }
 
-    struct stat st {};
+    struct stat st{};
     if (fstat(fd, &st) != 0) {
         __android_log_print(6, kLogTag, "failed with %d %s: elf_parser: stat %s", errno,
                             strerror(errno), path.c_str());

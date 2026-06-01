@@ -525,7 +525,7 @@ int ScoreHookProfile(const DeviceHookProfile& profile, const ResolvedHookFeature
 
 void ApplyResolvedHookFeatureOverrides(const ResolvedHookFeatureOffsets& features,
                                        DeviceHookProfile* profile, int* overrideCount) {
-    auto apply = [&](const std::optional<uintptr_t>& value, uintptr_t DeviceHookProfile::*field) {
+    auto apply = [&](const std::optional<uintptr_t>& value, uintptr_t DeviceHookProfile::* field) {
         if (!value.has_value()) {
             return;
         }
