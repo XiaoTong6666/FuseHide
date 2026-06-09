@@ -48,6 +48,7 @@ import top.yukonga.miuix.kmp.basic.Checkbox
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.TextFieldDefaults
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.Locale
 
@@ -97,9 +98,11 @@ fun AppTextFieldMiuix(
         onValueChange = onValueChange,
         modifier = modifier,
         label = label,
-        backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
-        labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        borderColor = MiuixTheme.colorScheme.primary,
+        colors = TextFieldDefaults.textFieldColors(
+            backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+            labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            borderColor = MiuixTheme.colorScheme.primary,
+        ),
         textStyle = MiuixTheme.textStyles.main.copy(color = MiuixTheme.colorScheme.onSurface),
         singleLine = singleLine,
     )
@@ -119,9 +122,11 @@ fun ConfigTextFieldMiuix(
         onValueChange = onValueChange,
         modifier = modifier,
         label = label,
-        backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
-        labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-        borderColor = MiuixTheme.colorScheme.primary,
+        colors = TextFieldDefaults.textFieldColors(
+            backgroundColor = MiuixTheme.colorScheme.surfaceContainerHighest,
+            labelColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            borderColor = MiuixTheme.colorScheme.primary,
+        ),
         textStyle = MiuixTheme.textStyles.main.copy(color = MiuixTheme.colorScheme.onSurfaceSecondary),
         minLines = minLines,
         maxLines = maxLines,
