@@ -16,62 +16,12 @@
 
 namespace fusehide {
 
-// Hook state for libfuse_jni.so running inside the MediaProvider process.
-void* gOriginalPfLookup = nullptr;
-void* gOriginalPfLookupPostfilter = nullptr;
-void* gOriginalPfAccess = nullptr;
-void* gOriginalPfOpen = nullptr;
-void* gOriginalPfOpendir = nullptr;
-void* gOriginalPfMknod = nullptr;
-void* gOriginalPfMkdir = nullptr;
-void* gOriginalPfUnlink = nullptr;
-void* gOriginalPfRmdir = nullptr;
-void* gOriginalPfRename = nullptr;
-void* gOriginalPfCreate = nullptr;
-void* gOriginalPfReaddir = nullptr;
-void* gOriginalPfReaddirPostfilter = nullptr;
-void* gOriginalPfReaddirplus = nullptr;
-void* gOriginalDoReaddirCommon = nullptr;
-void* gOriginalPfGetattr = nullptr;
-void* gOriginalOpen = nullptr;
-void* gOriginalOpen2 = nullptr;
-void* gOriginalMkdir = nullptr;
-void* gOriginalMknod = nullptr;
-void* gOriginalLstat = nullptr;
-void* gOriginalStat = nullptr;
-void* gOriginalGetxattr = nullptr;
-void* gOriginalLgetxattr = nullptr;
-void* gOriginalShouldNotCache = nullptr;
-void* gOriginalNotifyInvalEntry = nullptr;
-void* gOriginalNotifyInvalInode = nullptr;
-void* gOriginalReplyAttr = nullptr;
-void* gOriginalReplyEntry = nullptr;
-void* gOriginalReplyBuf = nullptr;
-void* gOriginalReplyErr = nullptr;
-void* gOriginalGetDirectoryEntries = nullptr;
-void* gOriginalAddDirectoryEntriesFromLowerFs = nullptr;
-std::atomic<void*> gLastFuseSession{nullptr};
-std::atomic<bool> gHiddenEntryInvalidationPending{false};
-std::atomic<uint64_t> gHiddenRootParentInode{0};
-thread_local bool gInPfLookup = false;
-thread_local bool gInPfLookupPostfilter = false;
-thread_local bool gInPfReaddir = false;
-thread_local bool gInPfReaddirPostfilter = false;
-thread_local bool gInPfReaddirplus = false;
-thread_local bool gInPfGetattr = false;
-thread_local uint32_t gPfGetattrUid = 0;
-thread_local uint32_t gPfReaddirUid = 0;
-thread_local uint64_t gPfGetattrIno = 0;
-thread_local uint64_t gPfReaddirIno = 0;
-thread_local uint64_t gCurrentLookupParentInode = 0;
-thread_local std::string gCurrentLookupName;
-thread_local bool gTrackRootHiddenLookup = false;
-thread_local bool gTrackHiddenSubtreeLookup = false;
-thread_local bool gZeroAttrCacheForCurrentGetattr = false;
-thread_local fuse_req_t gPendingHiddenErrReq = nullptr;
-thread_local uint64_t gPendingHiddenErrReqUnique = 0;
-thread_local int gPendingHiddenErrno = 0;
-thread_local uint64_t gCurrentReaddirReqUnique = 0;
+thread_local HookThreadState gHookThreadState;
+
+AnchorProcessState& ProcessState() {
+    static AnchorProcessState state;
+    return state;
+}
 
 namespace ReplyErrorBridge {
 
@@ -88,7 +38,7 @@ void LogFallbackFailure(const char* caller) {
 }  // namespace
 
 FuseReplyErrFn Original() {
-    return reinterpret_cast<FuseReplyErrFn>(gOriginalReplyErr);
+    return reinterpret_cast<FuseReplyErrFn>(ProcessState().originalReplyErr);
 }
 
 FuseReplyErrFn Resolve() {
@@ -122,17 +72,6 @@ std::optional<int> Reply(fuse_req_t req, int err, const char* caller) {
 
 }  // namespace ReplyErrorBridge
 
-std::mutex gHiddenSubtreeInodesMutex;
-std::unordered_set<uint64_t> gHiddenSubtreeInodes;
-std::mutex gInodePathCacheMutex;
-std::unordered_map<uint64_t, std::string> gInodePathCache;
-std::mutex gPendingReaddirContextsMutex;
-std::unordered_map<uint64_t, PendingReaddirContext> gPendingReaddirContexts;
-std::mutex gRecentHiddenParentPathsMutex;
-std::unordered_map<uint32_t, std::string> gRecentHiddenParentPaths;
-std::unordered_map<uint32_t, uint32_t> gRecentHiddenParentPathUids;
-std::string gRecentHiddenParentPathAnyUid;
-uint32_t gRecentHiddenParentPathAnyUidOwner = 0;
 std::mutex gUidErrRemapMutex;
 
 struct UidErrRemapState {
@@ -159,30 +98,32 @@ uint32_t RuntimeState::ReqUid(fuse_req_t req) {
 
 void RuntimeState::RememberFuseSession(fuse_req_t req) {
     if (req != nullptr && req->se != nullptr) {
-        gLastFuseSession.store(req->se, std::memory_order_relaxed);
+        ProcessState().lastFuseSession.store(req->se, std::memory_order_relaxed);
     }
 }
 
 // Shared dentry cache is not scoped per uid. Once another app resolves the hidden entry, the
 // target uid can reuse that positive cache unless we actively invalidate the root dentry.
 void RuntimeState::ScheduleHiddenEntryInvalidation() {
-    auto notifyEntry =
-        reinterpret_cast<int (*)(void*, uint64_t, const char*, size_t)>(gOriginalNotifyInvalEntry);
-    void* session = gLastFuseSession.load(std::memory_order_relaxed);
+    auto& process = ProcessState();
+    auto notifyEntry = reinterpret_cast<int (*)(void*, uint64_t, const char*, size_t)>(
+        process.originalNotifyInvalEntry);
+    void* session = process.lastFuseSession.load(std::memory_order_relaxed);
     if (notifyEntry == nullptr || session == nullptr) {
         return;
     }
-    if (gHiddenEntryInvalidationPending.exchange(true, std::memory_order_acq_rel)) {
+    if (process.hiddenEntryInvalidationPending.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
-    const uint64_t parent = gHiddenRootParentInode.load(std::memory_order_relaxed);
+    const uint64_t parent = process.hiddenRootParentInode.load(std::memory_order_relaxed);
     if (parent == 0) {
-        gHiddenEntryInvalidationPending.store(false, std::memory_order_release);
+        process.hiddenEntryInvalidationPending.store(false, std::memory_order_release);
         return;
     }
-    std::thread([notifyEntry, session]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
+    EnqueueAnchorTask(std::chrono::milliseconds(50), [notifyEntry, session]() {
+        auto& processState = ProcessState();
+        const uint64_t rootParent =
+            processState.hiddenRootParentInode.load(std::memory_order_relaxed);
         const auto rule = RuleForAnyPackage();
         std::unordered_set<std::string> namesToInvalidate;
         if (rule != nullptr) {
@@ -212,40 +153,40 @@ void RuntimeState::ScheduleHiddenEntryInvalidation() {
             DebugLogPrint(4, "scheduled hidden entry invalidation parent=0x%lx name=%s ret=%d",
                           (unsigned long)rootParent, DebugPreview(name).c_str(), ret);
         }
-        gHiddenEntryInvalidationPending.store(false, std::memory_order_release);
-    }).detach();
+        processState.hiddenEntryInvalidationPending.store(false, std::memory_order_release);
+    });
 }
 
 void RuntimeState::ScheduleSpecificEntryInvalidation(uint64_t parent, std::string_view name) {
-    auto notifyEntry =
-        reinterpret_cast<int (*)(void*, uint64_t, const char*, size_t)>(gOriginalNotifyInvalEntry);
-    void* session = gLastFuseSession.load(std::memory_order_relaxed);
+    auto& process = ProcessState();
+    auto notifyEntry = reinterpret_cast<int (*)(void*, uint64_t, const char*, size_t)>(
+        process.originalNotifyInvalEntry);
+    void* session = process.lastFuseSession.load(std::memory_order_relaxed);
     if (notifyEntry == nullptr || session == nullptr || parent == 0 || name.empty()) {
         return;
     }
     const std::string ownedName(name);
-    std::thread([notifyEntry, session, parent, ownedName]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    EnqueueAnchorTask(std::chrono::milliseconds(25), [notifyEntry, session, parent, ownedName]() {
         const int ret = notifyEntry(session, parent, ownedName.c_str(), ownedName.size());
         DebugLogPrint(4, "scheduled specific entry invalidation parent=%s name=%s ret=%d",
                       InodePath(parent).c_str(), DebugPreview(ownedName).c_str(), ret);
-    }).detach();
+    });
 }
 
 // Track subtree inodes so later getattr/readdir replies can also be forced uncached.
 void RuntimeState::ScheduleHiddenInodeInvalidation(uint64_t ino) {
+    auto& process = ProcessState();
     auto notifyInode =
-        reinterpret_cast<int (*)(void*, uint64_t, off_t, off_t)>(gOriginalNotifyInvalInode);
-    void* session = gLastFuseSession.load(std::memory_order_relaxed);
+        reinterpret_cast<int (*)(void*, uint64_t, off_t, off_t)>(process.originalNotifyInvalInode);
+    void* session = process.lastFuseSession.load(std::memory_order_relaxed);
     if (notifyInode == nullptr || session == nullptr || ino == 0) {
         return;
     }
-    std::thread([notifyInode, session, ino]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EnqueueAnchorTask(std::chrono::milliseconds(50), [notifyInode, session, ino]() {
         const int ret = notifyInode(session, ino, 0, 0);
         DebugLogPrint(4, "scheduled hidden inode invalidation ino=0x%lx ret=%d", (unsigned long)ino,
                       ret);
-    }).detach();
+    });
 }
 
 std::string InodePath(uint64_t ino) {
@@ -279,7 +220,8 @@ bool IsHiddenLookupCacheTarget(uint32_t uid, uint64_t parent, const char* name) 
     if (rule == nullptr) {
         return false;
     }
-    const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
+    const uint64_t rootParent =
+        ProcessState().hiddenRootParentInode.load(std::memory_order_relaxed);
     if (rootParent != 0 && parent == rootParent && rule->enableHideAllRootEntries &&
         IsWildcardRootEntryCandidate(name)) {
         return true;
@@ -314,7 +256,8 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     if (!IsTestHiddenUid(uid) || name == nullptr) {
         return HiddenNamedTargetKind::None;
     }
-    const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
+    const uint64_t rootParent =
+        ProcessState().hiddenRootParentInode.load(std::memory_order_relaxed);
     if (parent != 0 && parent != rootParent && IsTrackedHiddenSubtreeInode(parent)) {
         return HiddenNamedTargetKind::Descendant;
     }
@@ -381,9 +324,9 @@ void ArmHiddenErrorRemap(fuse_req_t req, int err, const char* opName) {
     if (req == nullptr || err <= 0) {
         return;
     }
-    gPendingHiddenErrReq = req;
-    gPendingHiddenErrReqUnique = req->unique;
-    gPendingHiddenErrno = err;
+    gHookThreadState.pendingHiddenErrReq = req;
+    gHookThreadState.pendingHiddenErrReqUnique = req->unique;
+    gHookThreadState.pendingHiddenErrno = err;
     const uint32_t uid = RuntimeState::ReqUid(req);
     if (uid != 0) {
         std::lock_guard<std::mutex> lock(gUidErrRemapMutex);
@@ -414,13 +357,13 @@ void ArmHiddenCreateLeakRemap(fuse_req_t req, const char* opName) {
 }
 
 int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller) {
-    if (req != nullptr && gPendingHiddenErrReq == req &&
-        gPendingHiddenErrReqUnique == req->unique && gPendingHiddenErrno > 0 && err > 0 &&
-        IsExistenceLeakErrno(err)) {
-        const int baselineErr = gPendingHiddenErrno;
-        gPendingHiddenErrReq = nullptr;
-        gPendingHiddenErrReqUnique = 0;
-        gPendingHiddenErrno = 0;
+    if (req != nullptr && gHookThreadState.pendingHiddenErrReq == req &&
+        gHookThreadState.pendingHiddenErrReqUnique == req->unique &&
+        gHookThreadState.pendingHiddenErrno > 0 && err > 0 && IsExistenceLeakErrno(err)) {
+        const int baselineErr = gHookThreadState.pendingHiddenErrno;
+        gHookThreadState.pendingHiddenErrReq = nullptr;
+        gHookThreadState.pendingHiddenErrReqUnique = 0;
+        gHookThreadState.pendingHiddenErrno = 0;
 
         if (err != baselineErr) {
             DebugLogPrint(4, "%s remap leaked errno req=%p unique=%lu from=%d to=%d", caller, req,
@@ -466,54 +409,42 @@ int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller) {
     return err;
 }
 
-// Device reverse engineering shows make_node_entry() and create_handle_for_node() both consult
-// fuse->ShouldNotCache(path). Matching that behavior is what keeps positive dentries and file-cache
-// state from being reused across UIDs.
-// AOSP references: jni/FuseDaemon.cpp#347, #510, and #1428
-// https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#347
-// https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#510
-// https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1428
-extern "C" bool WrappedShouldNotCache(void* fuse, const std::string& path) {
-    if (HiddenPathPolicy::IsAnyHiddenSubtreePath(path)) {
-        DebugLogPrint(4, "force uncached subtree path=%s", DebugPreview(path).c_str());
-        return true;
-    }
-    auto fn = reinterpret_cast<ShouldNotCacheFn>(gOriginalShouldNotCache);
-    return fn ? fn(fuse, path) : false;
-}
-
 bool IsTrackedHiddenSubtreeInode(uint64_t ino) {
-    std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-    return gHiddenSubtreeInodes.find(ino) != gHiddenSubtreeInodes.end();
+    auto& process = ProcessState();
+    std::lock_guard<std::mutex> lock(process.hiddenSubtreeInodesMutex);
+    return process.hiddenSubtreeInodes.find(ino) != process.hiddenSubtreeInodes.end();
 }
 
 bool TrackHiddenSubtreeInode(uint64_t ino) {
     if (ino == 0) {
         return false;
     }
-    std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-    return gHiddenSubtreeInodes.insert(ino).second;
+    auto& process = ProcessState();
+    std::lock_guard<std::mutex> lock(process.hiddenSubtreeInodesMutex);
+    return process.hiddenSubtreeInodes.insert(ino).second;
 }
 
 bool RemoveTrackedHiddenSubtreeInode(uint64_t ino) {
     if (ino == 0) {
         return false;
     }
-    std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-    return gHiddenSubtreeInodes.erase(ino) != 0;
+    auto& process = ProcessState();
+    std::lock_guard<std::mutex> lock(process.hiddenSubtreeInodesMutex);
+    return process.hiddenSubtreeInodes.erase(ino) != 0;
 }
 
 std::optional<std::string> LookupTrackedPathForInode(uint64_t ino) {
     if (ino == 0) {
         return std::nullopt;
     }
-    const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
+    auto& process = ProcessState();
+    const uint64_t rootParent = process.hiddenRootParentInode.load(std::memory_order_relaxed);
     if (rootParent != 0 && ino == rootParent) {
         return std::string(kVisibleStorageRoots[0]);
     }
-    std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
-    const auto it = gInodePathCache.find(ino);
-    if (it == gInodePathCache.end()) {
+    std::lock_guard<std::mutex> lock(process.inodePathCacheMutex);
+    const auto it = process.inodePathCache.find(ino);
+    if (it == process.inodePathCache.end()) {
         return std::nullopt;
     }
     return it->second;
@@ -523,12 +454,13 @@ std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path) {
     if (path.empty()) {
         return std::nullopt;
     }
-    const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
+    auto& process = ProcessState();
+    const uint64_t rootParent = process.hiddenRootParentInode.load(std::memory_order_relaxed);
     if (rootParent != 0 && path == kVisibleStorageRoots[0]) {
         return rootParent;
     }
-    std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
-    for (const auto& [ino, trackedPath] : gInodePathCache) {
+    std::lock_guard<std::mutex> lock(process.inodePathCacheMutex);
+    for (const auto& [ino, trackedPath] : process.inodePathCache) {
         if (trackedPath == path) {
             return ino;
         }
@@ -540,54 +472,58 @@ void RememberTrackedPathForInode(uint64_t ino, std::string_view path) {
     if (ino == 0 || path.empty()) {
         return;
     }
-    std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
-    gInodePathCache[ino] = std::string(path);
+    auto& process = ProcessState();
+    std::lock_guard<std::mutex> lock(process.inodePathCacheMutex);
+    process.inodePathCache[ino] = std::string(path);
 }
 
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path) {
     if (path.empty()) {
         return;
     }
-    std::lock_guard<std::mutex> lock(gRecentHiddenParentPathsMutex);
-    gRecentHiddenParentPathAnyUid = std::string(path);
-    gRecentHiddenParentPathAnyUidOwner = uid;
+    auto& process = ProcessState();
+    std::lock_guard<std::mutex> lock(process.recentHiddenParentPathsMutex);
+    process.recentHiddenParentPathAnyUid = std::string(path);
+    process.recentHiddenParentPathAnyUidOwner = uid;
     if (uid != 0) {
-        gRecentHiddenParentPaths[uid] = gRecentHiddenParentPathAnyUid;
-        gRecentHiddenParentPathUids[uid] = uid;
+        process.recentHiddenParentPaths[uid] = process.recentHiddenParentPathAnyUid;
+        process.recentHiddenParentPathUids[uid] = uid;
     }
 }
 
 std::optional<std::string> LookupRecentHiddenParentPath(uint32_t uid, uint32_t* matchedHiddenUid) {
-    std::lock_guard<std::mutex> lock(gRecentHiddenParentPathsMutex);
+    auto& process = ProcessState();
+    std::lock_guard<std::mutex> lock(process.recentHiddenParentPathsMutex);
     if (uid != 0) {
-        const auto it = gRecentHiddenParentPaths.find(uid);
-        if (it != gRecentHiddenParentPaths.end()) {
+        const auto it = process.recentHiddenParentPaths.find(uid);
+        if (it != process.recentHiddenParentPaths.end()) {
             if (matchedHiddenUid != nullptr) {
-                const auto uidIt = gRecentHiddenParentPathUids.find(uid);
+                const auto uidIt = process.recentHiddenParentPathUids.find(uid);
                 *matchedHiddenUid =
-                    uidIt != gRecentHiddenParentPathUids.end() ? uidIt->second : uid;
+                    uidIt != process.recentHiddenParentPathUids.end() ? uidIt->second : uid;
             }
             return it->second;
         }
     }
-    if (gRecentHiddenParentPathAnyUid.empty()) {
+    if (process.recentHiddenParentPathAnyUid.empty()) {
         return std::nullopt;
     }
     if (matchedHiddenUid != nullptr) {
-        *matchedHiddenUid = gRecentHiddenParentPathAnyUidOwner;
+        *matchedHiddenUid = process.recentHiddenParentPathAnyUidOwner;
     }
-    return gRecentHiddenParentPathAnyUid;
+    return process.recentHiddenParentPathAnyUid;
 }
 
 void ClearRecentHiddenParentPath(uint32_t uid) {
-    std::lock_guard<std::mutex> lock(gRecentHiddenParentPathsMutex);
+    auto& process = ProcessState();
+    std::lock_guard<std::mutex> lock(process.recentHiddenParentPathsMutex);
     if (uid != 0) {
-        gRecentHiddenParentPaths.erase(uid);
-        gRecentHiddenParentPathUids.erase(uid);
+        process.recentHiddenParentPaths.erase(uid);
+        process.recentHiddenParentPathUids.erase(uid);
     }
-    if (uid == 0 || uid == gRecentHiddenParentPathAnyUidOwner) {
-        gRecentHiddenParentPathAnyUid.clear();
-        gRecentHiddenParentPathAnyUidOwner = 0;
+    if (uid == 0 || uid == process.recentHiddenParentPathAnyUidOwner) {
+        process.recentHiddenParentPathAnyUid.clear();
+        process.recentHiddenParentPathAnyUidOwner = 0;
     }
 }
 
@@ -604,27 +540,31 @@ void NoteHiddenSubtreePathForCache(std::string_view path) {
     // so a positive lookup seeded by another uid does not stay shared in kernel/VFS cache.
     RuntimeState::ScheduleHiddenEntryInvalidation();
 
-    if (gInPfLookup && gCurrentLookupParentInode != 0) {
-        const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
+    if (gHookThreadState.inPfLookup && gHookThreadState.currentLookupParentInode != 0) {
+        const uint64_t rootParent =
+            ProcessState().hiddenRootParentInode.load(std::memory_order_relaxed);
         if (HiddenPathPolicy::IsExactHiddenTargetPath(path) &&
-            gCurrentLookupParentInode == rootParent) {
-            RemoveTrackedHiddenSubtreeInode(gCurrentLookupParentInode);
+            gHookThreadState.currentLookupParentInode == rootParent) {
+            RemoveTrackedHiddenSubtreeInode(gHookThreadState.currentLookupParentInode);
             return;
         }
-        gTrackHiddenSubtreeLookup = true;
-        if (TrackHiddenSubtreeInode(gCurrentLookupParentInode)) {
+        gHookThreadState.trackHiddenSubtreeLookup = true;
+        if (TrackHiddenSubtreeInode(gHookThreadState.currentLookupParentInode)) {
             DebugLogPrint(4, "track hidden lookup parent=%s path=%s",
-                          InodePath(gCurrentLookupParentInode).c_str(), DebugPreview(path).c_str());
-            RuntimeState::ScheduleHiddenInodeInvalidation(gCurrentLookupParentInode);
+                          InodePath(gHookThreadState.currentLookupParentInode).c_str(),
+                          DebugPreview(path).c_str());
+            RuntimeState::ScheduleHiddenInodeInvalidation(
+                gHookThreadState.currentLookupParentInode);
         }
     }
 
-    if (gInPfGetattr && gPfGetattrIno != 0) {
-        gZeroAttrCacheForCurrentGetattr = true;
-        if (TrackHiddenSubtreeInode(gPfGetattrIno)) {
+    if (gHookThreadState.inPfGetattr && gHookThreadState.pfGetattrIno != 0) {
+        gHookThreadState.zeroAttrCacheForCurrentGetattr = true;
+        if (TrackHiddenSubtreeInode(gHookThreadState.pfGetattrIno)) {
             DebugLogPrint(4, "track hidden getattr ino=%s path=%s",
-                          InodePath(gPfGetattrIno).c_str(), DebugPreview(path).c_str());
-            RuntimeState::ScheduleHiddenInodeInvalidation(gPfGetattrIno);
+                          InodePath(gHookThreadState.pfGetattrIno).c_str(),
+                          DebugPreview(path).c_str());
+            RuntimeState::ScheduleHiddenInodeInvalidation(gHookThreadState.pfGetattrIno);
         }
     }
 }

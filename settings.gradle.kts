@@ -40,4 +40,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "fusehide"
 include(":app")
-include(":xposed-stubs")

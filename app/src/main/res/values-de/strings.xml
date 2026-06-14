@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">FuseHide</string>
+    <string name="app_description">MediaProvider FUSE-Debugging-Tool.</string>
     <string name="home_subtitle_policy">Die Laufzeit-Konfiguration zum Ausblenden anpassen und prüfen, welche Konfiguration MediaProvider tatsächlich verwendet.</string>
     <string name="home_subtitle_probe">Direkte Pfadprüfungen für den eingehakten MediaProvider-Prozess ausführen.</string>
     <string name="tab_policy">Konfiguration</string>
@@ -77,6 +78,9 @@
     <string name="status_hooked">Modulstatus: eingehakt %1$s pid=%2$d</string>
     <string name="status_not_hooked">Modulstatus: nicht eingehakt (zum erneuten Prüfen tippen)</string>
     <string name="config_loaded_saved">Die gespeicherte Ausblend-Konfiguration wurde in den Editor geladen.</string>
+    <string name="config_missing_local">Es wurde keine gespeicherte lokale Konfiguration gefunden. Die Standardeinstellungen dienen nur als Platzhalter und werden erst gespeichert, wenn Sie sie explizit wiederherstellen.</string>
+    <string name="config_recovered_applied">Editor und lokaler Speicher wurden aus der aktuell angewendeten MediaProvider-Konfiguration wiederhergestellt.</string>
+    <string name="config_refuse_default_overwrite">Die Platzhalter-Standardeinstellungen konnten nicht gespeichert werden, da keine lokale Konfiguration vorhanden ist. Verwenden Sie „Angewendete Konfiguration aktualisieren“, um die Einstellungen wiederherzustellen, oder tippen Sie vor dem Speichern auf „Standardeinstellungen wiederherstellen“, wenn Sie die Standardeinstellungen beibehalten möchten.</string>
     <string name="config_waiting_ack">Die Ausblend-Konfiguration wurde gespeichert und ein Reload-Broadcast gesendet; es wird auf die Bestätigung von MediaProvider gewartet.</string>
     <string name="config_applied_ok">Die Ausblend-Konfiguration wurde in MediaProvider angewendet.</string>
     <string name="config_applied_fail">Die Ausblend-Konfiguration konnte nicht neu geladen werden: %1$s</string>

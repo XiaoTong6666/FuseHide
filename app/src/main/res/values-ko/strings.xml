@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">FuseHide</string>
+    <string name="app_description">MediaProvider FUSE 디버깅 도구.</string>
     <string name="home_subtitle_policy">런타임 숨김 설정을 조정하고 MediaProvider가 실제로 사용 중인 설정을 확인합니다.</string>
     <string name="home_subtitle_probe">후킹된 MediaProvider 프로세스에 대해 직접 경로 검사를 실행합니다.</string>
     <string name="tab_policy">설정</string>
@@ -77,6 +78,7 @@
     <string name="status_hooked">모듈 상태: 후킹됨 %1$s pid=%2$d</string>
     <string name="status_not_hooked">모듈 상태: 후킹 안 됨 (탭하여 다시 확인)</string>
     <string name="config_loaded_saved">저장된 숨김 설정을 편집기에 불러왔습니다.</string>
+    <string name="config_refuse_default_overwrite">로컬 구성이 없으므로 자리 표시자 기본값을 저장할 수 없습니다. 복구하려면 적용된 구성 새로 고침을 사용하거나, 기본값을 정말로 사용하려면 저장하기 전에 기본값 복원을 탭하세요.</string>
     <string name="config_waiting_ack">숨김 설정을 저장하고 다시 불러오기 브로드캐스트를 보냈습니다. MediaProvider의 확인을 기다리는 중입니다.</string>
     <string name="config_applied_ok">숨김 설정이 MediaProvider에 적용되었습니다.</string>
     <string name="config_applied_fail">숨김 설정을 다시 불러오지 못했습니다: %1$s</string>
@@ -89,4 +91,6 @@
     <string name="diff_summary_mismatch">미저장 설정이 적용된 MediaProvider 설정과 일치하지 않습니다.</string>
     <string name="diff_summary_match">미저장 설정이 적용된 MediaProvider 설정과 일치합니다.</string>
     <string name="probe_output_empty">아직 검사 출력이 없습니다.</string>
+    <string name="config_missing_local">저장된 로컬 구성이 없습니다. 기본값은 자리 표시자일 뿐이며, 명시적으로 기본값을 복원하지 않는 한 저장되지 않습니다.</string>
+    <string name="config_recovered_applied">현재 적용된 MediaProvider 설정에서 에디터와 로컬 스토리지를 복구했습니다.</string>
 </resources>

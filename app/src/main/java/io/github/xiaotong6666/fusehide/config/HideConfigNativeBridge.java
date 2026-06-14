@@ -58,4 +58,11 @@ public final class HideConfigNativeBridge {
             String[] packageRulePackages,
             String[] packageRuleHiddenRootEntryNames,
             String[] packageRuleHiddenRelativePaths);
+
+    public static native long getCurrentNativeGenerationId();
+
+    public static native long switchToBuiltinNativeGeneration(long versionCode, String versionHash);
+
+    public static native long switchToExternalNativeGeneration(
+            String payloadPath, long versionCode, String versionHash);
 }

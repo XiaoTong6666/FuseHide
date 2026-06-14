@@ -21,7 +21,6 @@ UHasBinaryPropertyFn gUHasBinaryProperty = u_hasBinaryProperty;
 HookInstaller gHookInstaller = nullptr;
 JavaVM* gJavaVm = nullptr;
 std::once_flag gXzCrcInitOnce;
-IsAppAccessiblePathFn gOriginalIsAppAccessiblePath = nullptr;
 IsPackageOwnedPathFn gOriginalIsPackageOwnedPath = nullptr;
 IsBpfBackingPathFn gOriginalIsBpfBackingPath = nullptr;
 void* gOriginalStrcasecmp = nullptr;
@@ -72,9 +71,10 @@ void InvalidateTrackedHideTargetsForCurrentConfig() {
 
     std::vector<uint64_t> inodesToInvalidate;
     {
-        std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
-        inodesToInvalidate.reserve(gInodePathCache.size());
-        for (const auto& [ino, trackedPath] : gInodePathCache) {
+        auto& process = ProcessState();
+        std::lock_guard<std::mutex> lock(process.inodePathCacheMutex);
+        inodesToInvalidate.reserve(process.inodePathCache.size());
+        for (const auto& [ino, trackedPath] : process.inodePathCache) {
             if (HiddenPathPolicy::IsAnyHiddenSubtreePath(trackedPath)) {
                 inodesToInvalidate.push_back(ino);
             }
@@ -85,15 +85,17 @@ void InvalidateTrackedHideTargetsForCurrentConfig() {
     }
 
     {
-        std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-        gHiddenSubtreeInodes.clear();
+        auto& process = ProcessState();
+        std::lock_guard<std::mutex> lock(process.hiddenSubtreeInodesMutex);
+        process.hiddenSubtreeInodes.clear();
     }
     {
-        std::lock_guard<std::mutex> lock(gRecentHiddenParentPathsMutex);
-        gRecentHiddenParentPaths.clear();
-        gRecentHiddenParentPathUids.clear();
-        gRecentHiddenParentPathAnyUid.clear();
-        gRecentHiddenParentPathAnyUidOwner = 0;
+        auto& process = ProcessState();
+        std::lock_guard<std::mutex> lock(process.recentHiddenParentPathsMutex);
+        process.recentHiddenParentPaths.clear();
+        process.recentHiddenParentPathUids.clear();
+        process.recentHiddenParentPathAnyUid.clear();
+        process.recentHiddenParentPathAnyUidOwner = 0;
     }
 }
 

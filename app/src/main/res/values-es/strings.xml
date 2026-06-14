@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">FuseHide</string>
+    <string name="app_description">Herramienta de depuración MediaProvider FUSE.</string>
     <string name="home_subtitle_policy">Ajusta la configuración de ocultación en tiempo de ejecución y comprueba qué configuración está usando realmente MediaProvider.</string>
     <string name="home_subtitle_probe">Ejecuta comprobaciones directas de rutas en el proceso MediaProvider enganchado.</string>
     <string name="tab_policy">Configuración</string>
@@ -77,6 +78,9 @@
     <string name="status_hooked">Estado del módulo: enganchado %1$s pid=%2$d</string>
     <string name="status_not_hooked">Estado del módulo: no enganchado (toca para volver a comprobar)</string>
     <string name="config_loaded_saved">Se cargó en el editor la configuración de ocultación guardada.</string>
+    <string name="config_missing_local">No se encontró ninguna configuración local guardada. Los valores predeterminados se muestran solo como marcador de posición; no se guardarán a menos que los restaure explícitamente.</string>
+    <string name="config_recovered_applied">Se recuperó el editor y el almacenamiento local de la configuración de MediaProvider aplicada actualmente.</string>
+    <string name="config_refuse_default_overwrite">No se guardan los valores predeterminados porque no existe una configuración local. Utilice la opción Actualizar configuración aplicada para recuperarla, o pulse Restaurar valores predeterminados antes de guardar si realmente desea conservar los valores predeterminados.</string>
     <string name="config_waiting_ack">Se guardó la configuración de ocultación y se envió el broadcast de recarga; esperando confirmación de MediaProvider.</string>
     <string name="config_applied_ok">La configuración de ocultación se aplicó en MediaProvider.</string>
     <string name="config_applied_fail">No se pudo recargar la configuración de ocultación: %1$s</string>

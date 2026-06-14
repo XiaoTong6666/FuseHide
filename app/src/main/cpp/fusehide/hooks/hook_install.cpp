@@ -17,6 +17,10 @@
 
 namespace fusehide {
 
+static inline AnchorProcessState& Process() {
+    return ProcessState();
+}
+
 // Compare hook installer
 // Original signature (simplified):
 //   void InstallCompareHook(ElfInfo* elfInfo, const char* symbolName,
@@ -824,7 +828,7 @@ void RefreshCoreHookStatus(const ModuleInfo& module, CoreHookStatus* status) {
     if (status == nullptr) {
         return;
     }
-    status->appAccessible = gOriginalIsAppAccessiblePath != nullptr;
+    status->appAccessible = Process().originalIsAppAccessiblePath != nullptr;
     status->packageCoveredByComparePath =
         gOriginalIsPackageOwnedPath == nullptr && gOriginalEqualsIgnoreCase != nullptr &&
         gOriginalStrcasecmp != nullptr && HasResolvableSymbol(module, kContainsMountSymbols);
@@ -1018,12 +1022,13 @@ bool InstallHookForSymbol(std::string_view symbolName, void* replacement, void**
 // when the runtime ELF image is embedded inside an APK path.
 void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fileContext,
                              CoreHookStatus* status) {
+    auto& process = Process();
     const DeviceHookInstallPlan installPlan = ResolveDeviceHookInstallPlan(module);
     const DeviceHookProfile& deviceProfile = installPlan.profile;
-    InstallFirstAvailableFileInlineHook(module, kIsAppAccessiblePathSymbols,
-                                        reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
-                                        reinterpret_cast<void**>(&gOriginalIsAppAccessiblePath),
-                                        "hook is_app_accessible_path failed");
+    InstallFirstAvailableFileInlineHook(
+        module, kIsAppAccessiblePathSymbols, reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
+        reinterpret_cast<void**>(&process.originalIsAppAccessiblePath),
+        "hook is_app_accessible_path failed");
     InstallFirstAvailableFileInlineHook(module, kIsPackageOwnedPathSymbols,
                                         reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
                                         reinterpret_cast<void**>(&gOriginalIsPackageOwnedPath),
@@ -1040,7 +1045,7 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
                                    reinterpret_cast<void*>(+WrappedEqualsIgnoreCaseAbi),
                                    &gOriginalEqualsIgnoreCase, "EqualsIgnoreCase");
 
-    if (gOriginalIsAppAccessiblePath == nullptr) {
+    if (process.originalIsAppAccessiblePath == nullptr) {
         // Reverse-engineered record: is_app_accessible_path @ 0x0017bb5c.
         // This is the shared access-policy gate reached by lookup/readdir/getattr and by several
         // inode-based handlers such as access/open/opendir. Those paths do not all have their own
@@ -1050,14 +1055,14 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
         TryInstallInlineHookAt(
             reinterpret_cast<void*>(module.base + deviceProfile.isAppAccessiblePathOffset),
             reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
-            reinterpret_cast<void**>(&gOriginalIsAppAccessiblePath),
+            reinterpret_cast<void**>(&process.originalIsAppAccessiblePath),
             "hook is_app_accessible_path failed");
     }
 
-    if (gOriginalShouldNotCache == nullptr) {
-        TryInstallCriticalHookFromPlan(module, installPlan.shouldNotCache, "ShouldNotCache",
-                                       (void*)WrappedShouldNotCache, &gOriginalShouldNotCache,
-                                       "hook ShouldNotCache failed");
+    if (Process().originalShouldNotCache == nullptr) {
+        TryInstallCriticalHookFromPlan(
+            module, installPlan.shouldNotCache, "ShouldNotCache", (void*)WrappedShouldNotCache,
+            &Process().originalShouldNotCache, "hook ShouldNotCache failed");
     }
 
     RefreshCoreHookStatus(module, status);
@@ -1066,188 +1071,203 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
 // These hooks are functionally required for hidden-path semantics. Only the verbose trace logging
 // inside the wrappers stays gated by kEnableDebugHooks.
 void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fileContext) {
+    auto& process = Process();
     const DeviceHookInstallPlan installPlan = ResolveDeviceHookInstallPlan(module);
     const DeviceHookProfile& deviceProfile = installPlan.profile;
     InstallFileCompareHookIfNeeded(
         fileContext.elfInfo, "fuse_lowlevel_notify_inval_entry", "fuse_lowlevel_notify_inval_entry",
-        (void*)WrappedNotifyInvalEntry, &gOriginalNotifyInvalEntry, "notify_inval_entry");
+        (void*)WrappedNotifyInvalEntry, &process.originalNotifyInvalEntry, "notify_inval_entry");
     InstallFileCompareHookIfNeeded(
         fileContext.elfInfo, "fuse_lowlevel_notify_inval_inode", "fuse_lowlevel_notify_inval_inode",
-        (void*)WrappedNotifyInvalInode, &gOriginalNotifyInvalInode, "notify_inval_inode");
+        (void*)WrappedNotifyInvalInode, &process.originalNotifyInvalInode, "notify_inval_inode");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "fuse_reply_entry", "fuse_reply_entry",
-                                   (void*)WrappedReplyEntry, &gOriginalReplyEntry, "reply_entry");
+                                   (void*)WrappedReplyEntry, &process.originalReplyEntry,
+                                   "reply_entry");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "fuse_reply_attr", "fuse_reply_attr",
-                                   (void*)WrappedReplyAttr, &gOriginalReplyAttr, "reply_attr");
+                                   (void*)WrappedReplyAttr, &process.originalReplyAttr,
+                                   "reply_attr");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "fuse_reply_buf", "fuse_reply_buf",
-                                   (void*)WrappedReplyBuf, &gOriginalReplyBuf, "reply_buf");
+                                   (void*)WrappedReplyBuf, &process.originalReplyBuf, "reply_buf");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "fuse_reply_err", "fuse_reply_err",
-                                   (void*)WrappedReplyErr, &gOriginalReplyErr, "reply_err");
+                                   (void*)WrappedReplyErr, &process.originalReplyErr, "reply_err");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "lstat", "lstat", (void*)WrappedLstat,
-                                   &gOriginalLstat, "lstat");
+                                   &process.originalLstat, "lstat");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "stat", "stat", (void*)WrappedStat,
-                                   &gOriginalStat, "stat");
+                                   &process.originalStat, "stat");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "getxattr", "getxattr",
-                                   (void*)WrappedGetxattr, &gOriginalGetxattr, "getxattr");
+                                   (void*)WrappedGetxattr, &process.originalGetxattr, "getxattr");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "lgetxattr", "lgetxattr",
-                                   (void*)WrappedLgetxattr, &gOriginalLgetxattr, "lgetxattr");
+                                   (void*)WrappedLgetxattr, &process.originalLgetxattr,
+                                   "lgetxattr");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "mkdir", "mkdir", (void*)WrappedMkdirLibc,
-                                   &gOriginalMkdir, "mkdir");
+                                   &process.originalMkdir, "mkdir");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "mknod", "mknod", (void*)WrappedMknod,
-                                   &gOriginalMknod, "mknod");
+                                   &process.originalMknod, "mknod");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "open", "open", (void*)WrappedOpen,
-                                   &gOriginalOpen, "open");
+                                   &process.originalOpen, "open");
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, "__open_2", "__open_2", (void*)WrappedOpen2,
-                                   &gOriginalOpen2, "__open_2");
-    if (gOriginalGetDirectoryEntries == nullptr) {
+                                   &process.originalOpen2, "__open_2");
+    if (process.originalGetDirectoryEntries == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.getDirectoryEntries,
                                        "GetDirectoryEntries", (void*)WrappedGetDirectoryEntries,
-                                       &gOriginalGetDirectoryEntries,
+                                       &process.originalGetDirectoryEntries,
                                        "hook GetDirectoryEntries failed");
     }
-    if (gOriginalAddDirectoryEntriesFromLowerFs == nullptr) {
-        TryInstallCriticalHookFromPlan(
-            module, installPlan.addDirectoryEntriesFromLowerFs, "addDirectoryEntriesFromLowerFs",
-            (void*)WrappedAddDirectoryEntriesFromLowerFs, &gOriginalAddDirectoryEntriesFromLowerFs,
-            "hook addDirectoryEntriesFromLowerFs failed");
+    if (process.originalAddDirectoryEntriesFromLowerFs == nullptr) {
+        TryInstallCriticalHookFromPlan(module, installPlan.addDirectoryEntriesFromLowerFs,
+                                       "addDirectoryEntriesFromLowerFs",
+                                       (void*)WrappedAddDirectoryEntriesFromLowerFs,
+                                       &process.originalAddDirectoryEntriesFromLowerFs,
+                                       "hook addDirectoryEntriesFromLowerFs failed");
     }
-    if (gOriginalAddDirectoryEntriesFromLowerFs == nullptr) {
+    if (process.originalAddDirectoryEntriesFromLowerFs == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.addDirectoryEntriesFromLowerFsThunk,
                                        "addDirectoryEntriesFromLowerFsThunk",
                                        (void*)WrappedAddDirectoryEntriesFromLowerFs,
-                                       &gOriginalAddDirectoryEntriesFromLowerFs,
+                                       &process.originalAddDirectoryEntriesFromLowerFs,
                                        "hook addDirectoryEntriesFromLowerFs thunk failed");
     }
-    if (gOriginalDoReaddirCommon == nullptr) {
-        TryInstallCriticalHookFromPlan(module, installPlan.doReaddirCommon, "do_readdir_common",
-                                       (void*)WrappedDoReaddirCommon, &gOriginalDoReaddirCommon,
-                                       "hook do_readdir_common failed");
+    if (process.originalDoReaddirCommon == nullptr) {
+        TryInstallCriticalHookFromPlan(
+            module, installPlan.doReaddirCommon, "do_readdir_common", (void*)WrappedDoReaddirCommon,
+            &process.originalDoReaddirCommon, "hook do_readdir_common failed");
     }
-    if (gOriginalPfMkdir == nullptr) {
+    if (process.originalPfMkdir == nullptr) {
         // Reverse-engineered record: pf_mkdir @ 0x00177050.
         // mkdir policy lives in an internal static handler, so keep the device-specific offset as a
         // backup when symbol-based lookup is unavailable.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfMkdirOffset),
-                               (void*)WrappedPfMkdir, &gOriginalPfMkdir, "hook pf_mkdir failed");
+                               (void*)WrappedPfMkdir, &process.originalPfMkdir,
+                               "hook pf_mkdir failed");
     }
-    if (gOriginalPfMknod == nullptr) {
+    if (process.originalPfMknod == nullptr) {
         // Reverse-engineered record: pf_mknod @ 0x00176ba8.
         // Some create paths go through pf_mknod instead of pf_create on device builds.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfMknodOffset),
-                               (void*)WrappedPfMknod, &gOriginalPfMknod, "hook pf_mknod failed");
+                               (void*)WrappedPfMknod, &process.originalPfMknod,
+                               "hook pf_mknod failed");
     }
-    if (gOriginalPfUnlink == nullptr) {
+    if (process.originalPfUnlink == nullptr) {
         // Reverse-engineered record: pf_unlink @ 0x00177534.
         // unlink/rmdir/create handlers are internal statics in libfuse_jni, so retain the verified
         // offset fallback for devices that do not expose stable symbols.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfUnlinkOffset),
-                               (void*)WrappedPfUnlink, &gOriginalPfUnlink, "hook pf_unlink failed");
+                               (void*)WrappedPfUnlink, &process.originalPfUnlink,
+                               "hook pf_unlink failed");
     }
-    if (gOriginalPfRmdir == nullptr) {
+    if (process.originalPfRmdir == nullptr) {
         // Reverse-engineered record: pf_rmdir @ 0x00177920.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfRmdirOffset),
-                               (void*)WrappedPfRmdir, &gOriginalPfRmdir, "hook pf_rmdir failed");
+                               (void*)WrappedPfRmdir, &process.originalPfRmdir,
+                               "hook pf_rmdir failed");
     }
-    if (gOriginalPfRename == nullptr) {
+    if (process.originalPfRename == nullptr) {
         // Reverse-engineered record: pf_rename @ 0x00177ef4.
         // rename follows the same parent-only access pattern as create/delete handlers, so keep an
         // explicit device RVA fallback for builds that do not expose the local symbol.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfRenameOffset),
-                               (void*)WrappedPfRename, &gOriginalPfRename, "hook pf_rename failed");
+                               (void*)WrappedPfRename, &process.originalPfRename,
+                               "hook pf_rename failed");
     }
-    if (gOriginalPfCreate == nullptr) {
+    if (process.originalPfCreate == nullptr) {
         // Reverse-engineered record: pf_create @ 0x0017a7c8.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfCreateOffset),
-                               (void*)WrappedPfCreate, &gOriginalPfCreate, "hook pf_create failed");
+                               (void*)WrappedPfCreate, &process.originalPfCreate,
+                               "hook pf_create failed");
     }
-    if (gOriginalPfReaddir == nullptr) {
+    if (process.originalPfReaddir == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.pfReaddir, "pf_readdir",
-                                       (void*)WrappedPfReaddir, &gOriginalPfReaddir,
+                                       (void*)WrappedPfReaddir, &process.originalPfReaddir,
                                        "hook pf_readdir failed");
     }
-    if (gOriginalPfReaddirplus == nullptr) {
+    if (process.originalPfReaddirplus == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.pfReaddirplus, "pf_readdirplus",
-                                       (void*)WrappedPfReaddirplus, &gOriginalPfReaddirplus,
+                                       (void*)WrappedPfReaddirplus, &process.originalPfReaddirplus,
                                        "hook pf_readdirplus failed");
     }
-    if (gOriginalPfReaddirPostfilter == nullptr) {
+    if (process.originalPfReaddirPostfilter == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.pfReaddirPostfilter,
                                        "pf_readdir_postfilter", (void*)WrappedPfReaddirPostfilter,
-                                       &gOriginalPfReaddirPostfilter,
+                                       &process.originalPfReaddirPostfilter,
                                        "hook pf_readdir_postfilter failed");
     }
 
-    if (gOriginalPfLookup == nullptr) {
+    if (process.originalPfLookup == nullptr) {
         TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL9pf_lookupEP8fuse_reqmPKc",
-                                 (void*)WrappedPfLookup, &gOriginalPfLookup,
+                                 (void*)WrappedPfLookup, &process.originalPfLookup,
                                  "hook pf_lookup failed");
     }
-    if (gOriginalPfAccess == nullptr) {
+    if (process.originalPfAccess == nullptr) {
         TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL9pf_accessEP8fuse_reqmi",
-                                 (void*)WrappedPfAccess, &gOriginalPfAccess,
+                                 (void*)WrappedPfAccess, &process.originalPfAccess,
                                  "hook pf_access failed");
     }
-    if (gOriginalPfOpen == nullptr) {
-        TryInstallFileInlineHook(module,
-                                 "_ZN13mediaprovider4fuseL7pf_openEP8fuse_reqmP14fuse_file_info",
-                                 (void*)WrappedPfOpen, &gOriginalPfOpen, "hook pf_open failed");
+    if (process.originalPfOpen == nullptr) {
+        TryInstallFileInlineHook(
+            module, "_ZN13mediaprovider4fuseL7pf_openEP8fuse_reqmP14fuse_file_info",
+            (void*)WrappedPfOpen, &process.originalPfOpen, "hook pf_open failed");
     }
-    if (gOriginalPfOpendir == nullptr) {
+    if (process.originalPfOpendir == nullptr) {
         TryInstallFileInlineHook(
             module, "_ZN13mediaprovider4fuseL10pf_opendirEP8fuse_reqmP14fuse_file_info",
-            (void*)WrappedPfOpendir, &gOriginalPfOpendir, "hook pf_opendir failed");
+            (void*)WrappedPfOpendir, &process.originalPfOpendir, "hook pf_opendir failed");
     }
-    if (gOriginalPfMkdir == nullptr) {
+    if (process.originalPfMkdir == nullptr) {
         TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL8pf_mkdirEP8fuse_reqmPKcj",
-                                 (void*)WrappedPfMkdir, &gOriginalPfMkdir, "hook pf_mkdir failed");
+                                 (void*)WrappedPfMkdir, &process.originalPfMkdir,
+                                 "hook pf_mkdir failed");
     }
-    if (gOriginalPfUnlink == nullptr) {
+    if (process.originalPfUnlink == nullptr) {
         TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL9pf_unlinkEP8fuse_reqmPKc",
-                                 (void*)WrappedPfUnlink, &gOriginalPfUnlink,
+                                 (void*)WrappedPfUnlink, &process.originalPfUnlink,
                                  "hook pf_unlink failed");
     }
-    if (gOriginalPfRmdir == nullptr) {
+    if (process.originalPfRmdir == nullptr) {
         TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL8pf_rmdirEP8fuse_reqmPKc",
-                                 (void*)WrappedPfRmdir, &gOriginalPfRmdir, "hook pf_rmdir failed");
+                                 (void*)WrappedPfRmdir, &process.originalPfRmdir,
+                                 "hook pf_rmdir failed");
     }
-    if (gOriginalPfRename == nullptr) {
+    if (process.originalPfRename == nullptr) {
         TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL9pf_renameEP8fuse_reqmPKcmS4_j",
-                                 (void*)WrappedPfRename, &gOriginalPfRename,
+                                 (void*)WrappedPfRename, &process.originalPfRename,
                                  "hook pf_rename failed");
     }
-    if (gOriginalPfCreate == nullptr) {
+    if (process.originalPfCreate == nullptr) {
         TryInstallFileInlineHook(
             module, "_ZN13mediaprovider4fuseL9pf_createEP8fuse_reqmPKcjP14fuse_file_info",
-            (void*)WrappedPfCreate, &gOriginalPfCreate, "hook pf_create failed");
+            (void*)WrappedPfCreate, &process.originalPfCreate, "hook pf_create failed");
     }
-    if (gOriginalPfLookupPostfilter == nullptr) {
+    if (process.originalPfLookupPostfilter == nullptr) {
         TryInstallFileInlineHook(module,
                                  "_ZN13mediaprovider4fuseL20pf_lookup_postfilterEP8fuse_"
                                  "reqmjPKcP14fuse_entry_outP18fuse_"
                                  "entry_bpf_out",
-                                 (void*)WrappedPfLookupPostfilter, &gOriginalPfLookupPostfilter,
+                                 (void*)WrappedPfLookupPostfilter,
+                                 &process.originalPfLookupPostfilter,
                                  "hook pf_lookup_postfilter failed");
     }
-    if (gOriginalPfGetattr == nullptr) {
+    if (process.originalPfGetattr == nullptr) {
         TryInstallFileInlineHook(
             module, "_ZN13mediaprovider4fuseL10pf_getattrEP8fuse_reqmP14fuse_file_info",
-            (void*)WrappedPfGetattr, &gOriginalPfGetattr, "hook pf_getattr failed");
+            (void*)WrappedPfGetattr, &process.originalPfGetattr, "hook pf_getattr failed");
     }
-    if (gOriginalPfLookup == nullptr) {
+    if (process.originalPfLookup == nullptr) {
         // Reverse-engineered record: pf_lookup @ 0x00175e48.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfLookupOffset),
-                               (void*)WrappedPfLookup, &gOriginalPfLookup, "hook pf_lookup failed");
+                               (void*)WrappedPfLookup, &process.originalPfLookup,
+                               "hook pf_lookup failed");
     }
-    if (gOriginalPfLookupPostfilter == nullptr) {
+    if (process.originalPfLookupPostfilter == nullptr) {
         // Reverse-engineered record: pf_lookup_postfilter @ 0x00175f90.
         TryInstallInlineHookAt(
             reinterpret_cast<void*>(module.base + deviceProfile.pfLookupPostfilterOffset),
-            (void*)WrappedPfLookupPostfilter, &gOriginalPfLookupPostfilter,
+            (void*)WrappedPfLookupPostfilter, &process.originalPfLookupPostfilter,
             "hook pf_lookup_postfilter failed");
     }
-    if (gOriginalPfGetattr == nullptr) {
+    if (process.originalPfGetattr == nullptr) {
         // Reverse-engineered record: pf_getattr @ 0x001762bc.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfGetattrOffset),
-                               (void*)WrappedPfGetattr, &gOriginalPfGetattr,
+                               (void*)WrappedPfGetattr, &process.originalPfGetattr,
                                "hook pf_getattr failed");
     }
 }
@@ -1255,13 +1275,14 @@ void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fi
 // When file-backed symbol lookup is unavailable, fall back to runtime relocation patching and
 // verified device offsets recovered from the reverse-engineered libfuse_jni build.
 void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) {
+    auto& process = Process();
     const DeviceHookInstallPlan installPlan = ResolveDeviceHookInstallPlan(module);
     const DeviceHookProfile& deviceProfile = installPlan.profile;
     if (!status->appAccessible) {
-        InstallFirstAvailableInlineHook(kIsAppAccessiblePathSymbols,
-                                        reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
-                                        reinterpret_cast<void**>(&gOriginalIsAppAccessiblePath),
-                                        "hook is_app_accessible_path failed");
+        InstallFirstAvailableInlineHook(
+            kIsAppAccessiblePathSymbols, reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
+            reinterpret_cast<void**>(&process.originalIsAppAccessiblePath),
+            "hook is_app_accessible_path failed");
     }
 
     if (!status->packageOwned) {
@@ -1311,7 +1332,7 @@ void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) 
         }
     }
 
-    if (gOriginalIsAppAccessiblePath == nullptr) {
+    if (process.originalIsAppAccessiblePath == nullptr) {
         // Reverse-engineered record: is_app_accessible_path @ 0x0017bb5c.
         // Repeat the same last-resort fallback here because the advanced path runs when the
         // initial file-backed install was unavailable or still failed to resolve this stripped
@@ -1319,14 +1340,14 @@ void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) 
         TryInstallInlineHookAt(
             reinterpret_cast<void*>(module.base + deviceProfile.isAppAccessiblePathOffset),
             reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
-            reinterpret_cast<void**>(&gOriginalIsAppAccessiblePath),
+            reinterpret_cast<void**>(&process.originalIsAppAccessiblePath),
             "hook is_app_accessible_path failed");
     }
 
-    if (gOriginalShouldNotCache == nullptr) {
-        TryInstallCriticalHookFromPlan(module, installPlan.shouldNotCache, "ShouldNotCache",
-                                       (void*)WrappedShouldNotCache, &gOriginalShouldNotCache,
-                                       "hook ShouldNotCache failed");
+    if (Process().originalShouldNotCache == nullptr) {
+        TryInstallCriticalHookFromPlan(
+            module, installPlan.shouldNotCache, "ShouldNotCache", (void*)WrappedShouldNotCache,
+            &Process().originalShouldNotCache, "hook ShouldNotCache failed");
     }
 
     RefreshCoreHookStatus(module, status);
@@ -1336,6 +1357,7 @@ void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) 
 // create, rename, readdir, and invalidation code paths that are not reliably exposed through
 // imported symbols.
 void InstallAdvancedDebugHooks(const ModuleInfo& module) {
+    auto& process = Process();
     const DeviceHookInstallPlan installPlan = ResolveDeviceHookInstallPlan(module);
     const DeviceHookProfile& deviceProfile = installPlan.profile;
     const bool useRuntimeElf = module.path.find("!/") != std::string::npos;
@@ -1345,190 +1367,206 @@ void InstallAdvancedDebugHooks(const ModuleInfo& module) {
             PatchRuntimeRelocationSlots(
                 *runtimeDyn, module.base, getpagesize(), "fuse_lowlevel_notify_inval_entry",
                 "fuse_lowlevel_notify_inval_entry", (void*)WrappedNotifyInvalEntry,
-                &gOriginalNotifyInvalEntry, "notify_inval_entry");
+                &process.originalNotifyInvalEntry, "notify_inval_entry");
             PatchRuntimeRelocationSlots(
                 *runtimeDyn, module.base, getpagesize(), "fuse_lowlevel_notify_inval_inode",
                 "fuse_lowlevel_notify_inval_inode", (void*)WrappedNotifyInvalInode,
-                &gOriginalNotifyInvalInode, "notify_inval_inode");
+                &process.originalNotifyInvalInode, "notify_inval_inode");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "fuse_reply_entry",
                                         "fuse_reply_entry", (void*)WrappedReplyEntry,
-                                        &gOriginalReplyEntry, "reply_entry");
+                                        &process.originalReplyEntry, "reply_entry");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "fuse_reply_attr",
                                         "fuse_reply_attr", (void*)WrappedReplyAttr,
-                                        &gOriginalReplyAttr, "reply_attr");
+                                        &process.originalReplyAttr, "reply_attr");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "fuse_reply_buf",
                                         "fuse_reply_buf", (void*)WrappedReplyBuf,
-                                        &gOriginalReplyBuf, "reply_buf");
+                                        &process.originalReplyBuf, "reply_buf");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "fuse_reply_err",
                                         "fuse_reply_err", (void*)WrappedReplyErr,
-                                        &gOriginalReplyErr, "reply_err");
+                                        &process.originalReplyErr, "reply_err");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "lstat", "lstat",
-                                        (void*)WrappedLstat, &gOriginalLstat, "lstat");
+                                        (void*)WrappedLstat, &process.originalLstat, "lstat");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "stat", "stat",
-                                        (void*)WrappedStat, &gOriginalStat, "stat");
+                                        (void*)WrappedStat, &process.originalStat, "stat");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "getxattr",
-                                        "getxattr", (void*)WrappedGetxattr, &gOriginalGetxattr,
-                                        "getxattr");
+                                        "getxattr", (void*)WrappedGetxattr,
+                                        &process.originalGetxattr, "getxattr");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "lgetxattr",
-                                        "lgetxattr", (void*)WrappedLgetxattr, &gOriginalLgetxattr,
-                                        "lgetxattr");
+                                        "lgetxattr", (void*)WrappedLgetxattr,
+                                        &process.originalLgetxattr, "lgetxattr");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "mkdir", "mkdir",
-                                        (void*)WrappedMkdirLibc, &gOriginalMkdir, "mkdir");
+                                        (void*)WrappedMkdirLibc, &process.originalMkdir, "mkdir");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "mknod", "mknod",
-                                        (void*)WrappedMknod, &gOriginalMknod, "mknod");
+                                        (void*)WrappedMknod, &process.originalMknod, "mknod");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "open", "open",
-                                        (void*)WrappedOpen, &gOriginalOpen, "open");
+                                        (void*)WrappedOpen, &process.originalOpen, "open");
             PatchRuntimeRelocationSlots(*runtimeDyn, module.base, getpagesize(), "__open_2",
-                                        "__open_2", (void*)WrappedOpen2, &gOriginalOpen2,
+                                        "__open_2", (void*)WrappedOpen2, &process.originalOpen2,
                                         "__open_2");
         }
     } else if (auto fileContext = BuildFileElfContext(module); fileContext.has_value()) {
         InstallMinimalDebugHooks(module, *fileContext);
     }
 
-    if (gOriginalGetDirectoryEntries == nullptr) {
+    if (process.originalGetDirectoryEntries == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.getDirectoryEntries,
                                        "GetDirectoryEntries", (void*)WrappedGetDirectoryEntries,
-                                       &gOriginalGetDirectoryEntries,
+                                       &process.originalGetDirectoryEntries,
                                        "hook GetDirectoryEntries failed");
     }
-    if (gOriginalAddDirectoryEntriesFromLowerFs == nullptr) {
-        TryInstallCriticalHookFromPlan(
-            module, installPlan.addDirectoryEntriesFromLowerFs, "addDirectoryEntriesFromLowerFs",
-            (void*)WrappedAddDirectoryEntriesFromLowerFs, &gOriginalAddDirectoryEntriesFromLowerFs,
-            "hook addDirectoryEntriesFromLowerFs failed");
+    if (process.originalAddDirectoryEntriesFromLowerFs == nullptr) {
+        TryInstallCriticalHookFromPlan(module, installPlan.addDirectoryEntriesFromLowerFs,
+                                       "addDirectoryEntriesFromLowerFs",
+                                       (void*)WrappedAddDirectoryEntriesFromLowerFs,
+                                       &process.originalAddDirectoryEntriesFromLowerFs,
+                                       "hook addDirectoryEntriesFromLowerFs failed");
     }
-    if (gOriginalAddDirectoryEntriesFromLowerFs == nullptr) {
+    if (process.originalAddDirectoryEntriesFromLowerFs == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.addDirectoryEntriesFromLowerFsThunk,
                                        "addDirectoryEntriesFromLowerFsThunk",
                                        (void*)WrappedAddDirectoryEntriesFromLowerFs,
-                                       &gOriginalAddDirectoryEntriesFromLowerFs,
+                                       &process.originalAddDirectoryEntriesFromLowerFs,
                                        "hook addDirectoryEntriesFromLowerFs thunk failed");
     }
-    if (gOriginalDoReaddirCommon == nullptr) {
-        TryInstallCriticalHookFromPlan(module, installPlan.doReaddirCommon, "do_readdir_common",
-                                       (void*)WrappedDoReaddirCommon, &gOriginalDoReaddirCommon,
-                                       "hook do_readdir_common failed");
+    if (process.originalDoReaddirCommon == nullptr) {
+        TryInstallCriticalHookFromPlan(
+            module, installPlan.doReaddirCommon, "do_readdir_common", (void*)WrappedDoReaddirCommon,
+            &process.originalDoReaddirCommon, "hook do_readdir_common failed");
     }
-    if (gOriginalPfMkdir == nullptr) {
+    if (process.originalPfMkdir == nullptr) {
         // Reverse-engineered record: pf_mkdir @ 0x00177050.
         // The advanced path still keeps explicit handler RVAs because these static functions may be
         // absent from runtime relocation metadata.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfMkdirOffset),
-                               (void*)WrappedPfMkdir, &gOriginalPfMkdir, "hook pf_mkdir failed");
+                               (void*)WrappedPfMkdir, &process.originalPfMkdir,
+                               "hook pf_mkdir failed");
     }
-    if (gOriginalPfMknod == nullptr) {
+    if (process.originalPfMknod == nullptr) {
         // Reverse-engineered record: pf_mknod @ 0x00176ba8.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfMknodOffset),
-                               (void*)WrappedPfMknod, &gOriginalPfMknod, "hook pf_mknod failed");
+                               (void*)WrappedPfMknod, &process.originalPfMknod,
+                               "hook pf_mknod failed");
     }
-    if (gOriginalPfUnlink == nullptr) {
+    if (process.originalPfUnlink == nullptr) {
         // Reverse-engineered record: pf_unlink @ 0x00177534.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfUnlinkOffset),
-                               (void*)WrappedPfUnlink, &gOriginalPfUnlink, "hook pf_unlink failed");
+                               (void*)WrappedPfUnlink, &process.originalPfUnlink,
+                               "hook pf_unlink failed");
     }
-    if (gOriginalPfRmdir == nullptr) {
+    if (process.originalPfRmdir == nullptr) {
         // Reverse-engineered record: pf_rmdir @ 0x00177920.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfRmdirOffset),
-                               (void*)WrappedPfRmdir, &gOriginalPfRmdir, "hook pf_rmdir failed");
+                               (void*)WrappedPfRmdir, &process.originalPfRmdir,
+                               "hook pf_rmdir failed");
     }
-    if (gOriginalPfRename == nullptr) {
+    if (process.originalPfRename == nullptr) {
         // Reverse-engineered record: pf_rename @ 0x00177ef4.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfRenameOffset),
-                               (void*)WrappedPfRename, &gOriginalPfRename, "hook pf_rename failed");
+                               (void*)WrappedPfRename, &process.originalPfRename,
+                               "hook pf_rename failed");
     }
-    if (gOriginalPfCreate == nullptr) {
+    if (process.originalPfCreate == nullptr) {
         // Reverse-engineered record: pf_create @ 0x0017a7c8.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfCreateOffset),
-                               (void*)WrappedPfCreate, &gOriginalPfCreate, "hook pf_create failed");
+                               (void*)WrappedPfCreate, &process.originalPfCreate,
+                               "hook pf_create failed");
     }
-    if (gOriginalPfReaddir == nullptr) {
+    if (process.originalPfReaddir == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.pfReaddir, "pf_readdir",
-                                       (void*)WrappedPfReaddir, &gOriginalPfReaddir,
+                                       (void*)WrappedPfReaddir, &process.originalPfReaddir,
                                        "hook pf_readdir failed");
     }
-    if (gOriginalPfReaddirplus == nullptr) {
+    if (process.originalPfReaddirplus == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.pfReaddirplus, "pf_readdirplus",
-                                       (void*)WrappedPfReaddirplus, &gOriginalPfReaddirplus,
+                                       (void*)WrappedPfReaddirplus, &process.originalPfReaddirplus,
                                        "hook pf_readdirplus failed");
     }
-    if (gOriginalPfReaddirPostfilter == nullptr) {
+    if (process.originalPfReaddirPostfilter == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.pfReaddirPostfilter,
                                        "pf_readdir_postfilter", (void*)WrappedPfReaddirPostfilter,
-                                       &gOriginalPfReaddirPostfilter,
+                                       &process.originalPfReaddirPostfilter,
                                        "hook pf_readdir_postfilter failed");
     }
 
-    if (gOriginalPfLookup == nullptr) {
+    if (process.originalPfLookup == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_lookupEP8fuse_reqmPKc",
-                             (void*)WrappedPfLookup, &gOriginalPfLookup, "hook pf_lookup failed");
+                             (void*)WrappedPfLookup, &process.originalPfLookup,
+                             "hook pf_lookup failed");
     }
-    if (gOriginalPfAccess == nullptr) {
+    if (process.originalPfAccess == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_accessEP8fuse_reqmi",
-                             (void*)WrappedPfAccess, &gOriginalPfAccess, "hook pf_access failed");
+                             (void*)WrappedPfAccess, &process.originalPfAccess,
+                             "hook pf_access failed");
     }
-    if (gOriginalPfOpen == nullptr) {
+    if (process.originalPfOpen == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL7pf_openEP8fuse_reqmP14fuse_file_info",
-                             (void*)WrappedPfOpen, &gOriginalPfOpen, "hook pf_open failed");
+                             (void*)WrappedPfOpen, &process.originalPfOpen, "hook pf_open failed");
     }
-    if (gOriginalPfOpendir == nullptr) {
+    if (process.originalPfOpendir == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL10pf_opendirEP8fuse_reqmP14fuse_file_info",
-                             (void*)WrappedPfOpendir, &gOriginalPfOpendir,
+                             (void*)WrappedPfOpendir, &process.originalPfOpendir,
                              "hook pf_opendir failed");
     }
-    if (gOriginalPfMkdir == nullptr) {
+    if (process.originalPfMkdir == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL8pf_mkdirEP8fuse_reqmPKcj",
-                             (void*)WrappedPfMkdir, &gOriginalPfMkdir, "hook pf_mkdir failed");
+                             (void*)WrappedPfMkdir, &process.originalPfMkdir,
+                             "hook pf_mkdir failed");
     }
-    if (gOriginalPfMknod == nullptr) {
+    if (process.originalPfMknod == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL8pf_mknodEP8fuse_reqmPKcjm",
-                             (void*)WrappedPfMknod, &gOriginalPfMknod, "hook pf_mknod failed");
+                             (void*)WrappedPfMknod, &process.originalPfMknod,
+                             "hook pf_mknod failed");
     }
-    if (gOriginalPfUnlink == nullptr) {
+    if (process.originalPfUnlink == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_unlinkEP8fuse_reqmPKc",
-                             (void*)WrappedPfUnlink, &gOriginalPfUnlink, "hook pf_unlink failed");
+                             (void*)WrappedPfUnlink, &process.originalPfUnlink,
+                             "hook pf_unlink failed");
     }
-    if (gOriginalPfRmdir == nullptr) {
+    if (process.originalPfRmdir == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL8pf_rmdirEP8fuse_reqmPKc",
-                             (void*)WrappedPfRmdir, &gOriginalPfRmdir, "hook pf_rmdir failed");
+                             (void*)WrappedPfRmdir, &process.originalPfRmdir,
+                             "hook pf_rmdir failed");
     }
-    if (gOriginalPfRename == nullptr) {
+    if (process.originalPfRename == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_renameEP8fuse_reqmPKcmS4_j",
-                             (void*)WrappedPfRename, &gOriginalPfRename, "hook pf_rename failed");
+                             (void*)WrappedPfRename, &process.originalPfRename,
+                             "hook pf_rename failed");
     }
-    if (gOriginalPfCreate == nullptr) {
+    if (process.originalPfCreate == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_createEP8fuse_reqmPKcjP14fuse_file_info",
-                             (void*)WrappedPfCreate, &gOriginalPfCreate, "hook pf_create failed");
+                             (void*)WrappedPfCreate, &process.originalPfCreate,
+                             "hook pf_create failed");
     }
-    if (gOriginalPfLookupPostfilter == nullptr) {
+    if (process.originalPfLookupPostfilter == nullptr) {
         InstallHookForSymbol(
             "_ZN13mediaprovider4fuseL20pf_lookup_postfilterEP8fuse_reqmjPKcP14fuse_entry_"
             "outP18fuse_"
             "entry_bpf_out",
-            (void*)WrappedPfLookupPostfilter, &gOriginalPfLookupPostfilter,
+            (void*)WrappedPfLookupPostfilter, &process.originalPfLookupPostfilter,
             "hook pf_lookup_postfilter failed");
     }
-    if (gOriginalPfGetattr == nullptr) {
+    if (process.originalPfGetattr == nullptr) {
         InstallHookForSymbol("_ZN13mediaprovider4fuseL10pf_getattrEP8fuse_reqmP14fuse_file_info",
-                             (void*)WrappedPfGetattr, &gOriginalPfGetattr,
+                             (void*)WrappedPfGetattr, &process.originalPfGetattr,
                              "hook pf_getattr failed");
     }
-    if (gOriginalPfLookup == nullptr) {
+    if (process.originalPfLookup == nullptr) {
         // Reverse-engineered record: pf_lookup @ 0x00175e48.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfLookupOffset),
-                               (void*)WrappedPfLookup, &gOriginalPfLookup, "hook pf_lookup failed");
+                               (void*)WrappedPfLookup, &process.originalPfLookup,
+                               "hook pf_lookup failed");
     }
-    if (gOriginalPfLookupPostfilter == nullptr) {
+    if (process.originalPfLookupPostfilter == nullptr) {
         // Reverse-engineered record: pf_lookup_postfilter @ 0x00175f90.
         TryInstallInlineHookAt(
             reinterpret_cast<void*>(module.base + deviceProfile.pfLookupPostfilterOffset),
-            (void*)WrappedPfLookupPostfilter, &gOriginalPfLookupPostfilter,
+            (void*)WrappedPfLookupPostfilter, &process.originalPfLookupPostfilter,
             "hook pf_lookup_postfilter failed");
     }
-    if (gOriginalPfGetattr == nullptr) {
+    if (process.originalPfGetattr == nullptr) {
         // Reverse-engineered record: pf_getattr @ 0x001762bc.
         TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfGetattrOffset),
-                               (void*)WrappedPfGetattr, &gOriginalPfGetattr,
+                               (void*)WrappedPfGetattr, &process.originalPfGetattr,
                                "hook pf_getattr failed");
     }
 }
@@ -1580,7 +1618,7 @@ void InstallFuseHooks() {
         4, kLogTag,
         "hook summary app=%p package_ptr=%p package_compare=%d bpf=%p strcasecmp=%p equals=%p "
         "icu=%p",
-        reinterpret_cast<void*>(gOriginalIsAppAccessiblePath),
+        reinterpret_cast<void*>(Process().originalIsAppAccessiblePath),
         reinterpret_cast<void*>(gOriginalIsPackageOwnedPath),
         coreStatus.packageCoveredByComparePath, reinterpret_cast<void*>(gOriginalIsBpfBackingPath),
         gOriginalStrcasecmp, gOriginalEqualsIgnoreCase,

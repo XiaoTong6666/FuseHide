@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">FuseHide</string>
+    <string name="app_description">MediaProvider FUSEデバッグツール。</string>
     <string name="home_subtitle_policy">実行時の隠蔽設定を調整し、MediaProviderで実際に使われている設定を確認します。</string>
     <string name="home_subtitle_probe">Hook済みの MediaProvider プロセスに対して直接パス検査を実行します。</string>
     <string name="tab_policy">設定</string>
@@ -77,6 +78,7 @@
     <string name="status_hooked">モジュール状態：Hook済み %1$s pid=%2$d</string>
     <string name="status_not_hooked">モジュール状態：未Hook（タップして再確認）</string>
     <string name="config_loaded_saved">保存済みの隠蔽設定をエディタに読み込みました。</string>
+    <string name="config_refuse_default_overwrite">ローカル設定が存在しないため、プレースホルダーのデフォルト値の保存を拒否します。復元するには「適用済み設定の更新」を使用するか、どうしてもデフォルト値を使用したい場合は保存前に「デフォルト値の復元」をタップしてください。</string>
     <string name="config_waiting_ack">隠蔽設定を保存し、再読み込みブロードキャストを送信しました。MediaProvider からの確認を待機中です。</string>
     <string name="config_applied_ok">隠蔽設定を MediaProvider に適用しました。</string>
     <string name="config_applied_fail">隠蔽設定の再読み込みに失敗しました：%1$s</string>
@@ -89,4 +91,6 @@
     <string name="diff_summary_mismatch">未保存設定と適用済みの MediaProvider 設定が一致していません。</string>
     <string name="diff_summary_match">未保存設定と適用済みの MediaProvider 設定が一致しています。</string>
     <string name="probe_output_empty">検査出力はまだありません。</string>
+    <string name="config_missing_local">保存されたローカル設定が見つかりませんでした。デフォルト値はプレースホルダーとして表示されているだけで、明示的にデフォルト値を復元しない限り保存されません。</string>
+    <string name="config_recovered_applied">現在適用されているMediaProviderの設定から、エディターとローカルストレージを復元しました。</string>
 </resources>

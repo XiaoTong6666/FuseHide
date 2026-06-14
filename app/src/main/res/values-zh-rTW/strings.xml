@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">FuseHide</string>
+    <string name="app_description">MediaProvider FUSE 調試工具。</string>
     <string name="home_subtitle_policy">調整執行階段的隱藏設定，並確認 MediaProvider 實際使用中的設定。</string>
     <string name="home_subtitle_probe">對已 Hook 的 MediaProvider 程序執行直接路徑檢測。</string>
     <string name="tab_policy">設定</string>
@@ -77,6 +78,7 @@
     <string name="status_hooked">模組狀態：已 Hook %1$s pid=%2$d</string>
     <string name="status_not_hooked">模組狀態：未 Hook（點一下重新檢查）</string>
     <string name="config_loaded_saved">已將儲存的隱藏設定載入編輯器。</string>
+    <string name="config_refuse_default_overwrite">由於不存在本地配置，因此拒絕保存佔位符預設值。請使用「刷新已套用設定」進行恢復，或者如果您確實需要預設值，請在儲存前點擊「恢復預設值」。</string>
     <string name="config_waiting_ack">已儲存隱藏設定並送出重新載入廣播；正在等待 MediaProvider 確認。</string>
     <string name="config_applied_ok">已在 MediaProvider 中套用隱藏設定。</string>
     <string name="config_applied_fail">重新載入隱藏設定失敗：%1$s</string>
@@ -89,4 +91,6 @@
     <string name="diff_summary_mismatch">未儲存設定與已套用的 MediaProvider 設定不一致。</string>
     <string name="diff_summary_match">未儲存設定與已套用的 MediaProvider 設定一致。</string>
     <string name="probe_output_empty">目前沒有檢測輸出。</string>
+    <string name="config_missing_local">未找到已儲存的本機設定。預設值僅以佔位符顯示；除非您明確恢復預設值，否則不會儲存。</string>
+    <string name="config_recovered_applied">從目前應用的 MediaProvider 配置中還原編輯器和本機儲存。</string>
 </resources>

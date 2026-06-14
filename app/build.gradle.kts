@@ -41,7 +41,7 @@ android {
                 .directory(rootDir)
                 .start()
                 .inputStream.bufferedReader().use { it.readText() }.trim().toInt()
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             1
         }
         
@@ -91,8 +91,13 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        }
     }
     buildFeatures {
         compose = true
@@ -110,7 +115,7 @@ android {
 }
 
 dependencies {
-    compileOnly(project(":xposed-stubs"))
+    compileOnly(libs.api)
     implementation(libs.miuix)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.core.ktx)

@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">FuseHide</string>
+    <string name="app_description">MediaProvider FUSE 调试工具。</string>
     <string name="home_subtitle_policy">调整运行时隐藏配置，并验证 MediaProvider 的实际使用情况。</string>
     <string name="home_subtitle_probe">针对被 Hook 的 MediaProvider 进程运行直接路径检测。</string>
     <string name="tab_policy">配置</string>
@@ -77,6 +78,7 @@
     <string name="status_hooked">模块状态：已 Hook %1$s pid=%2$d</string>
     <string name="status_not_hooked">模块状态：未 Hook（点击重新检查）</string>
     <string name="config_loaded_saved">已将保存的隐藏配置加载到编辑器中。</string>
+    <string name="config_refuse_default_overwrite">由于不存在本地配置，因此拒绝保存占位符默认值。请使用“刷新已应用配置”进行恢复，或者如果您确实需要默认值，请在保存前点击“恢复默认值”。</string>
     <string name="config_waiting_ack">已保存隐藏配置并发送重新加载广播；等待 MediaProvider 确认。</string>
     <string name="config_applied_ok">隐藏配置已在 MediaProvider 中应用。</string>
     <string name="config_applied_fail">隐藏配置重新加载失败：%1$s</string>
@@ -89,4 +91,6 @@
     <string name="diff_summary_mismatch">未保存配置与已应用的 MediaProvider 配置不符。</string>
     <string name="diff_summary_match">未保存配置与已应用的 MediaProvider 配置匹配。</string>
     <string name="probe_output_empty">暂无检测输出。</string>
+    <string name="config_missing_local">未找到已保存的本地配置。默认值仅作为占位符显示；除非您显式恢复默认值，否则不会保存。</string>
+    <string name="config_recovered_applied">从当前应用的 MediaProvider 配置中恢复编辑器和本地存储。</string>
 </resources>

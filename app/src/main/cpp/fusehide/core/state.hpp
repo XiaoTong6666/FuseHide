@@ -27,12 +27,15 @@
 #include <cctype>
 #include <cerrno>
 #include <chrono>
+#include <condition_variable>
 #include <cstdarg>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -92,6 +95,10 @@ struct DirectoryEntry {
 }  // namespace mediaprovider
 
 namespace fusehide {
+
+inline constexpr uint32_t kFuseHidePayloadAbiVersion = 1;
+inline constexpr uint32_t kFuseHidePayloadAbiMinSupportedVersion = 1;
+inline constexpr uint32_t kFuseHidePayloadAbiMaxSupportedVersion = 1;
 
 inline constexpr const char* kLogTag = "FuseHide";
 inline constexpr const char* kTargetLibrary = "libfuse_jni.so";
@@ -311,7 +318,6 @@ extern HookInstaller gHookInstaller;
 extern JavaVM* gJavaVm;
 extern UHasBinaryPropertyFn gUHasBinaryProperty;
 extern std::once_flag gXzCrcInitOnce;
-extern IsAppAccessiblePathFn gOriginalIsAppAccessiblePath;
 extern IsPackageOwnedPathFn gOriginalIsPackageOwnedPath;
 extern IsBpfBackingPathFn gOriginalIsBpfBackingPath;
 extern void* gOriginalStrcasecmp;
@@ -374,6 +380,129 @@ class RuntimeState final {
     static void ScheduleHiddenInodeInvalidation(uint64_t ino);
 };
 
+struct FuseHidePayloadApi {
+    uint32_t abiVersion = kFuseHidePayloadAbiVersion;
+    uint32_t abiMinSupportedVersion = kFuseHidePayloadAbiMinSupportedVersion;
+    uint32_t abiMaxSupportedVersion = kFuseHidePayloadAbiMaxSupportedVersion;
+    uint32_t structSize = sizeof(FuseHidePayloadApi);
+    // ABI prefix rules:
+    // 1. Only append new fields to the tail.
+    // 2. Keep existing fields in this prefix stable and ordered.
+    // 3. Behavior-bearing callbacks in this prefix are required for a valid payload.
+    void (*pfLookup)(fuse_req_t req, uint64_t parent, const char* name) = nullptr;
+    void (*pfReaddirPostfilter)(fuse_req_t req, uint64_t ino, uint32_t error_in, off_t off_in,
+                                off_t off_out, size_t size_out, const void* dirents_in,
+                                void* fi) = nullptr;
+    void (*pfLookupPostfilter)(fuse_req_t req, uint64_t parent, uint32_t error_in, const char* name,
+                               struct fuse_entry_out* feo,
+                               struct fuse_entry_bpf_out* febo) = nullptr;
+    void (*pfMkdir)(fuse_req_t req, uint64_t parent, const char* name, uint32_t mode) = nullptr;
+    void (*pfMknod)(fuse_req_t req, uint64_t parent, const char* name, uint32_t mode,
+                    uint64_t rdev) = nullptr;
+    void (*pfUnlink)(fuse_req_t req, uint64_t parent, const char* name) = nullptr;
+    void (*pfRmdir)(fuse_req_t req, uint64_t parent, const char* name) = nullptr;
+    void (*pfRename)(fuse_req_t req, uint64_t parent, const char* name, uint64_t new_parent,
+                     const char* new_name, uint32_t flags) = nullptr;
+    void (*pfCreate)(fuse_req_t req, uint64_t parent, const char* name, uint32_t mode,
+                     void* fi) = nullptr;
+    void (*pfReaddir)(fuse_req_t req, uint64_t ino, size_t size, off_t off, void* fi) = nullptr;
+    void (*doReaddirCommon)(fuse_req_t req, uint64_t ino, size_t size, off_t off, void* fi,
+                            bool plus) = nullptr;
+    void (*pfReaddirplus)(fuse_req_t req, uint64_t ino, size_t size, off_t off, void* fi) = nullptr;
+    void (*pfAccess)(fuse_req_t req, uint64_t ino, int mask) = nullptr;
+    void (*pfOpen)(fuse_req_t req, uint64_t ino, void* fi) = nullptr;
+    void (*pfOpendir)(fuse_req_t req, uint64_t ino, void* fi) = nullptr;
+    int (*replyEntry)(fuse_req_t req, const struct fuse_entry_param* e) = nullptr;
+    int (*replyAttr)(fuse_req_t req, const struct stat* attr, double timeout) = nullptr;
+    int (*replyBuf)(fuse_req_t req, const char* buf, size_t size) = nullptr;
+    int (*replyErr)(fuse_req_t req, int err) = nullptr;
+    void (*pfGetattr)(fuse_req_t req, uint64_t ino, void* fi) = nullptr;
+    DirectoryEntries (*getDirectoryEntries)(void* wrapper, uint32_t uid, const std::string& path,
+                                            DIR* dirp) = nullptr;
+    void (*addDirectoryEntriesFromLowerFs)(DIR* dirp, LowerFsDirentFilterFn filter,
+                                           DirectoryEntries* entries) = nullptr;
+    int (*lstat)(const char* path, struct stat* st) = nullptr;
+    int (*stat)(const char* path, struct stat* st) = nullptr;
+    ssize_t (*getxattr)(const char* path, const char* name, void* value, size_t size) = nullptr;
+    ssize_t (*lgetxattr)(const char* path, const char* name, void* value, size_t size) = nullptr;
+    int (*mkdirLibc)(const char* path, mode_t mode) = nullptr;
+    int (*mknodLibc)(const char* path, mode_t mode, dev_t dev) = nullptr;
+    int (*openLibc)(const char* path, int flags, mode_t mode, bool hasMode) = nullptr;
+    int (*open2Libc)(const char* path, int flags) = nullptr;
+    bool (*shouldNotCache)(void* fuse, const std::string& path) = nullptr;
+    bool (*isAppAccessiblePath)(void* fuse, const std::string& path, uint32_t uid) = nullptr;
+};
+
+struct FuseHideAnchorApi {
+    uint32_t abiVersion = kFuseHidePayloadAbiVersion;
+    uint32_t abiMinSupportedVersion = kFuseHidePayloadAbiMinSupportedVersion;
+    uint32_t abiMaxSupportedVersion = kFuseHidePayloadAbiMaxSupportedVersion;
+    uint32_t structSize = sizeof(FuseHideAnchorApi);
+    // Anchor ABI follows the same append-only prefix rule as FuseHidePayloadApi.
+    std::shared_ptr<const HideConfig> (*currentHideConfig)() = nullptr;
+    void (*applyHideConfig)(HideConfig config) = nullptr;
+    uint32_t (*reqUid)(fuse_req_t req) = nullptr;
+    void (*rememberFuseSession)(fuse_req_t req) = nullptr;
+    void (*scheduleHiddenEntryInvalidation)() = nullptr;
+    void (*scheduleSpecificEntryInvalidation)(uint64_t parent, std::string_view name) = nullptr;
+    void (*scheduleHiddenInodeInvalidation)(uint64_t ino) = nullptr;
+};
+
+using FuseHidePayloadInitFn = bool (*)(const FuseHideAnchorApi* anchor, FuseHidePayloadApi* outApi);
+
+struct NativeGeneration {
+    uint64_t id = 0;
+    uint64_t versionCode = 0;
+    std::string versionHash;
+    std::string payloadPath;
+    void* payloadHandle = nullptr;
+    bool external = false;
+    FuseHidePayloadApi api{};
+    std::atomic<uint32_t> activeCalls{0};
+    std::atomic<bool> draining{false};
+};
+
+struct ScheduledAnchorTask {
+    std::chrono::steady_clock::time_point dueAt{};
+    std::function<void()> task;
+};
+
+struct HookInstallState {
+    bool installed = false;
+    uintptr_t targetModuleBase = 0;
+};
+
+struct AnchorState {
+    std::mutex installMutex;
+    HookInstallState hookInstallState{};
+
+    std::mutex generationMutex;
+    std::shared_ptr<NativeGeneration> activeGeneration;
+    std::vector<std::shared_ptr<NativeGeneration>> retiredGenerations;
+    std::atomic<uint64_t> nextGenerationId{1};
+
+    std::mutex schedulerMutex;
+    std::condition_variable schedulerCv;
+    std::deque<ScheduledAnchorTask> scheduledTasks;
+    std::thread schedulerThread;
+    bool schedulerStop = false;
+    bool schedulerStarted = false;
+};
+
+AnchorState& Anchor();
+bool BuiltinFuseHidePayloadInit(const FuseHideAnchorApi* anchor, FuseHidePayloadApi* outApi);
+extern "C" bool FuseHideBuiltinPayloadInitV1(const FuseHideAnchorApi* anchor,
+                                             FuseHidePayloadApi* outApi);
+bool EnsureAnchorGenerationInitialized();
+std::shared_ptr<NativeGeneration> AcquireActiveGeneration();
+bool SwitchToBuiltinGeneration(uint64_t versionCode, std::string versionHash,
+                               uint64_t* outGenerationId = nullptr);
+bool SwitchToExternalGeneration(std::string payloadPath, uint64_t versionCode,
+                                std::string versionHash, uint64_t* outGenerationId = nullptr);
+uint64_t CurrentNativeGenerationId();
+void EnqueueAnchorTask(std::chrono::milliseconds delay, std::function<void()> task);
+void MaybeCleanupRetiredGenerations();
+
 bool IsTestHiddenUid(uint32_t uid);
 bool ShouldHideTestPath(uint32_t uid, std::string_view path);
 std::string EscapeForLog(const uint8_t* data, size_t length);
@@ -388,77 +517,91 @@ void RewriteString(std::string& input);
 int CompareCaseFoldIgnoringDefaultIgnorables(const uint8_t* lhsData, size_t lhsLen,
                                              const uint8_t* rhsData, size_t rhsLen);
 
-extern void* gOriginalPfLookup;
-extern void* gOriginalPfLookupPostfilter;
-extern void* gOriginalPfAccess;
-extern void* gOriginalPfOpen;
-extern void* gOriginalPfOpendir;
-extern void* gOriginalPfMknod;
-extern void* gOriginalPfMkdir;
-extern void* gOriginalPfUnlink;
-extern void* gOriginalPfRmdir;
-extern void* gOriginalPfRename;
-extern void* gOriginalPfCreate;
-extern void* gOriginalPfReaddir;
-extern void* gOriginalPfReaddirPostfilter;
-extern void* gOriginalPfReaddirplus;
-extern void* gOriginalDoReaddirCommon;
-extern void* gOriginalPfGetattr;
-extern void* gOriginalOpen;
-extern void* gOriginalOpen2;
-extern void* gOriginalMkdir;
-extern void* gOriginalMknod;
-extern void* gOriginalLstat;
-extern void* gOriginalStat;
-extern void* gOriginalGetxattr;
-extern void* gOriginalLgetxattr;
-extern void* gOriginalShouldNotCache;
-extern void* gOriginalNotifyInvalEntry;
-extern void* gOriginalNotifyInvalInode;
-extern void* gOriginalReplyAttr;
-extern void* gOriginalReplyEntry;
-extern void* gOriginalReplyBuf;
-extern void* gOriginalReplyErr;
-extern void* gOriginalGetDirectoryEntries;
-extern void* gOriginalAddDirectoryEntriesFromLowerFs;
-extern std::atomic<void*> gLastFuseSession;
-extern std::atomic<bool> gHiddenEntryInvalidationPending;
-extern std::atomic<uint64_t> gHiddenRootParentInode;
-extern thread_local bool gInPfLookup;
-extern thread_local bool gInPfLookupPostfilter;
-extern thread_local bool gInPfReaddir;
-extern thread_local bool gInPfReaddirPostfilter;
-extern thread_local bool gInPfReaddirplus;
-extern thread_local bool gInPfGetattr;
-extern thread_local uint32_t gPfGetattrUid;
-extern thread_local uint32_t gPfReaddirUid;
-extern thread_local uint64_t gPfGetattrIno;
-extern thread_local uint64_t gPfReaddirIno;
-extern thread_local uint64_t gCurrentLookupParentInode;
-extern thread_local std::string gCurrentLookupName;
-extern thread_local bool gTrackRootHiddenLookup;
-extern thread_local bool gTrackHiddenSubtreeLookup;
-extern thread_local bool gZeroAttrCacheForCurrentGetattr;
-extern thread_local fuse_req_t gPendingHiddenErrReq;
-extern thread_local uint64_t gPendingHiddenErrReqUnique;
-extern thread_local int gPendingHiddenErrno;
-extern std::mutex gHiddenSubtreeInodesMutex;
-extern std::unordered_set<uint64_t> gHiddenSubtreeInodes;
-extern std::mutex gInodePathCacheMutex;
-extern std::unordered_map<uint64_t, std::string> gInodePathCache;
 struct PendingReaddirContext {
     uint32_t uid = 0;
     uint64_t ino = 0;
     std::string path;
 };
-extern std::mutex gPendingReaddirContextsMutex;
-extern std::unordered_map<uint64_t, PendingReaddirContext> gPendingReaddirContexts;
-extern thread_local uint64_t gCurrentReaddirReqUnique;
-extern std::mutex gRecentHiddenParentPathsMutex;
-extern std::unordered_map<uint32_t, std::string> gRecentHiddenParentPaths;
-extern std::unordered_map<uint32_t, uint32_t> gRecentHiddenParentPathUids;
-extern std::string gRecentHiddenParentPathAnyUid;
-extern uint32_t gRecentHiddenParentPathAnyUidOwner;
+
+struct AnchorProcessState {
+    IsAppAccessiblePathFn originalIsAppAccessiblePath = nullptr;
+    void* originalPfLookup = nullptr;
+    void* originalPfLookupPostfilter = nullptr;
+    void* originalPfAccess = nullptr;
+    void* originalPfOpen = nullptr;
+    void* originalPfOpendir = nullptr;
+    void* originalPfMknod = nullptr;
+    void* originalPfMkdir = nullptr;
+    void* originalPfUnlink = nullptr;
+    void* originalPfRmdir = nullptr;
+    void* originalPfRename = nullptr;
+    void* originalPfCreate = nullptr;
+    void* originalPfReaddir = nullptr;
+    void* originalPfReaddirPostfilter = nullptr;
+    void* originalPfReaddirplus = nullptr;
+    void* originalDoReaddirCommon = nullptr;
+    void* originalPfGetattr = nullptr;
+    void* originalOpen = nullptr;
+    void* originalOpen2 = nullptr;
+    void* originalMkdir = nullptr;
+    void* originalMknod = nullptr;
+    void* originalLstat = nullptr;
+    void* originalStat = nullptr;
+    void* originalGetxattr = nullptr;
+    void* originalLgetxattr = nullptr;
+    void* originalShouldNotCache = nullptr;
+    void* originalNotifyInvalEntry = nullptr;
+    void* originalNotifyInvalInode = nullptr;
+    void* originalReplyAttr = nullptr;
+    void* originalReplyEntry = nullptr;
+    void* originalReplyBuf = nullptr;
+    void* originalReplyErr = nullptr;
+    void* originalGetDirectoryEntries = nullptr;
+    void* originalAddDirectoryEntriesFromLowerFs = nullptr;
+    std::atomic<void*> lastFuseSession{nullptr};
+    std::atomic<bool> hiddenEntryInvalidationPending{false};
+    std::atomic<uint64_t> hiddenRootParentInode{0};
+    std::mutex hiddenSubtreeInodesMutex;
+    std::unordered_set<uint64_t> hiddenSubtreeInodes;
+    std::mutex inodePathCacheMutex;
+    std::unordered_map<uint64_t, std::string> inodePathCache;
+    std::mutex pendingReaddirContextsMutex;
+    std::unordered_map<uint64_t, PendingReaddirContext> pendingReaddirContexts;
+    std::mutex recentHiddenParentPathsMutex;
+    std::unordered_map<uint32_t, std::string> recentHiddenParentPaths;
+    std::unordered_map<uint32_t, uint32_t> recentHiddenParentPathUids;
+    std::string recentHiddenParentPathAnyUid;
+    uint32_t recentHiddenParentPathAnyUidOwner = 0;
+};
+
+AnchorProcessState& ProcessState();
+
+struct HookThreadState {
+    bool inPfLookup = false;
+    bool inPfLookupPostfilter = false;
+    bool inPfReaddir = false;
+    bool inPfReaddirPostfilter = false;
+    bool inPfReaddirplus = false;
+    bool inPfGetattr = false;
+    uint32_t pfGetattrUid = 0;
+    uint32_t pfReaddirUid = 0;
+    uint64_t pfGetattrIno = 0;
+    uint64_t pfReaddirIno = 0;
+    uint64_t currentLookupParentInode = 0;
+    std::string currentLookupName;
+    bool trackRootHiddenLookup = false;
+    bool trackHiddenSubtreeLookup = false;
+    bool zeroAttrCacheForCurrentGetattr = false;
+    fuse_req_t pendingHiddenErrReq = nullptr;
+    uint64_t pendingHiddenErrReqUnique = 0;
+    int pendingHiddenErrno = 0;
+    uint64_t currentReaddirReqUnique = 0;
+    uint32_t activeCreateUid = 0;
+    uint32_t lastPathPolicyUid = 0;
+    std::string lastPathPolicyPath;
+};
+
+extern thread_local HookThreadState gHookThreadState;
 
 namespace ReplyErrorBridge {
 // Use Original() only when preserving strict "hook backup only" semantics for a wrapper that

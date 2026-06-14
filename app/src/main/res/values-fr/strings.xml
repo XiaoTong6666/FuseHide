@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">FuseHide</string>
+    <string name="app_description">Outil de débogage FUSE pour MediaProvider.</string>
     <string name="home_subtitle_policy">Ajustez la configuration de masquage à l’exécution et vérifiez la configuration réellement utilisée par MediaProvider.</string>
     <string name="home_subtitle_probe">Exécutez des vérifications de chemin direct sur le processus MediaProvider accroché.</string>
     <string name="tab_policy">Configuration</string>
@@ -77,6 +78,7 @@
     <string name="status_hooked">Statut du module : accroché %1$s pid=%2$d</string>
     <string name="status_not_hooked">Statut du module : non accroché (appuyez pour vérifier à nouveau)</string>
     <string name="config_loaded_saved">La configuration de masquage enregistrée a été chargée dans l’éditeur.</string>
+    <string name="config_refuse_default_overwrite">Impossible d\'enregistrer les paramètres par défaut, car aucune configuration locale n\'existe. Utilisez « Actualiser la configuration appliquée » pour les récupérer, ou appuyez sur « Restaurer les paramètres par défaut » avant d\'enregistrer si vous souhaitez absolument les conserver.</string>
     <string name="config_waiting_ack">La configuration de masquage a été enregistrée et un broadcast de rechargement a été envoyé ; en attente de la confirmation de MediaProvider.</string>
     <string name="config_applied_ok">La configuration de masquage a été appliquée dans MediaProvider.</string>
     <string name="config_applied_fail">Impossible de recharger la configuration de masquage : %1$s</string>
@@ -89,4 +91,6 @@
     <string name="diff_summary_mismatch">La configuration non enregistrée ne correspond pas à la configuration appliquée de MediaProvider.</string>
     <string name="diff_summary_match">La configuration non enregistrée correspond à la configuration appliquée de MediaProvider.</string>
     <string name="probe_output_empty">Aucune sortie de vérification pour le moment.</string>
+    <string name="config_missing_local">Aucune configuration locale enregistrée n\'a été trouvée. Les valeurs par défaut ne sont affichées qu\'à titre indicatif ; elles ne seront pas enregistrées sauf si vous les rétablissez explicitement.</string>
+    <string name="config_recovered_applied">Récupération de l\'éditeur et du stockage local à partir de la configuration MediaProvider actuellement appliquée.</string>
 </resources>
