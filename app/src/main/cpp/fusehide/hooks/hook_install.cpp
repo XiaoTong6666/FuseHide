@@ -17,8 +17,50 @@
 
 namespace fusehide {
 
-static inline AnchorProcessState& Process() {
-    return ProcessState();
+struct HookInstallProcessState {
+    IsAppAccessiblePathFn& originalIsAppAccessiblePath = gOriginalIsAppAccessiblePath;
+    IsPackageOwnedPathFn& originalIsPackageOwnedPath = gOriginalIsPackageOwnedPath;
+    IsBpfBackingPathFn& originalIsBpfBackingPath = gOriginalIsBpfBackingPath;
+    void*& originalStrcasecmp = gOriginalStrcasecmp;
+    void*& originalEqualsIgnoreCase = gOriginalEqualsIgnoreCase;
+    void*& originalPfLookup = gOriginalPfLookup;
+    void*& originalPfLookupPostfilter = gOriginalPfLookupPostfilter;
+    void*& originalPfAccess = gOriginalPfAccess;
+    void*& originalPfOpen = gOriginalPfOpen;
+    void*& originalPfOpendir = gOriginalPfOpendir;
+    void*& originalPfMknod = gOriginalPfMknod;
+    void*& originalPfMkdir = gOriginalPfMkdir;
+    void*& originalPfUnlink = gOriginalPfUnlink;
+    void*& originalPfRmdir = gOriginalPfRmdir;
+    void*& originalPfRename = gOriginalPfRename;
+    void*& originalPfCreate = gOriginalPfCreate;
+    void*& originalPfReaddir = gOriginalPfReaddir;
+    void*& originalPfReaddirPostfilter = gOriginalPfReaddirPostfilter;
+    void*& originalPfReaddirplus = gOriginalPfReaddirplus;
+    void*& originalDoReaddirCommon = gOriginalDoReaddirCommon;
+    void*& originalPfGetattr = gOriginalPfGetattr;
+    void*& originalOpen = gOriginalOpen;
+    void*& originalOpen2 = gOriginalOpen2;
+    void*& originalMkdir = gOriginalMkdir;
+    void*& originalMknod = gOriginalMknod;
+    void*& originalLstat = gOriginalLstat;
+    void*& originalStat = gOriginalStat;
+    void*& originalGetxattr = gOriginalGetxattr;
+    void*& originalLgetxattr = gOriginalLgetxattr;
+    void*& originalShouldNotCache = gOriginalShouldNotCache;
+    void*& originalNotifyInvalEntry = gOriginalNotifyInvalEntry;
+    void*& originalNotifyInvalInode = gOriginalNotifyInvalInode;
+    void*& originalReplyAttr = gOriginalReplyAttr;
+    void*& originalReplyEntry = gOriginalReplyEntry;
+    void*& originalReplyBuf = gOriginalReplyBuf;
+    void*& originalReplyErr = gOriginalReplyErr;
+    void*& originalGetDirectoryEntries = gOriginalGetDirectoryEntries;
+    void*& originalAddDirectoryEntriesFromLowerFs = gOriginalAddDirectoryEntriesFromLowerFs;
+};
+
+static inline HookInstallProcessState& Process() {
+    static HookInstallProcessState process;
+    return process;
 }
 
 // Compare hook installer

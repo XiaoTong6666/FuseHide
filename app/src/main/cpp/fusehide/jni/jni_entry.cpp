@@ -239,60 +239,6 @@ Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_applyHideConf
     fusehide::ApplyHideConfig(std::move(config));
 }
 
-JNIEXPORT jlong JNICALL
-Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_getCurrentNativeGenerationId(
-    JNIEnv*, jclass) {
-    return static_cast<jlong>(fusehide::CurrentNativeGenerationId());
-}
-
-JNIEXPORT jlong JNICALL
-Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_switchToBuiltinNativeGeneration(
-    JNIEnv* env, jclass, jlong versionCode, jstring versionHash) {
-    std::string hash = "builtin";
-    if (env != nullptr && versionHash != nullptr) {
-        const char* chars = env->GetStringUTFChars(versionHash, nullptr);
-        if (chars != nullptr) {
-            hash = chars;
-            env->ReleaseStringUTFChars(versionHash, chars);
-        }
-    }
-    uint64_t generationId = 0;
-    if (!fusehide::SwitchToBuiltinGeneration(static_cast<uint64_t>(versionCode), std::move(hash),
-                                             &generationId)) {
-        return 0;
-    }
-    return static_cast<jlong>(generationId);
-}
-
-JNIEXPORT jlong JNICALL
-Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_switchToExternalNativeGeneration(
-    JNIEnv* env, jclass, jstring payloadPath, jlong versionCode, jstring versionHash) {
-    std::string path;
-    if (env != nullptr && payloadPath != nullptr) {
-        const char* chars = env->GetStringUTFChars(payloadPath, nullptr);
-        if (chars != nullptr) {
-            path = chars;
-            env->ReleaseStringUTFChars(payloadPath, chars);
-        }
-    }
-
-    std::string hash = "external";
-    if (env != nullptr && versionHash != nullptr) {
-        const char* chars = env->GetStringUTFChars(versionHash, nullptr);
-        if (chars != nullptr) {
-            hash = chars;
-            env->ReleaseStringUTFChars(versionHash, chars);
-        }
-    }
-
-    uint64_t generationId = 0;
-    if (!fusehide::SwitchToExternalGeneration(path, static_cast<uint64_t>(versionCode),
-                                              std::move(hash), &generationId)) {
-        return 0;
-    }
-    return static_cast<jlong>(generationId);
-}
-
 JNIEXPORT jint JNICALL Java_io_github_xiaotong6666_fusehide_debug_Utils_rmdir(JNIEnv* env,
                                                                               jclass clazz,
                                                                               jstring path) {

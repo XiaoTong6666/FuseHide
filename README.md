@@ -208,32 +208,9 @@ Download/private
    - `list /storage/emulated/0` 不应列出隐藏目录项。
    - 重复访问后不应因为 dentry / inode cache 恢复可见。
 4. 对嵌套路径，例如 `Download/private`：
-    - 父目录 `Download` 应保持可见。
-    - `Download` 的目录枚举中应过滤 `private`。
-    - 直接访问 `Download/private` 应被隐藏。
-
-### Native 热重载校验
-
-建议按下面顺序验证 native generation：
-
-1. 初次注入后，确认 builtin generation 正常激活。
-2. 手动触发 hot reload，确认 external generation 被切换并继续保持隐藏行为一致。
-3. 故意注入 ABI 不兼容的 payload，确认 loader 明确拒绝并回退 builtin。
-4. 连续重复 hot reload，确认不会崩溃、不会残留明显资源、隐藏结果前后一致。
-
-### ABI 演进规则
-
-payload / anchor ABI 约束如下：
-
-- 目前 external payload 的定位是“同仓、同版本、可独立装载的 generation 代码载体”，而不是面向第三方实现者的完全独立插件 ABI。
-- `fusehide_payload` 会链接主库 `libfusehide.so`，并复用其中的 runtime state、thread-local hook state、reply helper 与原函数存储。
-- 因此，`FuseHideAnchorApi` / `FuseHidePayloadApi` 负责约束 generation 切换边界与 loader 兼容性，但并不承诺“脱离主库内部 helper 也可独立实现完整 payload”。
-- 结构体字段只允许向尾部追加，不允许重排或重命名已有前缀字段。
-- `abiVersion` 表示当前实现版本。
-- `abiMinSupportedVersion` / `abiMaxSupportedVersion` 表示可协商区间。
-- loader 只接受版本区间重叠且前缀大小满足要求的 payload。
-- 行为相关函数指针必须非空，否则视为 ABI 不完整。
-- 未来新增能力优先走“追加字段 + capability flags”，不要复用旧字段语义。
+   - 父目录 `Download` 应保持可见。
+   - `Download` 的目录枚举中应过滤 `private`。
+   - 直接访问 `Download/private` 应被隐藏。
 
 ## 构建
 

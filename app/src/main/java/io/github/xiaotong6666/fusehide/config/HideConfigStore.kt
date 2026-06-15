@@ -86,10 +86,6 @@ object HideConfigStore {
         fun onResult(applied: Boolean)
     }
 
-    fun interface ReloadValidityCallback {
-        fun shouldApply(): Boolean
-    }
-
     @JvmStatic
     fun hasSavedConfig(context: Context): Boolean = hasSavedConfig(
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
@@ -368,13 +364,9 @@ object HideConfigStore {
     fun reloadInjectedProcessConfig(context: Context): Boolean = reloadInjectedProcessConfig(context, null)
 
     @JvmStatic
-    fun reloadInjectedProcessConfig(context: Context, callback: ReloadConfigCallback?): Boolean = reloadInjectedProcessConfig(context, callback, null)
-
-    @JvmStatic
     fun reloadInjectedProcessConfig(
         context: Context,
         callback: ReloadConfigCallback?,
-        validityCallback: ReloadValidityCallback?,
     ): Boolean {
         val localSnapshotBundle = loadInjectedProcessSnapshotBundle(context)
         val snapshotApplied = applyBundleToNative(localSnapshotBundle)
@@ -400,10 +392,6 @@ object HideConfigStore {
             return true
         }
         requestInjectedProcessConfigBundle(context) { bundle ->
-            if (validityCallback != null && !validityCallback.shouldApply()) {
-                Log.d("FuseHide", "skip stale injected-process config callback")
-                return@requestInjectedProcessConfigBundle
-            }
             val applied = when {
                 bundle == null -> false
 

@@ -21,6 +21,11 @@ UHasBinaryPropertyFn gUHasBinaryProperty = u_hasBinaryProperty;
 HookInstaller gHookInstaller = nullptr;
 JavaVM* gJavaVm = nullptr;
 std::once_flag gXzCrcInitOnce;
+IsAppAccessiblePathFn gOriginalIsAppAccessiblePath = nullptr;
+IsPackageOwnedPathFn gOriginalIsPackageOwnedPath = nullptr;
+IsBpfBackingPathFn gOriginalIsBpfBackingPath = nullptr;
+void* gOriginalStrcasecmp = nullptr;
+void* gOriginalEqualsIgnoreCase = nullptr;
 
 std::atomic<int> gAppAccessibleLogCount{0};
 std::atomic<int> gPackageOwnedLogCount{0};
@@ -67,10 +72,9 @@ void InvalidateTrackedHideTargetsForCurrentConfig() {
 
     std::vector<uint64_t> inodesToInvalidate;
     {
-        auto& process = ProcessState();
-        std::lock_guard<std::mutex> lock(process.inodePathCacheMutex);
-        inodesToInvalidate.reserve(process.inodePathCache.size());
-        for (const auto& [ino, trackedPath] : process.inodePathCache) {
+        std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
+        inodesToInvalidate.reserve(gInodePathCache.size());
+        for (const auto& [ino, trackedPath] : gInodePathCache) {
             if (HiddenPathPolicy::IsAnyHiddenSubtreePath(trackedPath)) {
                 inodesToInvalidate.push_back(ino);
             }
@@ -81,17 +85,15 @@ void InvalidateTrackedHideTargetsForCurrentConfig() {
     }
 
     {
-        auto& process = ProcessState();
-        std::lock_guard<std::mutex> lock(process.hiddenSubtreeInodesMutex);
-        process.hiddenSubtreeInodes.clear();
+        std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
+        gHiddenSubtreeInodes.clear();
     }
     {
-        auto& process = ProcessState();
-        std::lock_guard<std::mutex> lock(process.recentHiddenParentPathsMutex);
-        process.recentHiddenParentPaths.clear();
-        process.recentHiddenParentPathUids.clear();
-        process.recentHiddenParentPathAnyUid.clear();
-        process.recentHiddenParentPathAnyUidOwner = 0;
+        std::lock_guard<std::mutex> lock(gRecentHiddenParentPathsMutex);
+        gRecentHiddenParentPaths.clear();
+        gRecentHiddenParentPathUids.clear();
+        gRecentHiddenParentPathAnyUid.clear();
+        gRecentHiddenParentPathAnyUidOwner = 0;
     }
 }
 

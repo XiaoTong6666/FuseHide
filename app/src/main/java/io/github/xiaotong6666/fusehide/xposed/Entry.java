@@ -27,24 +27,14 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import androidx.core.content.ContextCompat;
-import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.XposedModule;
-import io.github.libxposed.api.XposedModuleInterface.HotReloadedParam;
-import io.github.libxposed.api.XposedModuleInterface.HotReloadingParam;
-import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam;
 import io.github.libxposed.api.XposedModuleInterface.PackageLoadedParam;
 import io.github.xiaotong6666.fusehide.config.HideConfig;
 import io.github.xiaotong6666.fusehide.config.HideConfigNativeBridge;
 import io.github.xiaotong6666.fusehide.config.HideConfigStore;
 import io.github.xiaotong6666.fusehide.config.PackageHideRule;
 import io.github.xiaotong6666.fusehide.status.StatusBroadcastReceiver;
-import java.io.File;
-import java.lang.reflect.Executable;
 import java.lang.reflect.Method;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class Entry extends XposedModule {
     private static final String APP_PACKAGE = "io.github.xiaotong6666.fusehide";
@@ -53,34 +43,12 @@ public class Entry extends XposedModule {
     private static final String PACKAGE_MEDIA_GOOGLE = "com.google.android.providers.media.module";
     private static final long CONFIG_RETRY_DELAY_MS = 15000L;
     private static final int CONFIG_MAX_RETRIES = 8;
-    private static final long PROP_RT_HOT_RELOAD = 1L << 3;
-    private static final String HOOK_ID_APPLICATION_ATTACH = "entry.application_attach";
-    private static final String HOOK_ID_DATA_OBB_DEBUG = "entry.data_obb_debug";
-    private static final String NATIVE_PAYLOAD_LIBRARY = "libfusehide_payload.so";
-    private static final String STATE_HOOKED_APPLICATION = "hookedApplication";
-    private static final String STATE_TARGET_CLASS_LOADER = "targetClassLoader";
-    private static final String STATE_TARGET_APPLICATION_INFO = "targetApplicationInfo";
-    private static final String STATE_TARGET_PACKAGE_NAME = "targetPackageName";
-    private static final String STATE_CONFIG_COMPLETED = "configCompleted";
-    private static final String STATE_PENDING_RETRY_COUNT = "pendingRetryCount";
-    private static final String STATE_SHOULD_INSTALL_DEBUG_HOOK = "shouldInstallDebugHook";
-    private static final AtomicLong CONFIG_RELOAD_EPOCH = new AtomicLong(1L);
 
     private volatile Handler mainHandler;
     private volatile Application hookedApplication;
-    private volatile ClassLoader targetPackageClassLoader;
-    private volatile ApplicationInfo targetApplicationInfo;
-    private volatile String targetPackageName;
-    private volatile XposedInterface.HookHandle applicationAttachHookHandle;
-    private volatile XposedInterface.HookHandle dataOrObbDebugHookHandle;
-    private volatile StatusBroadcastReceiver statusReceiver;
-    private volatile BroadcastReceiver configReceiver;
-    private volatile BroadcastReceiver queryReceiver;
-    private volatile BroadcastReceiver systemStateReceiver;
     private boolean configLoadCompleted;
     private boolean configLoadInFlight;
     private int pendingConfigRetryCount;
-    private boolean shouldInstallDebugHook;
     private final Runnable configRetryRunnable = new Runnable() {
         @Override
         public void run() {
@@ -220,257 +188,7 @@ public class Entry extends XposedModule {
             return;
         }
         configLoadInFlight = true;
-        final long reloadEpoch = CONFIG_RELOAD_EPOCH.get();
-        HideConfigStore.reloadInjectedProcessConfig(
-                application,
-                applied -> {
-                    if (CONFIG_RELOAD_EPOCH.get() != reloadEpoch) {
-                        Log.d("FuseHide", "ignore stale config reload callback source=" + source);
-                        return;
-                    }
-                    onConfigReloadFinished(source, applied);
-                },
-                () -> CONFIG_RELOAD_EPOCH.get() == reloadEpoch);
-    }
-
-    private boolean supportsRuntimeHotReload() {
-        return (getFrameworkProperties() & PROP_RT_HOT_RELOAD) != 0;
-    }
-
-    private long currentModuleVersionCode() {
-        final String sourceDir = getModuleApplicationInfo().sourceDir;
-        if (sourceDir == null || sourceDir.isEmpty()) {
-            return 0L;
-        }
-        return new File(sourceDir).lastModified();
-    }
-
-    private String currentModuleVersionHash() {
-        final String sourceDir = getModuleApplicationInfo().sourceDir;
-        return sourceDir != null ? sourceDir : "";
-    }
-
-    private String currentExternalPayloadPath() {
-        final ApplicationInfo applicationInfo = getModuleApplicationInfo();
-        final String nativeLibraryDir = applicationInfo.nativeLibraryDir;
-        if (nativeLibraryDir == null || nativeLibraryDir.isEmpty()) {
-            return null;
-        }
-        return new File(nativeLibraryDir, NATIVE_PAYLOAD_LIBRARY).getAbsolutePath();
-    }
-
-    private void advanceNativeGeneration(String source, boolean preferExternalPayload) {
-        final long versionCode = currentModuleVersionCode();
-        final String versionHash = currentModuleVersionHash();
-        final long previousGeneration = HideConfigNativeBridge.getCurrentNativeGenerationId();
-        long nextGeneration = 0L;
-        String generationKind = "builtin";
-        String payloadPath = null;
-        if (preferExternalPayload) {
-            payloadPath = currentExternalPayloadPath();
-            if (payloadPath != null && new File(payloadPath).isFile()) {
-                nextGeneration =
-                        HideConfigNativeBridge.switchToExternalNativeGeneration(payloadPath, versionCode, versionHash);
-                if (nextGeneration != 0L) {
-                    generationKind = "external";
-                }
-            }
-        }
-        if (nextGeneration == 0L) {
-            nextGeneration = HideConfigNativeBridge.switchToBuiltinNativeGeneration(versionCode, versionHash);
-            generationKind = "builtin";
-        }
-        if (nextGeneration != 0 && nextGeneration != previousGeneration) {
-            Log.d(
-                    "FuseHide",
-                    "advanced native generation source="
-                            + source
-                            + " kind="
-                            + generationKind
-                            + " runtimeHotReload="
-                            + supportsRuntimeHotReload()
-                            + " payloadPath="
-                            + payloadPath
-                            + " generation="
-                            + previousGeneration
-                            + "->"
-                            + nextGeneration);
-        }
-    }
-
-    private XposedInterface.HookBuilder hookBuilderWithId(Executable executable, String hookId) {
-        return hook(executable).setId(hookId);
-    }
-
-    private XposedInterface.Hooker createDataOrObbDebugHooker() {
-        return chain -> {
-            Object result = chain.proceed();
-            Log.d(
-                    "FuseHide",
-                    "isUidAllowedAccessToDataOrObbPathForFuse uid="
-                            + chain.getArgs().get(0)
-                            + " path="
-                            + chain.getArgs().get(1)
-                            + " result="
-                            + result);
-            return result;
-        };
-    }
-
-    private XposedInterface.Hooker createApplicationAttachHooker() {
-        return chain -> {
-            Object result = chain.proceed();
-            if (hookedApplication == null) {
-                Application app = (Application) chain.getThisObject();
-                hookedApplication = app;
-                Log.d("FuseHide", "captured Application via attach hook");
-                new Handler(Looper.getMainLooper()).post(new MainThreadTask(0, this));
-            }
-            return result;
-        };
-    }
-
-    private Method resolveDebugHookTargetMethod(ClassLoader classLoader) throws Throwable {
-        Class<?> mediaProviderClass = classLoader.loadClass("com.android.providers.media.MediaProvider");
-        return mediaProviderClass.getMethod("isUidAllowedAccessToDataOrObbPathForFuse", int.class, String.class);
-    }
-
-    private XposedInterface.HookHandle installDebugHookIfNeeded(
-            ClassLoader classLoader, ApplicationInfo applicationInfo) {
-        shouldInstallDebugHook = (applicationInfo.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-        if (!shouldInstallDebugHook) {
-            dataOrObbDebugHookHandle = null;
-            return null;
-        }
-        try {
-            Method targetMethod = resolveDebugHookTargetMethod(classLoader);
-            dataOrObbDebugHookHandle =
-                    hookBuilderWithId(targetMethod, HOOK_ID_DATA_OBB_DEBUG).intercept(createDataOrObbDebugHooker());
-            return dataOrObbDebugHookHandle;
-        } catch (Throwable th) {
-            Log.e("FuseHide", "hook isUidAllowedAccessToDataOrObbPathForFuse", th);
-            dataOrObbDebugHookHandle = null;
-            return null;
-        }
-    }
-
-    private XposedInterface.HookHandle replaceOrInstallApplicationAttachHook(XposedInterface.HookHandle oldHandle)
-            throws Throwable {
-        Method attachMethod = Application.class.getDeclaredMethod("attach", Context.class);
-        if (oldHandle != null) {
-            return oldHandle.replaceHook(createApplicationAttachHooker());
-        }
-        return hookBuilderWithId(attachMethod, HOOK_ID_APPLICATION_ATTACH).intercept(createApplicationAttachHooker());
-    }
-
-    private XposedInterface.HookHandle replaceOrInstallDebugHook(XposedInterface.HookHandle oldHandle)
-            throws Throwable {
-        if (!shouldInstallDebugHook || targetPackageClassLoader == null || targetApplicationInfo == null) {
-            if (oldHandle != null) {
-                oldHandle.unhook();
-            }
-            return null;
-        }
-        if (oldHandle != null) {
-            return oldHandle.replaceHook(createDataOrObbDebugHooker());
-        }
-        return installDebugHookIfNeeded(targetPackageClassLoader, targetApplicationInfo);
-    }
-
-    private static Map<String, XposedInterface.HookHandle> indexOldHookHandles(
-            List<XposedInterface.HookHandle> oldHooks) {
-        HashMap<String, XposedInterface.HookHandle> out = new HashMap<>();
-        for (XposedInterface.HookHandle hookHandle : oldHooks) {
-            try {
-                String id = hookHandle.getId();
-                if (id != null) {
-                    out.put(id, hookHandle);
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-        return out;
-    }
-
-    private void unregisterManagedReceiver(Application application, BroadcastReceiver receiver, String tag) {
-        if (application == null || receiver == null) {
-            return;
-        }
-        try {
-            application.unregisterReceiver(receiver);
-        } catch (Throwable th) {
-            Log.w("FuseHide", "unregister receiver " + tag, th);
-        }
-    }
-
-    private void unregisterManagedReceivers(Application application) {
-        unregisterManagedReceiver(application, statusReceiver, "status");
-        unregisterManagedReceiver(application, configReceiver, "config");
-        unregisterManagedReceiver(application, queryReceiver, "query");
-        unregisterManagedReceiver(application, systemStateReceiver, "system");
-        statusReceiver = null;
-        configReceiver = null;
-        queryReceiver = null;
-        systemStateReceiver = null;
-    }
-
-    private void prepareForHotReloadShutdown(String source) {
-        CONFIG_RELOAD_EPOCH.incrementAndGet();
-        Handler handler = mainHandler;
-        if (handler != null) {
-            handler.removeCallbacks(configRetryRunnable);
-        }
-        unregisterManagedReceivers(hookedApplication);
-        configLoadInFlight = false;
-        Log.d("FuseHide", "prepared hot reload shutdown source=" + source);
-    }
-
-    private Object buildSavedInstanceState() {
-        HashMap<String, Object> state = new HashMap<>();
-        state.put(STATE_HOOKED_APPLICATION, hookedApplication);
-        state.put(STATE_TARGET_CLASS_LOADER, targetPackageClassLoader);
-        state.put(STATE_TARGET_APPLICATION_INFO, targetApplicationInfo);
-        state.put(STATE_TARGET_PACKAGE_NAME, targetPackageName);
-        state.put(STATE_CONFIG_COMPLETED, Boolean.valueOf(configLoadCompleted));
-        state.put(STATE_PENDING_RETRY_COUNT, Integer.valueOf(pendingConfigRetryCount));
-        state.put(STATE_SHOULD_INSTALL_DEBUG_HOOK, Boolean.valueOf(shouldInstallDebugHook));
-        return state;
-    }
-
-    private void restoreSavedInstanceState(Object savedState) {
-        if (!(savedState instanceof Map<?, ?>)) {
-            return;
-        }
-        Map<?, ?> state = (Map<?, ?>) savedState;
-        Object savedApplication = state.get(STATE_HOOKED_APPLICATION);
-        if (savedApplication instanceof Application) {
-            hookedApplication = (Application) savedApplication;
-        }
-        Object savedClassLoader = state.get(STATE_TARGET_CLASS_LOADER);
-        if (savedClassLoader instanceof ClassLoader) {
-            targetPackageClassLoader = (ClassLoader) savedClassLoader;
-        }
-        Object savedApplicationInfo = state.get(STATE_TARGET_APPLICATION_INFO);
-        if (savedApplicationInfo instanceof ApplicationInfo) {
-            targetApplicationInfo = (ApplicationInfo) savedApplicationInfo;
-        }
-        Object savedPackageName = state.get(STATE_TARGET_PACKAGE_NAME);
-        if (savedPackageName instanceof String) {
-            targetPackageName = (String) savedPackageName;
-        }
-        Object savedConfigCompleted = state.get(STATE_CONFIG_COMPLETED);
-        configLoadCompleted = savedConfigCompleted instanceof Boolean && (Boolean) savedConfigCompleted;
-        Object savedPendingRetryCount = state.get(STATE_PENDING_RETRY_COUNT);
-        pendingConfigRetryCount = savedPendingRetryCount instanceof Integer ? (Integer) savedPendingRetryCount : 0;
-        Object savedInstallDebug = state.get(STATE_SHOULD_INSTALL_DEBUG_HOOK);
-        shouldInstallDebugHook = savedInstallDebug instanceof Boolean && (Boolean) savedInstallDebug;
-    }
-
-    @Override
-    public void onModuleLoaded(@androidx.annotation.NonNull ModuleLoadedParam param) {
-        Log.d(
-                "FuseHide",
-                "module loaded process=" + param.getProcessName() + " runtimeHotReload=" + supportsRuntimeHotReload());
+        HideConfigStore.reloadInjectedProcessConfig(application, applied -> onConfigReloadFinished(source, applied));
     }
 
     @Override
@@ -484,78 +202,48 @@ public class Entry extends XposedModule {
         Log.d("FuseHide", "injected");
 
         final ClassLoader classLoader = param.getDefaultClassLoader();
-        targetPackageName = packageName;
-        targetPackageClassLoader = classLoader;
-        targetApplicationInfo = param.getApplicationInfo();
 
-        advanceNativeGeneration("package_loaded", true);
+        hookApplicationAttach(classLoader);
 
-        hookApplicationAttach();
-        installDebugHookIfNeeded(classLoader, param.getApplicationInfo());
-    }
-
-    private void hookApplicationAttach() {
-        try {
-            Method attachMethod = Application.class.getDeclaredMethod("attach", Context.class);
-            applicationAttachHookHandle = hookBuilderWithId(attachMethod, HOOK_ID_APPLICATION_ATTACH)
-                    .intercept(createApplicationAttachHooker());
-        } catch (Throwable th) {
-            Log.e("FuseHide", "hook Application.attach", th);
-        }
-    }
-
-    @Override
-    public boolean onHotReloading(@androidx.annotation.NonNull HotReloadingParam param) {
-        Log.d(
-                "FuseHide",
-                "hot reloading frameworkProperties=0x"
-                        + Long.toHexString(getFrameworkProperties())
-                        + " runtimeHotReload="
-                        + supportsRuntimeHotReload());
-        param.setSavedInstanceState(buildSavedInstanceState());
-        prepareForHotReloadShutdown("hot_reloading");
-        return true;
-    }
-
-    @Override
-    public void onHotReloaded(@androidx.annotation.NonNull HotReloadedParam param) {
-        restoreSavedInstanceState(param.getSavedInstanceState());
-        Log.d("FuseHide", "hot reloaded oldHooks=" + param.getOldHookHandles().size() + " savedStateRestored=true");
-
-        Map<String, XposedInterface.HookHandle> oldHandles = indexOldHookHandles(param.getOldHookHandles());
-        XposedInterface.HookHandle oldAttachHook = oldHandles.remove(HOOK_ID_APPLICATION_ATTACH);
-        XposedInterface.HookHandle oldDebugHook = oldHandles.remove(HOOK_ID_DATA_OBB_DEBUG);
-
-        try {
-            applicationAttachHookHandle = replaceOrInstallApplicationAttachHook(oldAttachHook);
-        } catch (Throwable th) {
-            Log.e("FuseHide", "replace/install Application.attach hook", th);
-        }
-
-        try {
-            dataOrObbDebugHookHandle = replaceOrInstallDebugHook(oldDebugHook);
-        } catch (Throwable th) {
-            Log.e("FuseHide", "replace/install debug hook", th);
-        }
-
-        for (XposedInterface.HookHandle oldHandle : oldHandles.values()) {
+        if ((param.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             try {
-                oldHandle.unhook();
+                Class<?> mediaProviderClass = classLoader.loadClass("com.android.providers.media.MediaProvider");
+                Method targetMethod = mediaProviderClass.getMethod(
+                        "isUidAllowedAccessToDataOrObbPathForFuse", int.class, String.class);
+                hook(targetMethod).intercept(chain -> {
+                    Object result = chain.proceed();
+                    Log.d(
+                            "FuseHide",
+                            "isUidAllowedAccessToDataOrObbPathForFuse uid="
+                                    + chain.getArgs().get(0)
+                                    + " path="
+                                    + chain.getArgs().get(1)
+                                    + " result="
+                                    + result);
+                    return result;
+                });
             } catch (Throwable th) {
-                Log.w("FuseHide", "unhook stale old handle", th);
+                Log.e("FuseHide", "hook isUidAllowedAccessToDataOrObbPathForFuse", th);
             }
         }
+    }
 
-        advanceNativeGeneration("hot_reloaded", true);
-        configLoadCompleted = false;
-        configLoadInFlight = false;
-        pendingConfigRetryCount = 0;
-        getMainHandler().removeCallbacks(configRetryRunnable);
-        Log.d("FuseHide", "hot reloaded scheduling config resync");
-        startConfigReload("hot_reloaded");
-
-        if (hookedApplication != null) {
-            getMainHandler().post(new MainThreadTask(0, this));
+    private void hookApplicationAttach(ClassLoader classLoader) {
+        try {
+            Class<?> applicationClass = classLoader.loadClass("android.app.Application");
+            Method attachMethod = applicationClass.getDeclaredMethod("attach", Context.class);
+            hook(attachMethod).intercept(chain -> {
+                Object result = chain.proceed();
+                if (hookedApplication == null) {
+                    Application app = (Application) chain.getThisObject();
+                    hookedApplication = app;
+                    Log.d("FuseHide", "captured Application via attach hook");
+                    new Handler(Looper.getMainLooper()).post(new MainThreadTask(0, this));
+                }
+                return result;
+            });
+        } catch (Throwable th) {
+            Log.e("FuseHide", "hook Application.attach", th);
         }
     }
 
@@ -578,10 +266,7 @@ public class Entry extends XposedModule {
 
             hookedApplication = application;
             final Application app = application;
-            unregisterManagedReceivers(app);
-
             StatusBroadcastReceiver receiver = new StatusBroadcastReceiver(app, 0);
-            statusReceiver = receiver;
             IntentFilter filter = new IntentFilter(ACTION_GET_STATUS);
             if (Build.VERSION.SDK_INT >= 33) {
                 app.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
@@ -589,7 +274,7 @@ public class Entry extends XposedModule {
                 ContextCompat.registerReceiver(app, receiver, filter, ContextCompat.RECEIVER_EXPORTED);
             }
 
-            BroadcastReceiver reloadReceiver = new BroadcastReceiver() {
+            BroadcastReceiver configReceiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     final PendingResult pendingResult = goAsync();
@@ -607,15 +292,14 @@ public class Entry extends XposedModule {
                                     app, requestedToken, fallbackBundle, "broadcast_fallback", pendingResult));
                 }
             };
-            configReceiver = reloadReceiver;
             IntentFilter configFilter = new IntentFilter(HideConfigStore.ACTION_RELOAD_HIDE_CONFIG);
             if (Build.VERSION.SDK_INT >= 33) {
-                app.registerReceiver(reloadReceiver, configFilter, Context.RECEIVER_EXPORTED);
+                app.registerReceiver(configReceiver, configFilter, Context.RECEIVER_EXPORTED);
             } else {
-                ContextCompat.registerReceiver(app, reloadReceiver, configFilter, ContextCompat.RECEIVER_EXPORTED);
+                ContextCompat.registerReceiver(app, configReceiver, configFilter, ContextCompat.RECEIVER_EXPORTED);
             }
 
-            BroadcastReceiver appliedQueryReceiver = new BroadcastReceiver() {
+            BroadcastReceiver queryReceiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     final String queryToken = intent.getStringExtra(HideConfigStore.EXTRA_QUERY_TOKEN);
@@ -628,15 +312,14 @@ public class Entry extends XposedModule {
                     Log.d("FuseHide", "reported applied hide config queryToken=" + queryToken);
                 }
             };
-            queryReceiver = appliedQueryReceiver;
             IntentFilter queryFilter = new IntentFilter(HideConfigStore.ACTION_GET_APPLIED_HIDE_CONFIG);
             if (Build.VERSION.SDK_INT >= 33) {
-                app.registerReceiver(appliedQueryReceiver, queryFilter, Context.RECEIVER_EXPORTED);
+                app.registerReceiver(queryReceiver, queryFilter, Context.RECEIVER_EXPORTED);
             } else {
-                ContextCompat.registerReceiver(app, appliedQueryReceiver, queryFilter, ContextCompat.RECEIVER_EXPORTED);
+                ContextCompat.registerReceiver(app, queryReceiver, queryFilter, ContextCompat.RECEIVER_EXPORTED);
             }
 
-            BroadcastReceiver bootStateReceiver = new BroadcastReceiver() {
+            BroadcastReceiver systemStateReceiver = new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     final String action = intent != null ? intent.getAction() : null;
@@ -649,16 +332,15 @@ public class Entry extends XposedModule {
                     startConfigReload(action);
                 }
             };
-            systemStateReceiver = bootStateReceiver;
             IntentFilter systemFilter = new IntentFilter();
             systemFilter.addAction(Intent.ACTION_LOCKED_BOOT_COMPLETED);
             systemFilter.addAction(Intent.ACTION_BOOT_COMPLETED);
             systemFilter.addAction(Intent.ACTION_USER_UNLOCKED);
             if (Build.VERSION.SDK_INT >= 33) {
-                app.registerReceiver(bootStateReceiver, systemFilter, Context.RECEIVER_NOT_EXPORTED);
+                app.registerReceiver(systemStateReceiver, systemFilter, Context.RECEIVER_NOT_EXPORTED);
             } else {
                 ContextCompat.registerReceiver(
-                        app, bootStateReceiver, systemFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
+                        app, systemStateReceiver, systemFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
             }
 
             startConfigReload("initial");

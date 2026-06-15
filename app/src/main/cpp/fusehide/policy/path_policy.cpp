@@ -333,8 +333,7 @@ bool HiddenPathPolicy::ShouldFilterHiddenRootDirent(uint32_t uid, uint64_t ino,
     if (!IsHiddenRootEntryNameForRule(*rule, name)) {
         return false;
     }
-    const uint64_t rootParent =
-        ProcessState().hiddenRootParentInode.load(std::memory_order_relaxed);
+    const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
     return rootParent == 0 || ino == rootParent;
 }
 
