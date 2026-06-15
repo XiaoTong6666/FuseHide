@@ -23,6 +23,7 @@ plugins {
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.kotlin.compose) apply false
     alias(libs.plugins.spotless)
+    alias(libs.plugins.androidx.baselineprofile) apply false
 }
 
 val ndkVersion = "30.0.14904198"
