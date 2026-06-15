@@ -157,7 +157,7 @@ fun ConfigToggleCardMiuix(
         ) {
             Checkbox(
                 state = if (checked) ToggleableState.On else ToggleableState.Off,
-                onClick = onToggle,
+                onClick = null,
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MiuixTheme.textStyles.headline2)
@@ -190,33 +190,40 @@ fun DualActionRowMiuix(
     onSecondaryClick: () -> Unit,
     primaryFilled: Boolean = true,
 ) {
+    val hasPrimary = primaryLabel.isNotEmpty()
+    val hasSecondary = secondaryLabel.isNotEmpty()
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = if (hasPrimary && hasSecondary) Arrangement.spacedBy(10.dp) else Arrangement.Start,
     ) {
-        if (primaryFilled) {
-            Button(
-                onClick = onPrimaryClick,
-                modifier = Modifier.weight(1f).height(56.dp),
-                colors = ButtonDefaults.buttonColorsPrimary(),
-            ) {
-                Text(primaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
-            }
-        } else {
-            Button(
-                onClick = onPrimaryClick,
-                modifier = Modifier.weight(1f).height(56.dp),
-                colors = ButtonDefaults.buttonColors().copy(color = MiuixTheme.colorScheme.secondary),
-            ) {
-                Text(primaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
+        val weight = if (hasPrimary && hasSecondary) Modifier.weight(1f) else Modifier.fillMaxWidth()
+        if (hasPrimary) {
+            if (primaryFilled) {
+                Button(
+                    onClick = onPrimaryClick,
+                    modifier = weight.height(56.dp),
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                ) {
+                    Text(primaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
+                }
+            } else {
+                Button(
+                    onClick = onPrimaryClick,
+                    modifier = weight.height(56.dp),
+                    colors = ButtonDefaults.buttonColors().copy(color = MiuixTheme.colorScheme.secondary),
+                ) {
+                    Text(primaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
+                }
             }
         }
-        Button(
-            onClick = onSecondaryClick,
-            modifier = Modifier.weight(1f).height(56.dp),
-            colors = ButtonDefaults.buttonColors().copy(color = MiuixTheme.colorScheme.secondary),
-        ) {
-            Text(secondaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
+        if (hasSecondary) {
+            Button(
+                onClick = onSecondaryClick,
+                modifier = weight.height(56.dp),
+                colors = ButtonDefaults.buttonColors().copy(color = MiuixTheme.colorScheme.secondary),
+            ) {
+                Text(secondaryLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MiuixTheme.textStyles.button.copy(fontWeight = FontWeight.Medium))
+            }
         }
     }
 }

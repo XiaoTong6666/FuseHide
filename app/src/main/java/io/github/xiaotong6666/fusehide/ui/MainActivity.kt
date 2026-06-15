@@ -212,19 +212,27 @@ class MainActivity : ComponentActivity() {
         setContent {
             CompositionLocalProvider(LocalUiMode provides uiMode) {
                 fuseHideTheme {
-                    FuseHideHomeScreen(
+                    val homeCallbacks = HomeCallbacks(
+                        onStatusClick = {
+                            startStatusCheck()
+                            refreshAppliedConfig()
+                        },
+                    )
+                    MainPage(
                         selectedTab = selectedTab,
                         onTabSelected = { selectedTab = it },
                         hookStatus = hookStatusUiState(),
                         configState = configUiState(),
                         debugState = debugUiState(),
+                        homeCallbacks = homeCallbacks,
                         configCallbacks = configCallbacks(),
                         debugCallbacks = debugCallbacks(),
-                        onToggleUiMode = {
+                        settingsState = SettingsUiState(uiMode = uiMode),
+                        settingsCallbacks = SettingsCallbacks(onToggleUiMode = {
                             val next = if (uiMode == UiMode.Miuix) UiMode.Material else UiMode.Miuix
                             UiMode.saveToPrefs(this@MainActivity, next)
                             uiMode = next
-                        },
+                        }),
                     )
                 }
             }
@@ -246,7 +254,7 @@ class MainActivity : ComponentActivity() {
         if (debugPath.isNullOrEmpty()) {
             return
         }
-        selectedTab = 1
+        selectedTab = 2
         pathText = debugPath
         val debugActions = intent.getStringExtra(EXTRA_DEBUG_ACTIONS)
         Log.d("FuseHide", "handleDebugIntent path=$debugPath actions=$debugActions")
@@ -426,7 +434,6 @@ class MainActivity : ComponentActivity() {
         onHiddenPackagesChanged = { hiddenPackagesText = it },
         onApplyConfigClick = ::applyHideConfig,
         onResetConfigClick = ::resetHideConfigToDefaults,
-        onRefreshAppliedConfigClick = ::refreshAppliedConfig,
     )
 
     private fun debugCallbacks(): DebugCallbacks = DebugCallbacks(

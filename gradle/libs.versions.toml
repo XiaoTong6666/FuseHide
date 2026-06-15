@@ -13,6 +13,7 @@ spotless = "8.6.0"
 miuix = "0.9.2"
 
 [libraries]
+androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 api = { module = "io.github.libxposed:api", version.ref = "api" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }

@@ -1,20 +1,26 @@
 <resources>
     <string name="app_name">FuseHide</string>
     <string name="app_description">MediaProvider FUSE 调试工具。</string>
+    <string name="home_subtitle_runtime">查看当前 Hook 运行状态以及 MediaProvider 内实际生效的配置。</string>
     <string name="home_subtitle_policy">调整运行时隐藏配置，并验证 MediaProvider 的实际使用情况。</string>
     <string name="home_subtitle_probe">针对被 Hook 的 MediaProvider 进程运行直接路径检测。</string>
-    <string name="tab_policy">配置</string>
-    <string name="tab_probe">检测</string>
-    <string name="section_runtime_policy">运行时配置</string>
-    <string name="section_runtime_policy_desc">编辑应用保存的隐藏配置，并将其推送到被 Hook 的 MediaProvider 进程中。</string>
+    <string name="home_subtitle_settings">切换 UI 风格并查看基础应用信息。</string>
+    <string name="nav_home">首页</string>
+    <string name="nav_config">配置</string>
+    <string name="nav_probe">检测</string>
+    <string name="nav_settings">设置</string>
+    <string name="section_runtime_overview">运行时概览</string>
+    <string name="section_runtime_overview_desc">检查 Hook 是否已启用、编辑器是否与已应用的 Native 配置一致，以及 MediaProvider 当前正在使用什么。</string>
+    <string name="section_device_status">设备状态</string>
+    <string name="section_ui_family">UI 风格</string>
+    <string name="section_ui_family_desc">选择应用使用 MIUIX 外观风格还是 Material 3 外观风格。</string>
+    <string name="section_about">关于</string>
     <string name="section_editable_draft">编辑配置</string>
     <string name="section_editable_draft_desc">这些字段是可编辑配置。点击“应用”会保存到本地并同步到 MediaProvider。</string>
     <string name="section_apply_feedback">应用反馈</string>
     <string name="section_detailed_diff">详细差异</string>
     <string name="section_snapshot">MediaProvider 快照</string>
     <string name="section_snapshot_desc">此部分从已注入的 MediaProvider 进程中读取实际的运行时配置。</string>
-    <string name="section_probe_target">检测目标</string>
-    <string name="section_probe_target_desc">针对被 Hook 的路径处理逻辑运行直接文件系统检测和系统调用测试。</string>
     <string name="section_paths">路径</string>
     <string name="section_common_probes">常规检测</string>
     <string name="section_mutation_probes">进阶检测</string>
@@ -23,6 +29,8 @@
     <string name="label_hook">Hook</string>
     <string name="label_sync">同步</string>
     <string name="label_device">设备</string>
+    <string name="label_runtime_summary">运行时摘要</string>
+    <string name="label_current_ui_family">当前 UI 风格</string>
     <string name="label_last_ack">最后确认</string>
     <string name="label_applied_at">应用时间</string>
     <string name="label_last_token">最后令牌</string>
@@ -66,6 +74,9 @@
     <string name="button_self_data">自身数据</string>
     <string name="field_hide_all_title">隐藏所有一级目录</string>
     <string name="field_hide_all_desc">启用后，/storage/emulated/0 下的每个一级目录都将被隐藏，以下例外情况除外。</string>
+    <string name="field_use_miuix_title">使用 MIUIX UI 风格</string>
+    <string name="field_use_miuix_desc_enabled">当前应用使用 MIUIX 导航和外观风格。关闭后将切回 Material 3。</string>
+    <string name="field_use_miuix_desc_disabled">当前应用使用 Material 3 导航和外观风格。开启后将切换到 MIUIX。</string>
     <string name="field_visible_exemptions">可见例外</string>
     <string name="field_visible_exemptions_help">每行一条路径。除非您明确知道您在干什么，否则请保持 Android 可见。</string>
     <string name="field_hidden_targets">隐藏目标</string>
@@ -91,6 +102,8 @@
     <string name="diff_summary_mismatch">未保存配置与已应用的 MediaProvider 配置不符。</string>
     <string name="diff_summary_match">未保存配置与已应用的 MediaProvider 配置匹配。</string>
     <string name="probe_output_empty">暂无检测输出。</string>
+    <string name="value_ui_family_miuix">MIUIX</string>
+    <string name="value_ui_family_material">Material 3</string>
     <string name="config_missing_local">未找到已保存的本地配置。默认值仅作为占位符显示；除非您显式恢复默认值，否则不会保存。</string>
     <string name="config_recovered_applied">从当前应用的 MediaProvider 配置中恢复编辑器和本地存储。</string>
 </resources>

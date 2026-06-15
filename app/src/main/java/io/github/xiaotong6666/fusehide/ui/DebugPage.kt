@@ -21,7 +21,6 @@ package io.github.xiaotong6666.fusehide.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,54 +35,35 @@ import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
 
 @Composable
-fun DebugScreen(
-    hookStatus: HookStatusUiState,
+fun DebugPage(
     state: DebugUiState,
     callbacks: DebugCallbacks,
     contentPadding: PaddingValues,
+    isCurrentPage: Boolean = true,
+    scrollModifier: Modifier = Modifier,
+    title: String = stringResource(R.string.app_name),
+    subtitle: String = stringResource(R.string.home_subtitle_probe),
+) {
+    DebugPageContent(state, callbacks, contentPadding, scrollModifier)
+}
+
+@Composable
+private fun DebugPageContent(
+    state: DebugUiState,
+    callbacks: DebugCallbacks,
+    contentPadding: PaddingValues,
+    scrollModifier: Modifier,
 ) {
     val scrollState = rememberScrollState()
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .then(scrollModifier)
             .verticalScroll(scrollState)
             .padding(contentPadding)
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SectionCard {
-            SectionTitle(stringResource(R.string.section_probe_target))
-            Spacer(Modifier.height(6.dp))
-            SectionDescription(stringResource(R.string.section_probe_target_desc))
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                StatusChip(
-                    modifier = Modifier.weight(1f),
-                    label = stringResource(R.string.label_hook),
-                    value = hookSummaryValue(isHooked = hookStatus.isHooked, hookCheckCompleted = hookStatus.hookCheckCompleted),
-                    supportingText = hookSummarySupportingText(
-                        isHooked = hookStatus.isHooked,
-                        hookCheckCompleted = hookStatus.hookCheckCompleted,
-                        hookedPackage = hookStatus.hookedPackage,
-                    ),
-                    metaText = hookSummaryMetaText(isHooked = hookStatus.isHooked, hookedPid = hookStatus.hookedPid),
-                    emphasized = hookStatus.isHooked,
-                    onClick = callbacks.onStatusClick,
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            InfoPanel(
-                title = stringResource(R.string.label_path),
-                text = state.pathText.ifBlank { "-" },
-                monospace = true,
-            )
-            Spacer(Modifier.height(10.dp))
-            InfoPanel(title = stringResource(R.string.label_device), text = hookStatus.infoText, monospace = true)
-        }
-
         SectionCard {
             SectionTitle(stringResource(R.string.section_paths))
             Spacer(Modifier.height(12.dp))

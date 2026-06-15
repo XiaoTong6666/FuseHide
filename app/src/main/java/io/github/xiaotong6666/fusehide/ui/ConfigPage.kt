@@ -35,7 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,16 +45,19 @@ import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
 
 @Composable
-fun ConfigScreen(
+fun ConfigPage(
     hookStatus: HookStatusUiState,
     state: ConfigUiState,
     callbacks: ConfigCallbacks,
     contentPadding: PaddingValues,
+    isCurrentPage: Boolean = true,
+    scrollModifier: Modifier = Modifier,
+    title: String = stringResource(R.string.app_name),
+    subtitle: String = stringResource(R.string.home_subtitle_policy),
 ) {
     val view = LocalView.current
     val scrollState = rememberScrollState()
-    var showDetailedDiff by remember { mutableStateOf(false) }
-    var showAppliedSnapshot by remember { mutableStateOf(false) }
+    var showDetailedDiff by rememberSaveable { mutableStateOf(false) }
     val resultsNeedAttention = state.highlightConfigResults || state.draftVsAppliedDiff.hasDifferences
 
     LaunchedEffect(state.configResultsScrollToken) {
@@ -63,56 +66,40 @@ fun ConfigScreen(
         }
     }
 
-    LaunchedEffect(state.highlightConfigResults, state.draftVsAppliedDiff.hasDifferences) {
-        if (state.highlightConfigResults || state.draftVsAppliedDiff.hasDifferences) {
-            showAppliedSnapshot = true
-        }
-    }
+    ConfigPageContent(
+        state = state,
+        callbacks = callbacks,
+        contentPadding = contentPadding,
+        showDetailedDiff = showDetailedDiff,
+        onShowDetailedDiffChanged = { showDetailedDiff = it },
+        resultsNeedAttention = resultsNeedAttention,
+        view = view,
+        scrollModifier = scrollModifier,
+    )
+}
+
+@Composable
+private fun ConfigPageContent(
+    state: ConfigUiState,
+    callbacks: ConfigCallbacks,
+    contentPadding: PaddingValues,
+    showDetailedDiff: Boolean,
+    onShowDetailedDiffChanged: (Boolean) -> Unit,
+    resultsNeedAttention: Boolean,
+    view: android.view.View,
+    scrollModifier: Modifier,
+) {
+    val scrollState = rememberScrollState()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .then(scrollModifier)
             .verticalScroll(scrollState)
             .padding(contentPadding)
             .padding(horizontal = 16.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SectionCard {
-            SectionTitle(stringResource(R.string.section_runtime_policy))
-            Spacer(Modifier.height(6.dp))
-            SectionDescription(
-                text = stringResource(R.string.section_runtime_policy_desc),
-                style = SectionDescriptionStyle.Supporting,
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                StatusChip(
-                    modifier = Modifier.weight(1f).heightIn(min = 130.dp),
-                    label = stringResource(R.string.label_hook),
-                    value = hookSummaryValue(isHooked = hookStatus.isHooked, hookCheckCompleted = hookStatus.hookCheckCompleted),
-                    supportingText = hookSummarySupportingText(
-                        isHooked = hookStatus.isHooked,
-                        hookCheckCompleted = hookStatus.hookCheckCompleted,
-                        hookedPackage = hookStatus.hookedPackage,
-                    ),
-                    metaText = hookSummaryMetaText(isHooked = hookStatus.isHooked, hookedPid = hookStatus.hookedPid),
-                    emphasized = hookStatus.isHooked,
-                    onClick = callbacks.onStatusClick,
-                )
-                StatusChip(
-                    modifier = Modifier.weight(1f).heightIn(min = 130.dp),
-                    label = stringResource(R.string.label_sync),
-                    value = if (resultsNeedAttention) stringResource(R.string.state_sync_needs_review) else stringResource(R.string.state_sync_ok),
-                    emphasized = !resultsNeedAttention,
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            InfoPanel(title = stringResource(R.string.label_device), text = hookStatus.infoText, monospace = true)
-        }
-
         SectionCard {
             SectionTitle(stringResource(R.string.section_editable_draft))
             Spacer(Modifier.height(4.dp))
@@ -179,11 +166,10 @@ fun ConfigScreen(
             )
             Spacer(Modifier.height(8.dp))
             DualActionRow(
-                primaryLabel = stringResource(R.string.button_refresh_applied),
-                onPrimaryClick = callbacks.onRefreshAppliedConfigClick,
+                primaryLabel = "",
+                onPrimaryClick = {},
                 secondaryLabel = stringResource(R.string.button_restore_defaults),
                 onSecondaryClick = callbacks.onResetConfigClick,
-                primaryFilled = false,
             )
         }
 
@@ -227,7 +213,7 @@ fun ConfigScreen(
                     } else {
                         stringResource(R.string.button_show_detailed_diff)
                     },
-                    onClick = { showDetailedDiff = !showDetailedDiff },
+                    onClick = { onShowDetailedDiffChanged(!showDetailedDiff) },
                 )
                 if (showDetailedDiff) {
                     Spacer(Modifier.height(6.dp))
@@ -237,40 +223,6 @@ fun ConfigScreen(
                         monospace = true,
                     )
                 }
-            }
-        }
-
-        SectionCard {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    SectionTitle(stringResource(R.string.section_snapshot), SectionTitleStyle.Medium)
-                    SectionDescription(
-                        text = stringResource(R.string.section_snapshot_desc),
-                        style = SectionDescriptionStyle.Supporting,
-                    )
-                }
-                InlineTextButton(
-                    label = if (showAppliedSnapshot) stringResource(R.string.button_hide) else stringResource(R.string.button_show),
-                    onClick = {
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        showAppliedSnapshot = !showAppliedSnapshot
-                    },
-                )
-            }
-            if (showAppliedSnapshot) {
-                Spacer(Modifier.height(10.dp))
-                InfoPanel(
-                    title = stringResource(R.string.label_current_native_config),
-                    text = state.appliedConfigSnapshotText,
-                    monospace = true,
-                    emphasized = resultsNeedAttention,
-                )
             }
         }
     }

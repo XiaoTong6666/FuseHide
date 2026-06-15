@@ -155,7 +155,7 @@ fun ConfigToggleCardMaterial(
         ) {
             Checkbox(
                 checked = checked,
-                onCheckedChange = { onToggle() },
+                onCheckedChange = null,
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
@@ -190,51 +190,58 @@ fun DualActionRowMaterial(
     onSecondaryClick: () -> Unit,
     primaryFilled: Boolean = true,
 ) {
+    val hasPrimary = primaryLabel.isNotEmpty()
+    val hasSecondary = secondaryLabel.isNotEmpty()
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = if (hasPrimary && hasSecondary) Arrangement.spacedBy(12.dp) else Arrangement.Start,
     ) {
-        if (primaryFilled) {
-            Button(
-                onClick = onPrimaryClick,
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = MaterialTheme.shapes.small,
-            ) {
-                Text(
-                    primaryLabel,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-            }
-        } else {
-            OutlinedButton(
-                onClick = onPrimaryClick,
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = MaterialTheme.shapes.small,
-            ) {
-                Text(
-                    primaryLabel,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.titleMedium,
-                )
+        val weight = if (hasPrimary && hasSecondary) Modifier.weight(1f) else Modifier.fillMaxWidth()
+        if (hasPrimary) {
+            if (primaryFilled) {
+                Button(
+                    onClick = onPrimaryClick,
+                    modifier = weight.height(48.dp),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(
+                        primaryLabel,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onPrimaryClick,
+                    modifier = weight.height(48.dp),
+                    shape = MaterialTheme.shapes.small,
+                ) {
+                    Text(
+                        primaryLabel,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
             }
         }
-        OutlinedButton(
-            onClick = onSecondaryClick,
-            modifier = Modifier.weight(1f).height(48.dp),
-            shape = MaterialTheme.shapes.small,
-        ) {
-            Text(
-                secondaryLabel,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.titleMedium,
-            )
+        if (hasSecondary) {
+            OutlinedButton(
+                onClick = onSecondaryClick,
+                modifier = weight.height(48.dp),
+                shape = MaterialTheme.shapes.small,
+            ) {
+                Text(
+                    secondaryLabel,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
         }
     }
 }
@@ -296,63 +303,88 @@ fun StatusChipMaterial(
         MaterialTheme.colorScheme.onSurface
     }
 
-    ElevatedCard(
-        modifier = modifier.heightIn(min = 118.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-        ),
-        onClick = onClick ?: {},
-        shape = MaterialTheme.shapes.small,
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+    if (onClick != null) {
+        ElevatedCard(
+            modifier = modifier.heightIn(min = 118.dp),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = containerColor,
+                contentColor = contentColor,
+            ),
+            onClick = onClick,
+            shape = MaterialTheme.shapes.small,
         ) {
+            StatusChipMaterialContent(label, value, supportingText, metaText, emphasized, contentColor)
+        }
+    } else {
+        ElevatedCard(
+            modifier = modifier.heightIn(min = 118.dp),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = containerColor,
+                contentColor = contentColor,
+            ),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            StatusChipMaterialContent(label, value, supportingText, metaText, emphasized, contentColor)
+        }
+    }
+}
+
+@Composable
+private fun StatusChipMaterialContent(
+    label: String,
+    value: String,
+    supportingText: String?,
+    metaText: String?,
+    emphasized: Boolean,
+    contentColor: androidx.compose.ui.graphics.Color,
+) {
+    Column(
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = label.uppercase(Locale.US),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (emphasized) {
+                contentColor.copy(alpha = 0.72f)
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleLarge,
+            color = if (emphasized) contentColor else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (supportingText != null) {
             Text(
-                text = label.uppercase(Locale.US),
-                style = MaterialTheme.typography.labelSmall,
+                text = supportingText,
+                style = MaterialTheme.typography.bodySmall,
                 color = if (emphasized) {
-                    contentColor.copy(alpha = 0.72f)
+                    contentColor.copy(alpha = 0.84f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (metaText != null) {
+            Text(
+                text = metaText,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (emphasized) {
+                    contentColor.copy(alpha = 0.84f)
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleLarge,
-                color = if (emphasized) contentColor else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (supportingText != null) {
-                Text(
-                    text = supportingText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (emphasized) {
-                        contentColor.copy(alpha = 0.84f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (metaText != null) {
-                Text(
-                    text = metaText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (emphasized) {
-                        contentColor.copy(alpha = 0.84f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
     }
 }

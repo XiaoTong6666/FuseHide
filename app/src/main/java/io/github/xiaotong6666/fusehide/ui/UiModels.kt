@@ -86,7 +86,6 @@ data class ConfigCallbacks(
     val onHiddenPackagesChanged: (String) -> Unit,
     val onApplyConfigClick: () -> Unit,
     val onResetConfigClick: () -> Unit,
-    val onRefreshAppliedConfigClick: () -> Unit,
 )
 
 data class DebugCallbacks(
@@ -109,4 +108,23 @@ data class DebugCallbacks(
     val onResetClick: () -> Unit,
     val onCopyAllClick: () -> Unit,
     val onSelfDataClick: () -> Unit,
+)
+
+enum class MainDestination {
+    Home,
+    Config,
+    Probe,
+    Settings,
+}
+
+data class HomeCallbacks(
+    val onStatusClick: () -> Unit,
+)
+
+data class SettingsUiState(
+    val uiMode: UiMode,
+)
+
+data class SettingsCallbacks(
+    val onToggleUiMode: () -> Unit,
 )

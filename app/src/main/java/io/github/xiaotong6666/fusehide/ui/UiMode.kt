@@ -18,6 +18,7 @@ package io.github.xiaotong6666.fusehide.ui
 
 import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.core.content.edit
 
 enum class UiMode(val value: String) {
     Miuix("miuix"),
@@ -37,9 +38,9 @@ enum class UiMode(val value: String) {
 
         fun saveToPrefs(context: Context, mode: UiMode) {
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_UI_MODE, mode.value)
-                .apply()
+                .edit {
+                    putString(KEY_UI_MODE, mode.value)
+                }
         }
 
         const val PREFS_NAME = "settings"

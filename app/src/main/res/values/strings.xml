@@ -1,20 +1,26 @@
 <resources>
     <string name="app_name">FuseHide</string>
     <string name="app_description">MediaProvider FUSE debugging tool.</string>
+    <string name="home_subtitle_runtime">Review the current runtime hook state and the config active inside MediaProvider.</string>
     <string name="home_subtitle_policy">Adjust the runtime hide config and verify what MediaProvider is actually using.</string>
     <string name="home_subtitle_probe">Run direct path checks against the hooked MediaProvider process.</string>
-    <string name="tab_policy">Config</string>
-    <string name="tab_probe">Probe</string>
-    <string name="section_runtime_policy">Runtime Config</string>
-    <string name="section_runtime_policy_desc">Edit the hide config saved by the app and push it into the hooked MediaProvider process.</string>
+    <string name="home_subtitle_settings">Switch the UI family and review basic app information.</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_config">Config</string>
+    <string name="nav_probe">Probe</string>
+    <string name="nav_settings">Settings</string>
+    <string name="section_runtime_overview">Runtime Overview</string>
+    <string name="section_runtime_overview_desc">Check whether the hook is active, whether the editor matches the applied native config, and what MediaProvider is currently using.</string>
+    <string name="section_device_status">Device Status</string>
+    <string name="section_ui_family">UI Family</string>
+    <string name="section_ui_family_desc">Choose whether the app uses the MIUIX surface style or the Material 3 surface style.</string>
+    <string name="section_about">About</string>
     <string name="section_editable_draft">Editable Config</string>
     <string name="section_editable_draft_desc">These fields are your editable config. Apply persists them locally and syncs MediaProvider.</string>
     <string name="section_apply_feedback">Apply Result</string>
     <string name="section_detailed_diff">Detailed Diff</string>
     <string name="section_snapshot">MediaProvider Snapshot</string>
     <string name="section_snapshot_desc">This section reads the actual runtime config from the injected MediaProvider process.</string>
-    <string name="section_probe_target">Probe Target</string>
-    <string name="section_probe_target_desc">Run direct filesystem checks and syscall tests against the hooked path handling logic.</string>
     <string name="section_paths">Paths</string>
     <string name="section_common_probes">Common Checks</string>
     <string name="section_mutation_probes">Advanced Checks</string>
@@ -23,6 +29,8 @@
     <string name="label_hook">Hook</string>
     <string name="label_sync">Sync</string>
     <string name="label_device">Device</string>
+    <string name="label_runtime_summary">Runtime summary</string>
+    <string name="label_current_ui_family">Current UI family</string>
     <string name="label_last_ack">Last ack</string>
     <string name="label_applied_at">Applied at</string>
     <string name="label_last_token">Last token</string>
@@ -66,6 +74,9 @@
     <string name="button_self_data">App Data</string>
     <string name="field_hide_all_title">Hide all first-level directories</string>
     <string name="field_hide_all_desc">When enabled, every first-level directory under /storage/emulated/0 is hidden except for the visible exemptions below.</string>
+    <string name="field_use_miuix_title">Use MIUIX UI family</string>
+    <string name="field_use_miuix_desc_enabled">The app currently uses the MIUIX navigation and surface style. Turn this off to switch back to Material 3.</string>
+    <string name="field_use_miuix_desc_disabled">The app currently uses the Material 3 navigation and surface style. Turn this on to switch to MIUIX.</string>
     <string name="field_visible_exemptions">Visible exemptions</string>
     <string name="field_visible_exemptions_help">One path per line. Keep Android visible unless you know exactly what you are doing.</string>
     <string name="field_hidden_targets">Hidden targets</string>
@@ -93,4 +104,6 @@
     <string name="diff_summary_mismatch">The unsaved config does not match the applied MediaProvider config.</string>
     <string name="diff_summary_match">The unsaved config matches the applied MediaProvider config.</string>
     <string name="probe_output_empty">No check output yet.</string>
+    <string name="value_ui_family_miuix">MIUIX</string>
+    <string name="value_ui_family_material">Material 3</string>
 </resources>
