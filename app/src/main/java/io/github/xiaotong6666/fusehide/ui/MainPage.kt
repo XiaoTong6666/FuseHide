@@ -284,7 +284,6 @@ private suspend fun androidx.compose.foundation.pager.PagerState.springScrollToP
             }
         }
     }
-    scrollToPage(target)
 }
 
 // For Android Studio preview compose interface.
