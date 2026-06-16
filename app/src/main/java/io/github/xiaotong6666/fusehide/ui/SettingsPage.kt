@@ -19,11 +19,10 @@
 package io.github.xiaotong6666.fusehide.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -54,6 +53,7 @@ private fun SettingsPageContent(
     scrollModifier: Modifier,
 ) {
     val scrollState = rememberScrollState()
+    val groupHorizontalPadding = if (LocalUiMode.current == UiMode.Miuix) 12.dp else 16.dp
 
     Column(
         modifier = Modifier
@@ -61,45 +61,49 @@ private fun SettingsPageContent(
             .then(scrollModifier)
             .verticalScroll(scrollState)
             .padding(contentPadding)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
+            .padding(vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SectionCard {
-            SectionTitle(stringResource(R.string.section_ui_family))
-            Spacer(Modifier.height(6.dp))
-            SectionDescription(
-                text = stringResource(R.string.section_ui_family_desc),
-                style = SectionDescriptionStyle.Supporting,
-            )
+        Column {
+            SettingsGroupHeader(stringResource(R.string.section_ui_family))
+            Box(modifier = Modifier.padding(horizontal = groupHorizontalPadding)) {
+                SettingsGroup {
+                    SettingsToggleItem(
+                        checked = state.uiMode == UiMode.Miuix,
+                        title = stringResource(R.string.field_use_miuix_title),
+                        description = if (state.uiMode == UiMode.Miuix) {
+                            stringResource(R.string.field_use_miuix_desc_enabled)
+                        } else {
+                            stringResource(R.string.field_use_miuix_desc_disabled)
+                        },
+                        onToggle = callbacks.onToggleUiMode,
+                    )
+                }
+            }
         }
 
-        ConfigToggleCard(
-            checked = state.uiMode == UiMode.Miuix,
-            title = stringResource(R.string.field_use_miuix_title),
-            description = if (state.uiMode == UiMode.Miuix) {
-                stringResource(R.string.field_use_miuix_desc_enabled)
-            } else {
-                stringResource(R.string.field_use_miuix_desc_disabled)
-            },
-            onToggle = callbacks.onToggleUiMode,
-        )
-
-        SectionCard {
-            SectionTitle(stringResource(R.string.section_about), SectionTitleStyle.Medium)
+        Column {
+            SettingsGroupHeader(stringResource(R.string.section_about))
+            Box(modifier = Modifier.padding(horizontal = groupHorizontalPadding)) {
+                SettingsGroup {
+                    SettingsInfoItem(
+                        title = stringResource(R.string.label_current_ui_family),
+                        value = if (state.uiMode == UiMode.Miuix) {
+                            stringResource(R.string.value_ui_family_miuix)
+                        } else {
+                            stringResource(R.string.value_ui_family_material)
+                        },
+                    )
+                    when (LocalUiMode.current) {
+                        UiMode.Miuix -> SettingsGroupDividerMiuix()
+                        UiMode.Material -> SettingsGroupDividerMaterial()
+                    }
+                    SettingsInfoItem(
+                        title = stringResource(R.string.app_name),
+                        value = stringResource(R.string.app_description),
+                    )
+                }
+            }
         }
-
-        InfoPanel(
-            title = stringResource(R.string.label_current_ui_family),
-            text = if (state.uiMode == UiMode.Miuix) {
-                stringResource(R.string.value_ui_family_miuix)
-            } else {
-                stringResource(R.string.value_ui_family_material)
-            },
-        )
-
-        InfoPanel(
-            title = stringResource(R.string.app_name),
-            text = stringResource(R.string.app_description),
-        )
     }
 }

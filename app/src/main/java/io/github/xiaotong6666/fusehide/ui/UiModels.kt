@@ -40,6 +40,7 @@ enum class SectionTitleStyle {
     Medium,
     EmphasizedMedium,
     Small,
+    Label,
     Subsection,
 }
 

@@ -125,6 +125,46 @@ fun PrimaryActionButton(
 }
 
 @Composable
+fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    when (LocalUiMode.current) {
+        UiMode.Miuix -> SettingsGroupMiuix(content)
+        UiMode.Material -> SettingsGroupMaterial(content)
+    }
+}
+
+@Composable
+fun SettingsGroupHeader(text: String) {
+    when (LocalUiMode.current) {
+        UiMode.Miuix -> SettingsGroupHeaderMiuix(text)
+        UiMode.Material -> SettingsGroupHeaderMaterial(text)
+    }
+}
+
+@Composable
+fun SettingsToggleItem(
+    checked: Boolean,
+    title: String,
+    description: String,
+    onToggle: () -> Unit,
+) {
+    when (LocalUiMode.current) {
+        UiMode.Miuix -> SettingsToggleItemMiuix(checked, title, description, onToggle)
+        UiMode.Material -> SettingsToggleItemMaterial(checked, title, description, onToggle)
+    }
+}
+
+@Composable
+fun SettingsInfoItem(
+    title: String,
+    value: String,
+) {
+    when (LocalUiMode.current) {
+        UiMode.Miuix -> SettingsInfoItemMiuix(title, value)
+        UiMode.Material -> SettingsInfoItemMaterial(title, value)
+    }
+}
+
+@Composable
 fun ActionGrid(actions: List<GridActionItem>) {
     when (LocalUiMode.current) {
         UiMode.Miuix -> ActionGridMiuix(actions)
