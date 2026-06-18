@@ -40,12 +40,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -109,8 +105,6 @@ fun MainPage(
         )
     }
     val pagerState = rememberPagerState(initialPage = selectedTab, pageCount = { pageSpecs.size })
-    var targetPage by remember { mutableIntStateOf(selectedTab.coerceIn(0, pageSpecs.lastIndex)) }
-    var pendingPage by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
     val settledPage = pagerState.settledPage
     val scrollingPageIndex = (pagerState.currentPage + pagerState.currentPageOffsetFraction)
@@ -118,47 +112,18 @@ fun MainPage(
         .coerceIn(0, pageSpecs.lastIndex)
     val activePageIndex = when {
         pagerState.isScrollInProgress -> scrollingPageIndex
-
-        else -> pendingPage?.coerceIn(0, pageSpecs.lastIndex)
-            ?: settledPage.coerceIn(0, pageSpecs.lastIndex)
+        else -> settledPage.coerceIn(0, pageSpecs.lastIndex)
     }
     val activePage = pageSpecs[activePageIndex]
     val miuixScrollBehavior = MiuixScrollBehavior()
     val onPageSelected: (Int) -> Unit = { index ->
-        if (targetPage != index) {
+        if (pagerState.isScrollInProgress || settledPage != index) {
             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-            targetPage = index
-            pendingPage = index
             scope.launch { pagerState.springScrollToPage(index) }
         }
     }
 
     LaunchedEffect(settledPage) {
-        if (pendingPage == settledPage) {
-            pendingPage = null
-        }
-    }
-
-    LaunchedEffect(pendingPage, pagerState.currentPage, pagerState.currentPageOffsetFraction) {
-        if (pendingPage == null) return@LaunchedEffect
-        if (pagerState.currentPage != pendingPage || abs(pagerState.currentPageOffsetFraction) > 0f) {
-            pendingPage = null
-        }
-    }
-
-    LaunchedEffect(pagerState.isScrollInProgress) {
-        if (!pagerState.isScrollInProgress || pendingPage == null) return@LaunchedEffect
-        pendingPage = null
-    }
-
-    LaunchedEffect(pagerState.currentPage) {
-        if (!pagerState.isScrollInProgress) {
-            targetPage = pagerState.currentPage
-        }
-    }
-
-    LaunchedEffect(settledPage) {
-        targetPage = settledPage
         if (selectedTab != settledPage) {
             onTabSelected(settledPage)
         }
@@ -166,8 +131,7 @@ fun MainPage(
 
     LaunchedEffect(selectedTab) {
         val coercedTarget = selectedTab.coerceIn(0, pageSpecs.lastIndex)
-        if (!pagerState.isScrollInProgress && coercedTarget != targetPage) {
-            targetPage = coercedTarget
+        if (!pagerState.isScrollInProgress && coercedTarget != settledPage) {
             if (pagerState.currentPage != coercedTarget) {
                 pagerState.springScrollToPage(coercedTarget)
             }
