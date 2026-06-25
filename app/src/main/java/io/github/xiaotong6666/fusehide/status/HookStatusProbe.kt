@@ -24,20 +24,24 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
-import java.lang.ref.ReferenceQueue
 import java.lang.ref.WeakReference
 
 class HookStatusProbe(
     private val context: Context,
-    private val onTimeout: () -> Unit,
-    private val onStarted: (WeakReference<Binder>, Thread) -> Unit,
+    private val onTimeout: (String) -> Unit,
+    private val onStarted: (WeakReference<Binder>, Runnable) -> Unit,
 ) {
     private val appContext = context.applicationContext ?: context
+    private val mainHandler = Handler(Looper.getMainLooper())
 
-    fun start() {
+    fun start(requestToken: String) {
         val binder = Binder()
-        val referenceQueue = ReferenceQueue<Binder>()
-        val binderReference = WeakReference(binder, referenceQueue)
+        val binderReference = WeakReference(binder)
+        val timeoutRunnable = Runnable {
+            Log.d("FuseHide", "hook status check timeout after ${TIMEOUT_MS}ms")
+            onTimeout(requestToken)
+        }
+        onStarted(binderReference, timeoutRunnable)
 
         val intent = Intent(ACTION_GET_STATUS).setPackage(APP_PACKAGE)
         intent.putExtra(
@@ -45,6 +49,7 @@ class HookStatusProbe(
             PendingIntent.getBroadcast(context, 1, intent, PendingIntent.FLAG_IMMUTABLE),
         )
         intent.extras?.putBinder("EXTRA_BINDER", binder)
+        intent.putExtra(EXTRA_STATUS_QUERY_TOKEN, requestToken)
 
         MEDIA_PROVIDER_PACKAGES.forEach { packageName ->
             intent.setPackage(packageName)
@@ -52,27 +57,15 @@ class HookStatusProbe(
             appContext.sendBroadcast(intent)
         }
 
-        val statusThread = Thread { waitForBinderRelease(referenceQueue) }
-        statusThread.start()
-        onStarted(binderReference, statusThread)
-    }
-
-    private fun waitForBinderRelease(referenceQueue: ReferenceQueue<Binder>) {
-        try {
-            Thread.sleep(2000L)
-            Runtime.getRuntime().gc()
-            Log.d("FuseHide", "polling ref ...")
-            Log.d("FuseHide", "polled = ${referenceQueue.remove()}")
-            Handler(Looper.getMainLooper()).post(onTimeout)
-        } catch (_: InterruptedException) {
-            Log.d("FuseHide", "return")
-        }
+        mainHandler.postDelayed(timeoutRunnable, TIMEOUT_MS)
     }
 
     companion object {
         private const val APP_PACKAGE = "io.github.xiaotong6666.fusehide"
         const val ACTION_SET_STATUS = "$APP_PACKAGE.SET_STATUS"
         private const val ACTION_GET_STATUS = "$APP_PACKAGE.GET_STATUS"
+        const val EXTRA_STATUS_QUERY_TOKEN = "$APP_PACKAGE.extra.STATUS_QUERY_TOKEN"
+        private const val TIMEOUT_MS = 2000L
 
         val MEDIA_PROVIDER_PACKAGES = listOf(
             "com.google.android.providers.media.module",

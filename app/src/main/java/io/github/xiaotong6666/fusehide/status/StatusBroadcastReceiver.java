@@ -24,16 +24,24 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Process;
 import android.util.Log;
-import io.github.xiaotong6666.fusehide.ui.MainActivity;
 
 public final class StatusBroadcastReceiver extends BroadcastReceiver {
     private static final String APP_PACKAGE = "io.github.xiaotong6666.fusehide";
     private static final String ACTION_GET_STATUS = APP_PACKAGE + ".GET_STATUS";
     private static final String ACTION_SET_STATUS = APP_PACKAGE + ".SET_STATUS";
+    private static final String EXTRA_STATUS_QUERY_TOKEN = APP_PACKAGE + ".extra.STATUS_QUERY_TOKEN";
     private static final String PACKAGE_MEDIA = "com.android.providers.media.module";
     private static final String PACKAGE_MEDIA_GOOGLE = "com.google.android.providers.media.module";
+
+    public interface HookStatusCallback {
+        String getActiveStatusCheckToken();
+
+        void onHookStatusReceived(String packageName, int pid);
+    }
+
     private final int mode;
     private final ContextWrapper owner;
+    private final HookStatusCallback hookStatusCallback;
 
     @SuppressWarnings("deprecation")
     private static PendingIntent getPendingIntentExtra(Intent intent) {
@@ -44,8 +52,13 @@ public final class StatusBroadcastReceiver extends BroadcastReceiver {
     }
 
     public StatusBroadcastReceiver(ContextWrapper owner, int mode) {
+        this(owner, mode, null);
+    }
+
+    public StatusBroadcastReceiver(ContextWrapper owner, int mode, HookStatusCallback hookStatusCallback) {
         this.mode = mode;
         this.owner = owner;
+        this.hookStatusCallback = hookStatusCallback;
     }
 
     @Override
@@ -75,6 +88,7 @@ public final class StatusBroadcastReceiver extends BroadcastReceiver {
                     "EXTRA_PENDING_INTENT",
                     PendingIntent.getBroadcast(owner, 1, statusIntent, PendingIntent.FLAG_IMMUTABLE));
             statusIntent.putExtra("EXTRA_PID", Process.myPid());
+            statusIntent.putExtra(EXTRA_STATUS_QUERY_TOKEN, intent.getStringExtra(EXTRA_STATUS_QUERY_TOKEN));
             if (statusIntent.getExtras() != null) {
                 statusIntent
                         .getExtras()
@@ -87,18 +101,29 @@ public final class StatusBroadcastReceiver extends BroadcastReceiver {
     }
 
     private void handleSetStatus(Intent intent) {
-        MainActivity mainActivity = (MainActivity) owner;
         try {
             Log.d("FuseHide", "recv status " + intent);
+            if (hookStatusCallback == null) {
+                Log.e("FuseHide", "status callback missing");
+                return;
+            }
+            String token = intent.getStringExtra(EXTRA_STATUS_QUERY_TOKEN);
+            String activeToken = hookStatusCallback.getActiveStatusCheckToken();
+            if (token == null || !token.equals(activeToken)) {
+                Log.d("FuseHide", "ignore stale status token=" + token + " active=" + activeToken);
+                return;
+            }
             PendingIntent pendingIntent = getPendingIntentExtra(intent);
             if (pendingIntent == null) {
                 Log.e("FuseHide", "status pendingintent missing");
                 return;
             }
             String creatorPackage = pendingIntent.getCreatorPackage();
-            if (PACKAGE_MEDIA.equals(creatorPackage) || PACKAGE_MEDIA_GOOGLE.equals(creatorPackage)) {
-                mainActivity.onHookStatusReceived(creatorPackage, intent.getIntExtra("EXTRA_PID", -1));
+            if (!PACKAGE_MEDIA.equals(creatorPackage) && !PACKAGE_MEDIA_GOOGLE.equals(creatorPackage)) {
+                Log.e("FuseHide", "invalid status pkg " + creatorPackage);
+                return;
             }
+            hookStatusCallback.onHookStatusReceived(creatorPackage, intent.getIntExtra("EXTRA_PID", -1));
         } catch (Throwable th) {
             Log.e("FuseHide", "send: ", th);
         }
