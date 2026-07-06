@@ -708,10 +708,6 @@ fun MonospaceBlockMaterial(text: String, modifier: Modifier = Modifier) {
 fun DeviceStatusListMaterial(infoPairs: List<Pair<String, String>>) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
         shape = MaterialTheme.shapes.small,
     ) {
         Column(
@@ -743,22 +739,22 @@ fun RuntimeSummaryCardMaterial(
     snapshotText: String,
     emphasized: Boolean,
 ) {
-    val containerColor = if (emphasized) {
-        MaterialTheme.colorScheme.errorContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerHighest
-    }
     val contentColor = if (emphasized) {
         MaterialTheme.colorScheme.onErrorContainer
     } else {
         MaterialTheme.colorScheme.onSurface
     }
+    val cardColors = if (emphasized) {
+        CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = contentColor,
+        )
+    } else {
+        CardDefaults.elevatedCardColors(contentColor = contentColor)
+    }
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-        ),
+        colors = cardColors,
         shape = MaterialTheme.shapes.small,
     ) {
         Column(

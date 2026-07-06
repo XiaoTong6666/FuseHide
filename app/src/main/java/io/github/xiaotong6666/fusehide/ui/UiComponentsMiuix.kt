@@ -613,10 +613,6 @@ fun MonospaceBlockMiuix(text: String, modifier: Modifier = Modifier) {
 fun DeviceStatusListMiuix(infoPairs: List<Pair<String, String>>) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
-        ),
         insideMargin = PaddingValues(16.dp),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -645,19 +641,22 @@ fun RuntimeSummaryCardMiuix(
     snapshotText: String,
     emphasized: Boolean,
 ) {
-    val containerColor = if (emphasized) {
-        MiuixTheme.colorScheme.errorContainer
-    } else {
-        MiuixTheme.colorScheme.surfaceContainerHighest
-    }
     val contentColor = if (emphasized) {
         MiuixTheme.colorScheme.onErrorContainer
     } else {
-        MiuixTheme.colorScheme.onSurfaceContainerHighest
+        MiuixTheme.colorScheme.onSurface
+    }
+    val cardColors = if (emphasized) {
+        CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.errorContainer,
+            contentColor = contentColor,
+        )
+    } else {
+        CardDefaults.defaultColors(contentColor = contentColor)
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(color = containerColor, contentColor = contentColor),
+        colors = cardColors,
         insideMargin = PaddingValues(0.dp),
     ) {
         Column(
