@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -699,5 +701,103 @@ fun MonospaceBlockMaterial(text: String, modifier: Modifier = Modifier) {
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodyMedium,
         )
+    }
+}
+
+@Composable
+fun DeviceStatusListMaterial(infoPairs: List<Pair<String, String>>) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+        ),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+        ) {
+            infoPairs.forEachIndexed { index, pair ->
+                val isLast = index == infoPairs.lastIndex
+                Text(
+                    text = pair.first,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = pair.second,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp, bottom = if (isLast) 0.dp else 24.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun RuntimeSummaryCardMaterial(
+    summaryText: String,
+    snapshotText: String,
+    emphasized: Boolean,
+) {
+    val containerColor = if (emphasized) {
+        MaterialTheme.colorScheme.errorContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHighest
+    }
+    val contentColor = if (emphasized) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+        ),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (summaryText.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                ) {
+                    Text(
+                        text = summaryText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor,
+                    )
+                }
+            }
+            if (summaryText.isNotEmpty() && snapshotText.isNotEmpty()) {
+                SettingsGroupDividerMaterial()
+            }
+            if (snapshotText.isNotEmpty()) {
+                SelectionContainer {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                    ) {
+                        Text(
+                            text = snapshotText,
+                            fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = contentColor,
+                        )
+                    }
+                }
+            }
+        }
     }
 }

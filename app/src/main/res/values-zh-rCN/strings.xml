@@ -102,4 +102,8 @@
     <string name="value_ui_family_material">Material 3</string>
     <string name="config_missing_local">未找到已保存的本地配置。默认值仅作为占位符显示；除非您显式恢复默认值，否则不会保存。</string>
     <string name="config_recovered_applied">从当前应用的 MediaProvider 配置中恢复编辑器和本地存储。</string>
+    <string name="home_version">版本</string>
+    <string name="home_system">系统</string>
+    <string name="home_kernel">内核</string>
+    <string name="home_device_model">设备</string>
 </resources>

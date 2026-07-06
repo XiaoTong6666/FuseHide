@@ -45,9 +45,19 @@ android {
         } catch (_: Exception) {
             1
         }
+        val gitCommitHash = try {
+            ProcessBuilder("git", "rev-parse", "--short", "HEAD")
+                .directory(rootDir)
+                .start()
+                .inputStream.bufferedReader().use { it.readText() }.trim()
+        } catch (_: Exception) {
+            "unknown"
+        }
         
         versionCode = gitCommitCount
         versionName = "1.$gitCommitCount"
+        
+        buildConfigField("String", "COMMIT_HASH", "\"$gitCommitHash\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

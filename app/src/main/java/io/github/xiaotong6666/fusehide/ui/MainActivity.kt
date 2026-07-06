@@ -40,6 +40,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import io.github.xiaotong6666.fusehide.BuildConfig
 import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.fusehide.config.HideConfig
 import io.github.xiaotong6666.fusehide.config.HideConfigDefaults
@@ -315,13 +316,12 @@ class MainActivity :
         val utsname: StructUtsname = Os.uname()
         val sdk = if (Build.VERSION.SDK_INT < 36) Build.VERSION.SDK_INT * 100000 else Build.VERSION.SDK_INT_FULL
         buildString {
-            append("FuseHide\n")
+            append("Version: ${BuildConfig.VERSION_NAME} (${BuildConfig.COMMIT_HASH})\n")
             append("Kernel: ${utsname.release}\n")
-            append("Release: ${Build.VERSION.RELEASE}\n")
+            append("System: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
             append("Device: ${Build.DEVICE}\n")
-            append("SDK: $sdk\n")
             if (getBooleanSystemProperty("external_storage.sdcardfs.enabled")) {
-                append("sdcardfs=true\n")
+                append("sdcardfs: true\n")
             }
             val fuseBpf = getBooleanSystemProperty("ro.fuse.bpf.is_running")
             append("fuse bpf: ${if (fuseBpf) "supported" else "unsupported"}\n")

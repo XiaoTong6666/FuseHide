@@ -255,3 +255,23 @@ fun hookSummaryMetaText(isHooked: Boolean, hookedPid: Int): String = if (isHooke
 } else {
     ""
 }
+
+@Composable
+fun DeviceStatusList(infoPairs: List<Pair<String, String>>) {
+    when (LocalUiMode.current) {
+        UiMode.Miuix -> DeviceStatusListMiuix(infoPairs)
+        UiMode.Material -> DeviceStatusListMaterial(infoPairs)
+    }
+}
+
+@Composable
+fun RuntimeSummaryCard(
+    summaryText: String,
+    snapshotText: String,
+    emphasized: Boolean,
+) {
+    when (LocalUiMode.current) {
+        UiMode.Miuix -> RuntimeSummaryCardMiuix(summaryText, snapshotText, emphasized)
+        UiMode.Material -> RuntimeSummaryCardMaterial(summaryText, snapshotText, emphasized)
+    }
+}

@@ -31,7 +31,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
@@ -113,28 +115,36 @@ private fun HomePageContent(
             )
         }
 
-        InfoPanel(
-            title = stringResource(R.string.label_runtime_summary),
-            text = configState.configStatusText.ifEmpty { configState.draftVsAppliedDiff.summary },
-            emphasized = resultsNeedAttention,
-        )
-
-        InfoPanel(
-            title = stringResource(R.string.label_current_native_config),
-            text = configState.appliedConfigSnapshotText,
-            monospace = true,
-            emphasized = resultsNeedAttention,
-        )
-
-        SectionCard {
-            SectionTitle(stringResource(R.string.section_device_status), SectionTitleStyle.Medium)
-            Spacer(Modifier.height(10.dp))
+        val rawInfoPairs = remember(hookStatus.infoText) {
+            hookStatus.infoText.lines()
+                .filter { it.isNotBlank() }
+                .map { line ->
+                    val parts = line.split(":", limit = 2)
+                    if (parts.size == 2) {
+                        parts[0].trim() to parts[1].trim()
+                    } else {
+                        "Info" to line.trim()
+                    }
+                }
         }
 
-        InfoPanel(
-            title = stringResource(R.string.label_device),
-            text = hookStatus.infoText,
-            monospace = true,
+        val infoPairs = rawInfoPairs.map { (key, value) ->
+            val localizedKey = when (key) {
+                "Version" -> stringResource(R.string.home_version)
+                "System" -> stringResource(R.string.home_system)
+                "Kernel" -> stringResource(R.string.home_kernel)
+                "Device" -> stringResource(R.string.home_device_model)
+                else -> key
+            }
+            localizedKey to value
+        }
+
+        DeviceStatusList(infoPairs = infoPairs)
+
+        RuntimeSummaryCard(
+            summaryText = configState.configStatusText.ifEmpty { configState.draftVsAppliedDiff.summary },
+            snapshotText = configState.appliedConfigSnapshotText,
+            emphasized = resultsNeedAttention,
         )
     }
 }

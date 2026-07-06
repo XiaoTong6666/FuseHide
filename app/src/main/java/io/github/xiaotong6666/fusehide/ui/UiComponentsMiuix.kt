@@ -30,7 +30,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.runtime.Composable
@@ -604,5 +606,97 @@ fun MonospaceBlockMiuix(text: String, modifier: Modifier = Modifier) {
             fontFamily = FontFamily.Monospace,
             style = MiuixTheme.textStyles.body1,
         )
+    }
+}
+
+@Composable
+fun DeviceStatusListMiuix(infoPairs: List<Pair<String, String>>) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(
+            color = MiuixTheme.colorScheme.surfaceContainerHighest,
+            contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
+        ),
+        insideMargin = PaddingValues(16.dp),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            infoPairs.forEachIndexed { index, pair ->
+                val isLast = index == infoPairs.lastIndex
+                Text(
+                    text = pair.first,
+                    fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                    fontWeight = FontWeight.Medium,
+                    color = MiuixTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = pair.second,
+                    fontSize = MiuixTheme.textStyles.body2.fontSize,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.padding(top = 2.dp, bottom = if (isLast) 0.dp else 24.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun RuntimeSummaryCardMiuix(
+    summaryText: String,
+    snapshotText: String,
+    emphasized: Boolean,
+) {
+    val containerColor = if (emphasized) {
+        MiuixTheme.colorScheme.errorContainer
+    } else {
+        MiuixTheme.colorScheme.surfaceContainerHighest
+    }
+    val contentColor = if (emphasized) {
+        MiuixTheme.colorScheme.onErrorContainer
+    } else {
+        MiuixTheme.colorScheme.onSurfaceContainerHighest
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.defaultColors(color = containerColor, contentColor = contentColor),
+        insideMargin = PaddingValues(0.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (summaryText.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                ) {
+                    Text(
+                        text = summaryText,
+                        style = MiuixTheme.textStyles.body1,
+                        color = contentColor,
+                    )
+                }
+            }
+            if (summaryText.isNotEmpty() && snapshotText.isNotEmpty()) {
+                SettingsGroupDividerMiuix()
+            }
+            if (snapshotText.isNotEmpty()) {
+                SelectionContainer {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                    ) {
+                        Text(
+                            text = snapshotText,
+                            fontFamily = FontFamily.Monospace,
+                            style = MiuixTheme.textStyles.body1,
+                            color = contentColor,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
