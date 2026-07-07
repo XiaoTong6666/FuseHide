@@ -82,6 +82,7 @@ class MainActivity :
     StatusBroadcastReceiver.HookStatusCallback {
     companion object {
         private const val EXTRA_DEBUG_PATH = "debug_path"
+        private const val EXTRA_DEBUG_PATH2 = "debug_path2"
         private const val EXTRA_DEBUG_ACTIONS = "debug_actions"
 
         @SuppressLint("PrivateApi")
@@ -323,9 +324,12 @@ class MainActivity :
         }
         selectedTab = 2
         pathText = debugPath
+        pathText2 = intent.getStringExtra(EXTRA_DEBUG_PATH2).orEmpty()
         val debugActions = intent.getStringExtra(EXTRA_DEBUG_ACTIONS)
-        Log.d("FuseHide", "handleDebugIntent path=$debugPath actions=$debugActions")
-        appendOutput("ADB debug intent path=${PathDebugText.escapeNonAscii(debugPath)} actions=${debugActions ?: "(default)"}\n")
+        Log.d("FuseHide", "handleDebugIntent path=$debugPath path2=$pathText2 actions=$debugActions")
+        appendOutput(
+            "ADB debug intent path=${PathDebugText.escapeNonAscii(debugPath)} path2=${PathDebugText.escapeNonAscii(pathText2)} actions=${debugActions ?: "(default)"}\n",
+        )
         window.decorView.postDelayed({ runDebugProbe() }, 1500L)
     }
 
@@ -335,9 +339,11 @@ class MainActivity :
             ?.map { it.trim().lowercase() }
             ?.filter { it.isNotEmpty() }
             ?: listOf("stat", "access", "list", "open")
-        Log.d("FuseHide", "runDebugProbe path=$pathText actions=$actions")
+        Log.d("FuseHide", "runDebugProbe path=$pathText path2=$pathText2 actions=$actions")
         outputText = ""
-        appendOutput("Running debug probe path=${PathDebugText.escapeNonAscii(pathText)} actions=${actions.joinToString(",")}\n")
+        appendOutput(
+            "Running debug probe path=${PathDebugText.escapeNonAscii(pathText)} path2=${PathDebugText.escapeNonAscii(pathText2)} actions=${actions.joinToString(",")}\n",
+        )
         actions.forEach { action ->
             when (action) {
                 "stat" -> runPathCheck(0)

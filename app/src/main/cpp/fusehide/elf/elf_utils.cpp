@@ -1146,14 +1146,24 @@ std::optional<uint32_t> FindRuntimeSymbolIndex(const RuntimeDynamicInfo& info, c
 // Uses usesRela flag for jmprel, always rela for DT_RELA, always rel for DT_REL.
 // Collects matching slot addresses into a vector.
 
-#if defined(__LP64__)
+#if defined(__aarch64__)
 static constexpr auto kRelocationTypeJumpSlot = static_cast<uint32_t>(R_AARCH64_JUMP_SLOT);
 static constexpr auto kRelocationTypeGlobDat = static_cast<uint32_t>(R_AARCH64_GLOB_DAT);
 static constexpr auto kRelocationTypeAbs = static_cast<uint32_t>(R_AARCH64_ABS64);
-#else
+#elif defined(__arm__)
 static constexpr auto kRelocationTypeJumpSlot = static_cast<uint32_t>(R_ARM_JUMP_SLOT);
 static constexpr auto kRelocationTypeGlobDat = static_cast<uint32_t>(R_ARM_GLOB_DAT);
 static constexpr auto kRelocationTypeAbs = static_cast<uint32_t>(R_ARM_ABS32);
+#elif defined(__x86_64__)
+static constexpr auto kRelocationTypeJumpSlot = static_cast<uint32_t>(R_X86_64_JUMP_SLOT);
+static constexpr auto kRelocationTypeGlobDat = static_cast<uint32_t>(R_X86_64_GLOB_DAT);
+static constexpr auto kRelocationTypeAbs = static_cast<uint32_t>(R_X86_64_64);
+#elif defined(__i386__)
+static constexpr auto kRelocationTypeJumpSlot = static_cast<uint32_t>(R_386_JMP_SLOT);
+static constexpr auto kRelocationTypeGlobDat = static_cast<uint32_t>(R_386_GLOB_DAT);
+static constexpr auto kRelocationTypeAbs = static_cast<uint32_t>(R_386_32);
+#else
+#error Unsupported ELF relocation architecture
 #endif
 
 void CollectRelocationSlots(const MappedFile& file, uintptr_t relocAddress, size_t relocBytes,

@@ -159,7 +159,12 @@ void InstallCompareHook(const ElfInfo& elfInfo, std::string_view symbolName,
 // Unified symbol resolution (dynamic-first, section fallback)
 
 std::optional<void*> ResolveTargetSymbol(const ModuleInfo& module, std::string_view symbolName) {
-    auto mapped = MapReadOnlyFile(module.path, module.fileOffset);
+    std::optional<MappedFile> mapped;
+    if (module.path.find("!/") != std::string::npos) {
+        mapped = MapEmbeddedStoredElf(module.path);
+    } else {
+        mapped = MapReadOnlyFile(module.path, module.fileOffset);
+    }
     if (!mapped.has_value()) {
         return std::nullopt;
     }
@@ -383,6 +388,25 @@ const char* HookResolutionSourceName(HookResolutionSource source) {
             return "derived_layout";
     }
     return "unknown";
+}
+
+#if defined(__aarch64__) || defined(__arm__)
+inline constexpr bool kSupportsDeviceProfileOffsets = true;
+#else
+inline constexpr bool kSupportsDeviceProfileOffsets = false;
+#endif
+
+bool IsEmbeddedX86Module(const ModuleInfo& module) {
+    return module.path.find("/lib/x86/") != std::string::npos ||
+           module.path.find("/lib/x86_64/") != std::string::npos;
+}
+
+bool CanUseProfileBasedTarget(HookResolutionSource source) {
+    if constexpr (kSupportsDeviceProfileOffsets) {
+        return true;
+    }
+    return source != HookResolutionSource::kProfileFallback &&
+           source != HookResolutionSource::kDerivedLayout;
 }
 
 struct DerivedHookFeatureFlags {
@@ -872,11 +896,28 @@ DeviceHookInstallPlan ResolveDeviceHookInstallPlan(const ModuleInfo& module) {
 bool TryInstallCriticalHookFromPlan(const ModuleInfo& module, const CriticalHookTargetPlan& target,
                                     const char* hookName, void* replacement, void** backup,
                                     const char* failureMessage) {
+    if (!CanUseProfileBasedTarget(target.source)) {
+        DebugLogPrint(4, "skip profile-based hook %s source=%s on unsupported profile arch path=%s",
+                      hookName, HookResolutionSourceName(target.source), module.path.c_str());
+        return false;
+    }
     __android_log_print(4, kLogTag, "using hook target %s source=%s offset=0x%zx target=%p",
                         hookName, HookResolutionSourceName(target.source),
                         static_cast<size_t>(target.offset),
                         reinterpret_cast<void*>(module.base + target.offset));
     return TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + target.offset), replacement,
+                                  backup, failureMessage);
+}
+
+bool TryInstallDeviceProfileInlineHook(const ModuleInfo& module, uintptr_t offset,
+                                       const char* hookName, void* replacement, void** backup,
+                                       const char* failureMessage) {
+    if constexpr (!kSupportsDeviceProfileOffsets) {
+        DebugLogPrint(4, "skip device profile inline hook %s on unsupported profile arch path=%s",
+                      hookName, module.path.c_str());
+        return false;
+    }
+    return TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + offset), replacement,
                                   backup, failureMessage);
 }
 
@@ -945,7 +986,12 @@ void LogCoreHookStatus(const char* stage, const CoreHookStatus& status) {
 }
 
 std::optional<FileElfContext> BuildFileElfContext(const ModuleInfo& module) {
-    auto mapped = MapReadOnlyFile(module.path, module.fileOffset);
+    std::optional<MappedFile> mapped;
+    if (module.path.find("!/") != std::string::npos) {
+        mapped = MapEmbeddedStoredElf(module.path);
+    } else {
+        mapped = MapReadOnlyFile(module.path, module.fileOffset);
+    }
     if (!mapped.has_value()) {
         return std::nullopt;
     }
@@ -1124,14 +1170,19 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
         module, kIsAppAccessiblePathSymbols, reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
         reinterpret_cast<void**>(&process.originalIsAppAccessiblePath),
         "hook is_app_accessible_path failed");
-    InstallFirstAvailableFileInlineHook(
-        module, kIsPackageOwnedPathSymbols, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
-        reinterpret_cast<void**>(&process.originalIsPackageOwnedPath),
-        "hook is_package_owned_path failed");
-    InstallFirstAvailableFileInlineHook(module, kIsBpfBackingPathSymbols,
-                                        reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
-                                        reinterpret_cast<void**>(&process.originalIsBpfBackingPath),
-                                        "hook is_bpf_backing_path failed");
+    if (IsEmbeddedX86Module(module)) {
+        DebugLogPrint(4, "skip package/bpf core inline hooks on x86/x86_64 embedded module path=%s",
+                      module.path.c_str());
+    } else {
+        InstallFirstAvailableFileInlineHook(
+            module, kIsPackageOwnedPathSymbols, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
+            reinterpret_cast<void**>(&process.originalIsPackageOwnedPath),
+            "hook is_package_owned_path failed");
+        InstallFirstAvailableFileInlineHook(
+            module, kIsBpfBackingPathSymbols, reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
+            reinterpret_cast<void**>(&process.originalIsBpfBackingPath),
+            "hook is_bpf_backing_path failed");
+    }
 
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, kStrcasecmpSymbol, kStrcasecmpSymbol,
                                    reinterpret_cast<void*>(+WrappedStrcasecmp),
@@ -1148,8 +1199,8 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
         // dedicated wrappers, so leaving this unresolved would weaken hidden-path coverage on the
         // stripped production binary. Only use the device RVA after the name-based attempts above
         // have already failed.
-        TryInstallInlineHookAt(
-            reinterpret_cast<void*>(module.base + deviceProfile.isAppAccessiblePathOffset),
+        TryInstallDeviceProfileInlineHook(
+            module, deviceProfile.isAppAccessiblePathOffset, "is_app_accessible_path",
             reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
             reinterpret_cast<void**>(&process.originalIsAppAccessiblePath),
             "hook is_app_accessible_path failed");
@@ -1232,44 +1283,44 @@ void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fi
         // Reverse-engineered record: pf_mkdir @ 0x00177050.
         // mkdir policy lives in an internal static handler, so keep the device-specific offset as a
         // backup when symbol-based lookup is unavailable.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfMkdirOffset),
-                               (void*)WrappedPfMkdir, &process.originalPfMkdir,
-                               "hook pf_mkdir failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfMkdirOffset, "pf_mkdir",
+                                          (void*)WrappedPfMkdir, &process.originalPfMkdir,
+                                          "hook pf_mkdir failed");
     }
     if (process.originalPfMknod == nullptr) {
         // Reverse-engineered record: pf_mknod @ 0x00176ba8.
         // Some create paths go through pf_mknod instead of pf_create on device builds.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfMknodOffset),
-                               (void*)WrappedPfMknod, &process.originalPfMknod,
-                               "hook pf_mknod failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfMknodOffset, "pf_mknod",
+                                          (void*)WrappedPfMknod, &process.originalPfMknod,
+                                          "hook pf_mknod failed");
     }
     if (process.originalPfUnlink == nullptr) {
         // Reverse-engineered record: pf_unlink @ 0x00177534.
         // unlink/rmdir/create handlers are internal statics in libfuse_jni, so retain the verified
         // offset fallback for devices that do not expose stable symbols.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfUnlinkOffset),
-                               (void*)WrappedPfUnlink, &process.originalPfUnlink,
-                               "hook pf_unlink failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfUnlinkOffset, "pf_unlink",
+                                          (void*)WrappedPfUnlink, &process.originalPfUnlink,
+                                          "hook pf_unlink failed");
     }
     if (process.originalPfRmdir == nullptr) {
         // Reverse-engineered record: pf_rmdir @ 0x00177920.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfRmdirOffset),
-                               (void*)WrappedPfRmdir, &process.originalPfRmdir,
-                               "hook pf_rmdir failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfRmdirOffset, "pf_rmdir",
+                                          (void*)WrappedPfRmdir, &process.originalPfRmdir,
+                                          "hook pf_rmdir failed");
     }
     if (process.originalPfRename == nullptr) {
         // Reverse-engineered record: pf_rename @ 0x00177ef4.
         // rename follows the same parent-only access pattern as create/delete handlers, so keep an
         // explicit device RVA fallback for builds that do not expose the local symbol.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfRenameOffset),
-                               (void*)WrappedPfRename, &process.originalPfRename,
-                               "hook pf_rename failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfRenameOffset, "pf_rename",
+                                          (void*)WrappedPfRename, &process.originalPfRename,
+                                          "hook pf_rename failed");
     }
     if (process.originalPfCreate == nullptr) {
         // Reverse-engineered record: pf_create @ 0x0017a7c8.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfCreateOffset),
-                               (void*)WrappedPfCreate, &process.originalPfCreate,
-                               "hook pf_create failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfCreateOffset, "pf_create",
+                                          (void*)WrappedPfCreate, &process.originalPfCreate,
+                                          "hook pf_create failed");
     }
     if (process.originalPfReaddir == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.pfReaddir, "pf_readdir",
@@ -1349,22 +1400,22 @@ void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fi
     }
     if (process.originalPfLookup == nullptr) {
         // Reverse-engineered record: pf_lookup @ 0x00175e48.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfLookupOffset),
-                               (void*)WrappedPfLookup, &process.originalPfLookup,
-                               "hook pf_lookup failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfLookupOffset, "pf_lookup",
+                                          (void*)WrappedPfLookup, &process.originalPfLookup,
+                                          "hook pf_lookup failed");
     }
     if (process.originalPfLookupPostfilter == nullptr) {
         // Reverse-engineered record: pf_lookup_postfilter @ 0x00175f90.
-        TryInstallInlineHookAt(
-            reinterpret_cast<void*>(module.base + deviceProfile.pfLookupPostfilterOffset),
-            (void*)WrappedPfLookupPostfilter, &process.originalPfLookupPostfilter,
-            "hook pf_lookup_postfilter failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfLookupPostfilterOffset,
+                                          "pf_lookup_postfilter", (void*)WrappedPfLookupPostfilter,
+                                          &process.originalPfLookupPostfilter,
+                                          "hook pf_lookup_postfilter failed");
     }
     if (process.originalPfGetattr == nullptr) {
         // Reverse-engineered record: pf_getattr @ 0x001762bc.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfGetattrOffset),
-                               (void*)WrappedPfGetattr, &process.originalPfGetattr,
-                               "hook pf_getattr failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfGetattrOffset, "pf_getattr",
+                                          (void*)WrappedPfGetattr, &process.originalPfGetattr,
+                                          "hook pf_getattr failed");
     }
 }
 
@@ -1381,18 +1432,24 @@ void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) 
             "hook is_app_accessible_path failed");
     }
 
-    if (!status->packageOwned) {
-        InstallFirstAvailableInlineHook(
-            kIsPackageOwnedPathSymbols, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
-            reinterpret_cast<void**>(&process.originalIsPackageOwnedPath),
-            "hook is_package_owned_path failed");
-    }
+    if (IsEmbeddedX86Module(module)) {
+        DebugLogPrint(
+            4, "skip package/bpf advanced core inline hooks on x86/x86_64 embedded module path=%s",
+            module.path.c_str());
+    } else {
+        if (!status->packageOwned) {
+            InstallFirstAvailableInlineHook(
+                kIsPackageOwnedPathSymbols, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
+                reinterpret_cast<void**>(&process.originalIsPackageOwnedPath),
+                "hook is_package_owned_path failed");
+        }
 
-    if (!status->bpfBacking) {
-        InstallFirstAvailableInlineHook(kIsBpfBackingPathSymbols,
-                                        reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
-                                        reinterpret_cast<void**>(&process.originalIsBpfBackingPath),
-                                        "hook is_bpf_backing_path failed");
+        if (!status->bpfBacking) {
+            InstallFirstAvailableInlineHook(
+                kIsBpfBackingPathSymbols, reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
+                reinterpret_cast<void**>(&process.originalIsBpfBackingPath),
+                "hook is_bpf_backing_path failed");
+        }
     }
 
     const bool useRuntimeElf = module.path.find("!/") != std::string::npos;
@@ -1434,8 +1491,8 @@ void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) 
         // Repeat the same last-resort fallback here because the advanced path runs when the
         // initial file-backed install was unavailable or still failed to resolve this stripped
         // internal helper by name.
-        TryInstallInlineHookAt(
-            reinterpret_cast<void*>(module.base + deviceProfile.isAppAccessiblePathOffset),
+        TryInstallDeviceProfileInlineHook(
+            module, deviceProfile.isAppAccessiblePathOffset, "is_app_accessible_path",
             reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
             reinterpret_cast<void**>(&process.originalIsAppAccessiblePath),
             "hook is_app_accessible_path failed");
@@ -1534,39 +1591,39 @@ void InstallAdvancedDebugHooks(const ModuleInfo& module) {
         // Reverse-engineered record: pf_mkdir @ 0x00177050.
         // The advanced path still keeps explicit handler RVAs because these static functions may be
         // absent from runtime relocation metadata.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfMkdirOffset),
-                               (void*)WrappedPfMkdir, &process.originalPfMkdir,
-                               "hook pf_mkdir failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfMkdirOffset, "pf_mkdir",
+                                          (void*)WrappedPfMkdir, &process.originalPfMkdir,
+                                          "hook pf_mkdir failed");
     }
     if (process.originalPfMknod == nullptr) {
         // Reverse-engineered record: pf_mknod @ 0x00176ba8.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfMknodOffset),
-                               (void*)WrappedPfMknod, &process.originalPfMknod,
-                               "hook pf_mknod failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfMknodOffset, "pf_mknod",
+                                          (void*)WrappedPfMknod, &process.originalPfMknod,
+                                          "hook pf_mknod failed");
     }
     if (process.originalPfUnlink == nullptr) {
         // Reverse-engineered record: pf_unlink @ 0x00177534.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfUnlinkOffset),
-                               (void*)WrappedPfUnlink, &process.originalPfUnlink,
-                               "hook pf_unlink failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfUnlinkOffset, "pf_unlink",
+                                          (void*)WrappedPfUnlink, &process.originalPfUnlink,
+                                          "hook pf_unlink failed");
     }
     if (process.originalPfRmdir == nullptr) {
         // Reverse-engineered record: pf_rmdir @ 0x00177920.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfRmdirOffset),
-                               (void*)WrappedPfRmdir, &process.originalPfRmdir,
-                               "hook pf_rmdir failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfRmdirOffset, "pf_rmdir",
+                                          (void*)WrappedPfRmdir, &process.originalPfRmdir,
+                                          "hook pf_rmdir failed");
     }
     if (process.originalPfRename == nullptr) {
         // Reverse-engineered record: pf_rename @ 0x00177ef4.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfRenameOffset),
-                               (void*)WrappedPfRename, &process.originalPfRename,
-                               "hook pf_rename failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfRenameOffset, "pf_rename",
+                                          (void*)WrappedPfRename, &process.originalPfRename,
+                                          "hook pf_rename failed");
     }
     if (process.originalPfCreate == nullptr) {
         // Reverse-engineered record: pf_create @ 0x0017a7c8.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfCreateOffset),
-                               (void*)WrappedPfCreate, &process.originalPfCreate,
-                               "hook pf_create failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfCreateOffset, "pf_create",
+                                          (void*)WrappedPfCreate, &process.originalPfCreate,
+                                          "hook pf_create failed");
     }
     if (process.originalPfReaddir == nullptr) {
         TryInstallCriticalHookFromPlan(module, installPlan.pfReaddir, "pf_readdir",
@@ -1649,22 +1706,22 @@ void InstallAdvancedDebugHooks(const ModuleInfo& module) {
     }
     if (process.originalPfLookup == nullptr) {
         // Reverse-engineered record: pf_lookup @ 0x00175e48.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfLookupOffset),
-                               (void*)WrappedPfLookup, &process.originalPfLookup,
-                               "hook pf_lookup failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfLookupOffset, "pf_lookup",
+                                          (void*)WrappedPfLookup, &process.originalPfLookup,
+                                          "hook pf_lookup failed");
     }
     if (process.originalPfLookupPostfilter == nullptr) {
         // Reverse-engineered record: pf_lookup_postfilter @ 0x00175f90.
-        TryInstallInlineHookAt(
-            reinterpret_cast<void*>(module.base + deviceProfile.pfLookupPostfilterOffset),
-            (void*)WrappedPfLookupPostfilter, &process.originalPfLookupPostfilter,
-            "hook pf_lookup_postfilter failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfLookupPostfilterOffset,
+                                          "pf_lookup_postfilter", (void*)WrappedPfLookupPostfilter,
+                                          &process.originalPfLookupPostfilter,
+                                          "hook pf_lookup_postfilter failed");
     }
     if (process.originalPfGetattr == nullptr) {
         // Reverse-engineered record: pf_getattr @ 0x001762bc.
-        TryInstallInlineHookAt(reinterpret_cast<void*>(module.base + deviceProfile.pfGetattrOffset),
-                               (void*)WrappedPfGetattr, &process.originalPfGetattr,
-                               "hook pf_getattr failed");
+        TryInstallDeviceProfileInlineHook(module, deviceProfile.pfGetattrOffset, "pf_getattr",
+                                          (void*)WrappedPfGetattr, &process.originalPfGetattr,
+                                          "hook pf_getattr failed");
     }
 }
 

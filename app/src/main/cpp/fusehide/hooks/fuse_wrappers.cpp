@@ -393,8 +393,13 @@ extern "C" void WrappedPfMknod(fuse_req_t req, uint64_t parent, const char* name
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1218
 extern "C" void WrappedPfUnlink(fuse_req_t req, uint64_t parent, const char* name) {
     RuntimeState::RememberFuseSession(req);
-    const HiddenNamedTargetKind kind =
-        ClassifyHiddenNamedTarget(RuntimeState::ReqUid(req), parent, name);
+    const uint32_t uid = RuntimeState::ReqUid(req);
+    const HiddenNamedTargetKind kind = ClassifyHiddenNamedTarget(uid, parent, name);
+    const auto trackedParentPath = LookupTrackedPathForInode(parent);
+    DebugLogPrint(4, "named-target pf_unlink uid=%u parent=%s tracked_parent=%s name=%s kind=%d",
+                  static_cast<unsigned>(uid), InodePath(parent).c_str(),
+                  trackedParentPath.has_value() ? DebugPreview(*trackedParentPath).c_str() : "",
+                  name ? DebugPreview(name).c_str() : "null", static_cast<int>(kind));
     if (ReplyHiddenNamedTargetError(req, "pf_unlink", kind, ENOENT, ENOENT)) {
         return;
     }
@@ -430,6 +435,18 @@ extern "C" void WrappedPfRename(fuse_req_t req, uint64_t parent, const char* nam
     const uint32_t uid = RuntimeState::ReqUid(req);
     const HiddenNamedTargetKind srcKind = ClassifyHiddenNamedTarget(uid, parent, name);
     const HiddenNamedTargetKind dstKind = ClassifyHiddenNamedTarget(uid, new_parent, new_name);
+    const auto srcTrackedParentPath = LookupTrackedPathForInode(parent);
+    const auto dstTrackedParentPath = LookupTrackedPathForInode(new_parent);
+    DebugLogPrint(
+        4,
+        "named-target pf_rename uid=%u src_parent=%s src_tracked=%s src_name=%s src_kind=%d "
+        "dst_parent=%s dst_tracked=%s dst_name=%s dst_kind=%d flags=0x%x",
+        static_cast<unsigned>(uid), InodePath(parent).c_str(),
+        srcTrackedParentPath.has_value() ? DebugPreview(*srcTrackedParentPath).c_str() : "",
+        name ? DebugPreview(name).c_str() : "null", static_cast<int>(srcKind),
+        InodePath(new_parent).c_str(),
+        dstTrackedParentPath.has_value() ? DebugPreview(*dstTrackedParentPath).c_str() : "",
+        new_name ? DebugPreview(new_name).c_str() : "null", static_cast<int>(dstKind), flags);
     if (srcKind != HiddenNamedTargetKind::None || dstKind != HiddenNamedTargetKind::None) {
         DebugLogPrint(4,
                       "pf_rename hide named target src_root=%d src_desc=%d dst_root=%d dst_desc=%d "
@@ -459,13 +476,15 @@ extern "C" void WrappedPfCreate(fuse_req_t req, uint64_t parent, const char* nam
     RuntimeState::RememberFuseSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const HiddenNamedTargetKind kind = ClassifyHiddenNamedTarget(uid, parent, name);
+    const auto trackedParentPath = LookupTrackedPathForInode(parent);
     DebugLogPrint(4,
-                  "create-trace pf_create uid=%u parent=%s name=%s mode=%o fi=%p hidden_root=%d "
-                  "hidden_desc=%d",
+                  "create-trace pf_create uid=%u parent=%s tracked_parent=%s name=%s mode=%o fi=%p "
+                  "hidden_root=%d hidden_desc=%d kind=%d",
                   static_cast<unsigned>(uid), InodePath(parent).c_str(),
+                  trackedParentPath.has_value() ? DebugPreview(*trackedParentPath).c_str() : "",
                   name ? DebugPreview(name).c_str() : "null", mode, fi,
                   kind == HiddenNamedTargetKind::Root ? 1 : 0,
-                  kind == HiddenNamedTargetKind::Descendant ? 1 : 0);
+                  kind == HiddenNamedTargetKind::Descendant ? 1 : 0, static_cast<int>(kind));
     if (ReplyHiddenNamedTargetError(req, "pf_create", kind, EPERM, ENOENT)) {
         return;
     }
@@ -1010,7 +1029,11 @@ extern "C" int WrappedStat(const char* path, struct stat* st) {
 
 extern "C" ssize_t WrappedGetxattr(const char* path, const char* name, void* value, size_t size) {
     const std::string_view pathView = path != nullptr ? std::string_view(path) : std::string_view();
-    if (ShouldHideLowerFsPath(pathView)) {
+    const bool hidden = ShouldHideLowerFsPath(pathView);
+    DebugLogPrint(4, "xattr-trace getxattr path=%s name=%s size=%zu hidden=%d",
+                  DebugPreview(pathView).c_str(),
+                  name != nullptr ? DebugPreview(name).c_str() : "null", size, hidden ? 1 : 0);
+    if (hidden) {
         DebugLogPrint(4, "hide getxattr path=%s name=%s", DebugPreview(pathView).c_str(),
                       name != nullptr ? DebugPreview(name).c_str() : "null");
         errno = ENOENT;
@@ -1027,7 +1050,11 @@ extern "C" ssize_t WrappedGetxattr(const char* path, const char* name, void* val
 
 extern "C" ssize_t WrappedLgetxattr(const char* path, const char* name, void* value, size_t size) {
     const std::string_view pathView = path != nullptr ? std::string_view(path) : std::string_view();
-    if (ShouldHideLowerFsPath(pathView)) {
+    const bool hidden = ShouldHideLowerFsPath(pathView);
+    DebugLogPrint(4, "xattr-trace lgetxattr path=%s name=%s size=%zu hidden=%d",
+                  DebugPreview(pathView).c_str(),
+                  name != nullptr ? DebugPreview(name).c_str() : "null", size, hidden ? 1 : 0);
+    if (hidden) {
         DebugLogPrint(4, "hide lgetxattr path=%s name=%s", DebugPreview(pathView).c_str(),
                       name != nullptr ? DebugPreview(name).c_str() : "null");
         errno = ENOENT;
