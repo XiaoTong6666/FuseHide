@@ -473,13 +473,14 @@ int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller) {
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#347
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#510
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1428
-extern "C" bool WrappedShouldNotCache(void* fuse, const std::string& path) {
+extern "C" bool WrappedShouldNotCache(void* fuse, AbiStringParam pathArg) {
+    const std::string_view path = AbiStringView(pathArg);
     if (HiddenPathPolicy::IsAnyHiddenSubtreePath(path)) {
         DebugLogPrint(4, "force uncached subtree path=%s", DebugPreview(path).c_str());
         return true;
     }
     auto fn = reinterpret_cast<ShouldNotCacheFn>(gOriginalShouldNotCache);
-    return fn ? fn(fuse, path) : false;
+    return fn ? fn(fuse, pathArg) : false;
 }
 
 bool IsTrackedHiddenSubtreeInode(uint64_t ino) {

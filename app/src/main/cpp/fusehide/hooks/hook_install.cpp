@@ -1170,19 +1170,14 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
         module, kIsAppAccessiblePathSymbols, reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
         reinterpret_cast<void**>(&process.originalIsAppAccessiblePath),
         "hook is_app_accessible_path failed");
-    if (IsEmbeddedX86Module(module)) {
-        DebugLogPrint(4, "skip package/bpf core inline hooks on x86/x86_64 embedded module path=%s",
-                      module.path.c_str());
-    } else {
-        InstallFirstAvailableFileInlineHook(
-            module, kIsPackageOwnedPathSymbols, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
-            reinterpret_cast<void**>(&process.originalIsPackageOwnedPath),
-            "hook is_package_owned_path failed");
-        InstallFirstAvailableFileInlineHook(
-            module, kIsBpfBackingPathSymbols, reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
-            reinterpret_cast<void**>(&process.originalIsBpfBackingPath),
-            "hook is_bpf_backing_path failed");
-    }
+    InstallFirstAvailableFileInlineHook(
+        module, kIsPackageOwnedPathSymbols, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
+        reinterpret_cast<void**>(&process.originalIsPackageOwnedPath),
+        "hook is_package_owned_path failed");
+    InstallFirstAvailableFileInlineHook(module, kIsBpfBackingPathSymbols,
+                                        reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
+                                        reinterpret_cast<void**>(&process.originalIsBpfBackingPath),
+                                        "hook is_bpf_backing_path failed");
 
     InstallFileCompareHookIfNeeded(fileContext.elfInfo, kStrcasecmpSymbol, kStrcasecmpSymbol,
                                    reinterpret_cast<void*>(+WrappedStrcasecmp),
@@ -1432,24 +1427,18 @@ void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) 
             "hook is_app_accessible_path failed");
     }
 
-    if (IsEmbeddedX86Module(module)) {
-        DebugLogPrint(
-            4, "skip package/bpf advanced core inline hooks on x86/x86_64 embedded module path=%s",
-            module.path.c_str());
-    } else {
-        if (!status->packageOwned) {
-            InstallFirstAvailableInlineHook(
-                kIsPackageOwnedPathSymbols, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
-                reinterpret_cast<void**>(&process.originalIsPackageOwnedPath),
-                "hook is_package_owned_path failed");
-        }
+    if (!status->packageOwned) {
+        InstallFirstAvailableInlineHook(
+            kIsPackageOwnedPathSymbols, reinterpret_cast<void*>(+WrappedIsPackageOwnedPath),
+            reinterpret_cast<void**>(&process.originalIsPackageOwnedPath),
+            "hook is_package_owned_path failed");
+    }
 
-        if (!status->bpfBacking) {
-            InstallFirstAvailableInlineHook(
-                kIsBpfBackingPathSymbols, reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
-                reinterpret_cast<void**>(&process.originalIsBpfBackingPath),
-                "hook is_bpf_backing_path failed");
-        }
+    if (!status->bpfBacking) {
+        InstallFirstAvailableInlineHook(kIsBpfBackingPathSymbols,
+                                        reinterpret_cast<void*>(+WrappedIsBpfBackingPath),
+                                        reinterpret_cast<void**>(&process.originalIsBpfBackingPath),
+                                        "hook is_bpf_backing_path failed");
     }
 
     const bool useRuntimeElf = module.path.find("!/") != std::string::npos;

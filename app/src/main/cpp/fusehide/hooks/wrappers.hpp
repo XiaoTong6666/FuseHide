@@ -18,7 +18,9 @@
 
 namespace fusehide {
 
-extern "C" bool WrappedShouldNotCache(void* fuse, const std::string& path);
+extern "C" bool WrappedShouldNotCache(void* fuse, AbiStringParam path);
+DirectoryEntries WrappedGetDirectoryEntries(void* wrapper, uint32_t uid, AbiStringParam path,
+                                            DIR* dirp);
 void WrappedAddDirectoryEntriesFromLowerFs(DIR* dirp, LowerFsDirentFilterFn filter,
                                            DirectoryEntries* entries);
 extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* name);
@@ -60,9 +62,9 @@ extern "C" int WrappedMkdirLibc(const char* path, mode_t mode);
 extern "C" int WrappedMknod(const char* path, mode_t mode, dev_t dev);
 extern "C" int WrappedOpen(const char* path, int flags, ...);
 extern "C" int WrappedOpen2(const char* path, int flags);
-bool WrappedIsAppAccessiblePath(void* fuse, const std::string& path, uint32_t uid);
-bool WrappedIsPackageOwnedPath(const std::string& lhs, const std::string& rhs);
-bool WrappedIsBpfBackingPath(const std::string& path);
+bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam path, uint32_t uid);
+bool WrappedIsPackageOwnedPath(AbiStringParam lhs, AbiStringParam rhs);
+bool WrappedIsBpfBackingPath(AbiStringParam path);
 extern "C" int WrappedStrcasecmp(const char* lhs, const char* rhs);
 extern "C" bool WrappedEqualsIgnoreCaseAbi(const char* lhsData, size_t lhsSize, const char* rhsData,
                                            size_t rhsSize);

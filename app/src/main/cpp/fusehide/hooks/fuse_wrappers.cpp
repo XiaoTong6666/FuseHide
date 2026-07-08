@@ -200,10 +200,11 @@ DirectoryEntries FilterHiddenDirectoryEntries(uint32_t uid, std::string_view par
     return entries;
 }
 
-DirectoryEntries WrappedGetDirectoryEntries(void* wrapper, uint32_t uid, const std::string& path,
+DirectoryEntries WrappedGetDirectoryEntries(void* wrapper, uint32_t uid, AbiStringParam pathArg,
                                             DIR* dirp) {
     auto fn = reinterpret_cast<GetDirectoryEntriesFn>(gOriginalGetDirectoryEntries);
-    DirectoryEntries entries = fn ? fn(wrapper, uid, path, dirp) : DirectoryEntries();
+    const std::string path(AbiStringView(pathArg));
+    DirectoryEntries entries = fn ? fn(wrapper, uid, pathArg, dirp) : DirectoryEntries();
     if (gCurrentReaddirReqUnique != 0) {
         std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
         auto it = gPendingReaddirContexts.find(gCurrentReaddirReqUnique);
@@ -1183,13 +1184,15 @@ bool HiddenPathPolicy::ShouldHideTestPath(uint32_t uid, std::string_view path) {
 }
 
 // Mirror the original app-accessible gate: sanitize only when needed, then delegate.
-bool WrappedIsAppAccessiblePath(void* fuse, const std::string& path, uint32_t uid) {
+bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid) {
     if (gOriginalIsAppAccessiblePath == nullptr) {
         return false;
     }
+    const std::string_view path = AbiStringView(pathArg);
+    const std::string pathString(path);
     gLastPathPolicyUid = uid;
     gLastPathPolicyPath = path;
-    if (!UnicodePolicy::NeedsSanitization(path)) {
+    if (!UnicodePolicy::NeedsSanitization(pathString)) {
         UnicodePolicy::LogSuspiciousDirectPath("app_accessible", path);
         if (ShouldLogLimited(gAppAccessibleLogCount)) {
             DebugLogPrint(3, "app_accessible direct uid=%u path=%s", uid,
@@ -1201,7 +1204,7 @@ bool WrappedIsAppAccessiblePath(void* fuse, const std::string& path, uint32_t ui
                           DebugPreview(path).c_str());
             return false;
         }
-        return gOriginalIsAppAccessiblePath(fuse, path, uid);
+        return gOriginalIsAppAccessiblePath(fuse, pathArg, uid);
     }
     std::string sanitized(path);
     UnicodePolicy::RewriteString(sanitized);
@@ -1216,21 +1219,25 @@ bool WrappedIsAppAccessiblePath(void* fuse, const std::string& path, uint32_t ui
                       DebugPreview(sanitized).c_str(), DebugPreview(path).c_str());
         return false;
     }
-    return gOriginalIsAppAccessiblePath(fuse, sanitized, uid);
+    const ScopedAbiStringParam sanitizedArg(sanitized);
+    return gOriginalIsAppAccessiblePath(fuse, sanitizedArg.get(), uid);
 }
 
 // The package-owned helper only sanitizes the first path argument on the device build.
-bool WrappedIsPackageOwnedPath(const std::string& lhs, const std::string& rhs) {
+bool WrappedIsPackageOwnedPath(AbiStringParam lhsArg, AbiStringParam rhsArg) {
     if (gOriginalIsPackageOwnedPath == nullptr) {
         return false;
     }
-    if (!UnicodePolicy::NeedsSanitization(lhs)) {
+    const std::string_view lhs = AbiStringView(lhsArg);
+    const std::string_view rhs = AbiStringView(rhsArg);
+    const std::string lhsString(lhs);
+    if (!UnicodePolicy::NeedsSanitization(lhsString)) {
         UnicodePolicy::LogSuspiciousDirectPath("package_owned", lhs);
         if (ShouldLogLimited(gPackageOwnedLogCount)) {
             DebugLogPrint(3, "package_owned direct lhs=%s rhs=%s", DebugPreview(lhs).c_str(),
                           DebugPreview(rhs).c_str());
         }
-        return gOriginalIsPackageOwnedPath(lhs, rhs);
+        return gOriginalIsPackageOwnedPath(lhsArg, rhsArg);
     }
     std::string sanitizedLhs(lhs);
     UnicodePolicy::RewriteString(sanitizedLhs);
@@ -1238,20 +1245,23 @@ bool WrappedIsPackageOwnedPath(const std::string& lhs, const std::string& rhs) {
         DebugLogPrint(3, "package_owned rewrite lhs=%s new=%s rhs=%s", DebugPreview(lhs).c_str(),
                       DebugPreview(sanitizedLhs).c_str(), DebugPreview(rhs).c_str());
     }
-    return gOriginalIsPackageOwnedPath(sanitizedLhs, rhs);
+    const ScopedAbiStringParam sanitizedArg(sanitizedLhs);
+    return gOriginalIsPackageOwnedPath(sanitizedArg.get(), rhsArg);
 }
 
 // WrappedIsBpfBackingPath
-bool WrappedIsBpfBackingPath(const std::string& path) {
+bool WrappedIsBpfBackingPath(AbiStringParam pathArg) {
     if (gOriginalIsBpfBackingPath == nullptr) {
         return false;
     }
-    if (!UnicodePolicy::NeedsSanitization(path)) {
+    const std::string_view path = AbiStringView(pathArg);
+    const std::string pathString(path);
+    if (!UnicodePolicy::NeedsSanitization(pathString)) {
         UnicodePolicy::LogSuspiciousDirectPath("bpf_backing", path);
         if (ShouldLogLimited(gBpfBackingLogCount)) {
             DebugLogPrint(3, "bpf_backing direct path=%s", DebugPreview(path).c_str());
         }
-        return gOriginalIsBpfBackingPath(path);
+        return gOriginalIsBpfBackingPath(pathArg);
     }
     std::string sanitized(path);
     UnicodePolicy::RewriteString(sanitized);
@@ -1259,7 +1269,8 @@ bool WrappedIsBpfBackingPath(const std::string& path) {
         DebugLogPrint(3, "bpf_backing rewrite old=%s new=%s", DebugPreview(path).c_str(),
                       DebugPreview(sanitized).c_str());
     }
-    return gOriginalIsBpfBackingPath(sanitized);
+    const ScopedAbiStringParam sanitizedArg(sanitized);
+    return gOriginalIsBpfBackingPath(sanitizedArg.get());
 }
 
 // Keep libc strcasecmp behavior aligned with the original case-folding compare.

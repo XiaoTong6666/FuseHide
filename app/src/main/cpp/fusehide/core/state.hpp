@@ -23,6 +23,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cerrno>
@@ -138,17 +139,97 @@ extern "C" int8_t u_hasBinaryProperty(uint32_t codePoint, int32_t which);
 inline constexpr int32_t kUCHAR_DEFAULT_IGNORABLE_CODE_POINT = 5;
 
 using HookInstaller = int (*)(void* target, void* replacement, void** backup);
-using IsAppAccessiblePathFn = bool (*)(void* fuse, const std::string& path, uint32_t uid);
-using IsPackageOwnedPathFn = bool (*)(const std::string& lhs, const std::string& rhs);
-using IsBpfBackingPathFn = bool (*)(const std::string& path);
-using ShouldNotCacheFn = bool (*)(void* fuse, const std::string& path);
+#if defined(__x86_64__) || defined(__i386__)
+using AbiStringParam = const void*;
+#else
+using AbiStringParam = const std::string&;
+#endif
+
+using IsAppAccessiblePathFn = bool (*)(void* fuse, AbiStringParam path, uint32_t uid);
+using IsPackageOwnedPathFn = bool (*)(AbiStringParam lhs, AbiStringParam rhs);
+using IsBpfBackingPathFn = bool (*)(AbiStringParam path);
+using ShouldNotCacheFn = bool (*)(void* fuse, AbiStringParam path);
 using FuseReplyErrFn = int (*)(fuse_req_t, int);
 using DirectoryEntries = std::vector<std::shared_ptr<mediaprovider::fuse::DirectoryEntry>>;
-using GetDirectoryEntriesFn = DirectoryEntries (*)(void* wrapper, uint32_t uid,
-                                                   const std::string& path, DIR* dirp);
+using GetDirectoryEntriesFn = DirectoryEntries (*)(void* wrapper, uint32_t uid, AbiStringParam path,
+                                                   DIR* dirp);
 using LowerFsDirentFilterFn = bool (*)(const dirent& entry);
 using AddDirectoryEntriesFromLowerFsFn = void (*)(DIR* dirp, LowerFsDirentFilterFn filter,
                                                   DirectoryEntries* entries);
+
+#if defined(__x86_64__) || defined(__i386__)
+inline std::string_view AbiStringView(AbiStringParam raw) {
+    if (raw == nullptr) {
+        return {};
+    }
+    const auto* bytes = reinterpret_cast<const uint8_t*>(raw);
+    constexpr size_t kWordSize = sizeof(uintptr_t);
+    const bool isLong = (bytes[0] & 0x1U) != 0U;
+    if (!isLong) {
+        const size_t shortSize = static_cast<size_t>(bytes[0] >> 1);
+        return {reinterpret_cast<const char*>(bytes + 1), shortSize};
+    }
+    size_t longSize = 0;
+    const char* longData = nullptr;
+    std::memcpy(&longSize, bytes + kWordSize, sizeof(longSize));
+    std::memcpy(&longData, bytes + 2 * kWordSize, sizeof(longData));
+    if (longData == nullptr) {
+        return {};
+    }
+    return {longData, longSize};
+}
+
+class ScopedAbiStringParam final {
+   public:
+    explicit ScopedAbiStringParam(std::string_view value) {
+        constexpr size_t kWordSize = sizeof(uintptr_t);
+        constexpr size_t kObjectBytes = kWordSize * 3;
+        constexpr size_t kShortCapacity = kObjectBytes - 2;
+        object_.fill(std::byte{0});
+        if (value.size() <= kShortCapacity) {
+            object_[0] = std::byte{static_cast<uint8_t>(value.size() << 1)};
+            if (!value.empty()) {
+                std::memcpy(object_.data() + 1, value.data(), value.size());
+            }
+            object_[1 + value.size()] = std::byte{0};
+            return;
+        }
+
+        storage_.assign(value.data(), value.size());
+        const uintptr_t encodedCap = static_cast<uintptr_t>(storage_.size() + 1) | 1U;
+        const uintptr_t sizeValue = static_cast<uintptr_t>(storage_.size());
+        const char* data = storage_.c_str();
+        std::memcpy(object_.data(), &encodedCap, sizeof(encodedCap));
+        std::memcpy(object_.data() + kWordSize, &sizeValue, sizeof(sizeValue));
+        std::memcpy(object_.data() + 2 * kWordSize, &data, sizeof(data));
+    }
+
+    AbiStringParam get() const {
+        return object_.data();
+    }
+
+   private:
+    alignas(uintptr_t) std::array<std::byte, sizeof(uintptr_t) * 3> object_{};
+    std::string storage_;
+};
+#else
+inline std::string_view AbiStringView(AbiStringParam value) {
+    return value;
+}
+
+class ScopedAbiStringParam final {
+   public:
+    explicit ScopedAbiStringParam(std::string_view value) : storage_(value) {
+    }
+
+    AbiStringParam get() const {
+        return storage_;
+    }
+
+   private:
+    std::string storage_;
+};
+#endif
 
 struct PackageHideRule {
     std::string packageName;
@@ -504,7 +585,7 @@ std::optional<std::string> LookupRecentHiddenParentPath(uint32_t uid,
 void ClearRecentHiddenParentPath(uint32_t uid);
 DirectoryEntries FilterHiddenDirectoryEntries(uint32_t uid, std::string_view parentPath,
                                               DirectoryEntries entries);
-DirectoryEntries WrappedGetDirectoryEntries(void* wrapper, uint32_t uid, const std::string& path,
+DirectoryEntries WrappedGetDirectoryEntries(void* wrapper, uint32_t uid, AbiStringParam path,
                                             DIR* dirp);
 
 }  // namespace fusehide
