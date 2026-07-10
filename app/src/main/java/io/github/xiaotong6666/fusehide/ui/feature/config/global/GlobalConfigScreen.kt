@@ -34,12 +34,12 @@ import io.github.xiaotong6666.fusehide.ui.adapter.updatedConfigForHiddenTargets
 import io.github.xiaotong6666.fusehide.ui.adapter.updatedConfigForVisibleExemptions
 import io.github.xiaotong6666.fusehide.ui.core.model.ConfigCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.ConfigUiState
-import io.github.xiaotong6666.uihelper.components.InfoBanner
-import io.github.xiaotong6666.uihelper.components.configdetail.AppConfigPageScaffold
-import io.github.xiaotong6666.uihelper.components.configdetail.AppConfigTargetsCard
-import io.github.xiaotong6666.uihelper.components.configdetail.AppConfigToggleCard
-import io.github.xiaotong6666.uihelper.components.configdetail.ConfigDetailPageBody
-import io.github.xiaotong6666.uihelper.components.configdetail.ConfigPageOverflowAction
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigPageScaffold
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigTargetsCard
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigToggleCard
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.ConfigDetailPageBody
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.ConfigPageOverflowAction
+import io.github.xiaotong6666.uihelper.adaptive.InfoBanner
 
 @Composable
 fun GlobalConfigPage(

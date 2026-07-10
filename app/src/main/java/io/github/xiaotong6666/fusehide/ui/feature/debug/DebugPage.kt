@@ -35,16 +35,16 @@ import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.fusehide.ui.core.model.DebugCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.DebugUiState
-import io.github.xiaotong6666.uihelper.components.ActionGrid
-import io.github.xiaotong6666.uihelper.components.AppTextField
-import io.github.xiaotong6666.uihelper.components.InfoPanel
-import io.github.xiaotong6666.uihelper.components.SectionCard
-import io.github.xiaotong6666.uihelper.components.SectionDescription
-import io.github.xiaotong6666.uihelper.components.SectionTitle
-import io.github.xiaotong6666.uihelper.components.model.GridActionItem
-import io.github.xiaotong6666.uihelper.components.model.GridActionStyle
-import io.github.xiaotong6666.uihelper.components.model.SectionDescriptionStyle
-import io.github.xiaotong6666.uihelper.components.model.SectionTitleStyle
+import io.github.xiaotong6666.uihelper.adaptive.ActionGrid
+import io.github.xiaotong6666.uihelper.adaptive.AppTextField
+import io.github.xiaotong6666.uihelper.adaptive.InfoPanel
+import io.github.xiaotong6666.uihelper.adaptive.SectionCard
+import io.github.xiaotong6666.uihelper.adaptive.SectionDescription
+import io.github.xiaotong6666.uihelper.adaptive.SectionTitle
+import io.github.xiaotong6666.uihelper.model.GridActionItem
+import io.github.xiaotong6666.uihelper.model.GridActionStyle
+import io.github.xiaotong6666.uihelper.model.SectionDescriptionStyle
+import io.github.xiaotong6666.uihelper.model.SectionTitleStyle
 
 @Composable
 fun DebugPage(

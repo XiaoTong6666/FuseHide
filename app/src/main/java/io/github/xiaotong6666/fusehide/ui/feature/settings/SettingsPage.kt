@@ -33,11 +33,11 @@ import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.fusehide.ui.core.model.SettingsCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.SettingsUiState
-import io.github.xiaotong6666.uihelper.components.SettingsGroup
-import io.github.xiaotong6666.uihelper.components.SettingsGroupDivider
-import io.github.xiaotong6666.uihelper.components.SettingsGroupHeader
-import io.github.xiaotong6666.uihelper.components.SettingsInfoItem
-import io.github.xiaotong6666.uihelper.components.SettingsToggleItem
+import io.github.xiaotong6666.uihelper.adaptive.SettingsGroup
+import io.github.xiaotong6666.uihelper.adaptive.SettingsGroupDivider
+import io.github.xiaotong6666.uihelper.adaptive.SettingsGroupHeader
+import io.github.xiaotong6666.uihelper.adaptive.SettingsInfoItem
+import io.github.xiaotong6666.uihelper.adaptive.SettingsToggleItem
 import io.github.xiaotong6666.uihelper.mode.LocalUiMode
 import io.github.xiaotong6666.uihelper.mode.UiMode
 

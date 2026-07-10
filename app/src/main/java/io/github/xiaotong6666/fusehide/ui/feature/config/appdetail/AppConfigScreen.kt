@@ -36,13 +36,13 @@ import io.github.xiaotong6666.fusehide.ui.adapter.appSpecificTargetsText
 import io.github.xiaotong6666.fusehide.ui.adapter.updatedConfigForPackageRule
 import io.github.xiaotong6666.fusehide.ui.core.model.ConfigCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.ConfigUiState
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigInfoCard
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigPageScaffold
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigTargetsCard
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigToggleCard
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.ConfigDetailPageBody
 import io.github.xiaotong6666.fusehide.ui.feature.config.applist.AppListViewModel
-import io.github.xiaotong6666.uihelper.components.configdetail.AppConfigInfoCard
-import io.github.xiaotong6666.uihelper.components.configdetail.AppConfigPageScaffold
-import io.github.xiaotong6666.uihelper.components.configdetail.AppConfigTargetsCard
-import io.github.xiaotong6666.uihelper.components.configdetail.AppConfigToggleCard
-import io.github.xiaotong6666.uihelper.components.configdetail.ConfigDetailPageBody
-import io.github.xiaotong6666.uihelper.components.icon.AppIconImage
+import io.github.xiaotong6666.uihelper.extensions.androidapp.AppIconImage
 import io.github.xiaotong6666.uihelper.mode.LocalUiMode
 import io.github.xiaotong6666.uihelper.mode.UiMode
 

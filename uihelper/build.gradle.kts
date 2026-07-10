@@ -43,15 +43,6 @@ android {
     buildFeatures {
         compose = true
     }
-    sourceSets {
-        getByName("main") {
-            manifest.srcFile("src/main/AndroidManifest.xml")
-            java.directories.clear()
-            java.directories.add("../app/src/main/java/io/github/xiaotong6666/uihelper")
-            kotlin.directories.clear()
-            kotlin.directories.add("../app/src/main/java/io/github/xiaotong6666/uihelper")
-        }
-    }
 }
 
 dependencies {

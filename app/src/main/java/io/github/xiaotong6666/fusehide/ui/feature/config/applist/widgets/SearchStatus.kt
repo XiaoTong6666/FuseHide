@@ -14,16 +14,6 @@
  * limitations under the License.
  */
 
-package io.github.xiaotong6666.fusehide.ui.feature.config.applist
+package io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets
 
-import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.GroupedApps
-import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.SearchStatus
-
-data class AppListUiState(
-    val isRefreshing: Boolean = false,
-    val hasLoaded: Boolean = false,
-    val groupedApps: List<GroupedApps> = emptyList(),
-    val searchResults: List<GroupedApps> = emptyList(),
-    val searchStatus: SearchStatus = SearchStatus(placeholder = ""),
-    val userIds: Set<Int> = emptySet(),
-)
+typealias SearchStatus = io.github.xiaotong6666.uihelper.chrome.SearchPageState

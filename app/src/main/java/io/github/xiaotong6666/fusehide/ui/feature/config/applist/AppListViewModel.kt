@@ -21,10 +21,10 @@ import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.xiaotong6666.fusehide.R
-import io.github.xiaotong6666.uihelper.components.model.AppInfo
-import io.github.xiaotong6666.uihelper.components.model.GroupedApps
-import io.github.xiaotong6666.uihelper.components.model.SearchStatus
-import io.github.xiaotong6666.uihelper.components.model.SearchStatus.ResultStatus
+import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.AppInfo
+import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.GroupedApps
+import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.SearchStatus
+import io.github.xiaotong6666.uihelper.chrome.SearchPageState.ResultStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,7 +45,7 @@ class AppListViewModel(application: Application) : AndroidViewModel(application)
 
     private val _uiState = MutableStateFlow(
         AppListUiState(
-            searchStatus = SearchStatus(label = application.getString(R.string.search_apps_placeholder)),
+            searchStatus = SearchStatus(placeholder = application.getString(R.string.search_apps_placeholder)),
         ),
     )
     val uiState: StateFlow<AppListUiState> = _uiState.asStateFlow()
@@ -99,14 +99,14 @@ class AppListViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun updateSearchText(text: String) {
-        updateSearchStatus(_uiState.value.searchStatus.copy(searchText = text))
+        updateSearchStatus(_uiState.value.searchStatus.copy(query = text))
     }
 
     fun updateSearchStatus(status: SearchStatus) {
         val previous = _uiState.value.searchStatus
         _uiState.update { it.copy(searchStatus = status) }
-        if (previous.searchText != status.searchText) {
-            searchQuery.value = status.searchText
+        if (previous.query != status.query) {
+            searchQuery.value = status.query
         }
     }
 
@@ -163,7 +163,7 @@ class AppListViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private suspend fun updateVisibleApps(groups: List<GroupedApps>, userIds: Set<Int>) {
-        val searchText = _uiState.value.searchStatus.searchText
+        val searchText = _uiState.value.searchStatus.query
         val searchResults = withContext(Dispatchers.IO) {
             filterSearchResults(groups, searchText)
         }

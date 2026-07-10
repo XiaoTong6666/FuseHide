@@ -13,6 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import org.apache.tools.ant.DirectoryScanner
+
+if (!DirectoryScanner.getDefaultExcludes().contains("**/.gitattributes")) {
+    DirectoryScanner.addDefaultExclude("**/.gitattributes")
+}
 
 pluginManagement {
     repositories {

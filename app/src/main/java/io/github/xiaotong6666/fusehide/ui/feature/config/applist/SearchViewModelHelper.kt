@@ -16,7 +16,8 @@
 
 package io.github.xiaotong6666.fusehide.ui.feature.config.applist
 
-import io.github.xiaotong6666.uihelper.components.model.SearchStatus
+import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.SearchStatus
+import io.github.xiaotong6666.uihelper.chrome.SearchPageState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -40,14 +41,14 @@ fun CoroutineScope.launchSearchQueryCollector(
         .collectLatest(onQuery)
 }
 
-fun searchLoadingStatusFor(text: String): SearchStatus.ResultStatus = if (text.isEmpty()) {
-    SearchStatus.ResultStatus.DEFAULT
+fun searchLoadingStatusFor(text: String): SearchPageState.ResultStatus = if (text.isEmpty()) {
+    SearchPageState.ResultStatus.DEFAULT
 } else {
-    SearchStatus.ResultStatus.LOAD
+    SearchPageState.ResultStatus.LOAD
 }
 
-fun searchResultStatusFor(text: String, isEmpty: Boolean): SearchStatus.ResultStatus = when {
-    text.isEmpty() -> SearchStatus.ResultStatus.DEFAULT
-    isEmpty -> SearchStatus.ResultStatus.EMPTY
-    else -> SearchStatus.ResultStatus.SHOW
+fun searchResultStatusFor(text: String, isEmpty: Boolean): SearchPageState.ResultStatus = when {
+    text.isEmpty() -> SearchPageState.ResultStatus.DEFAULT
+    isEmpty -> SearchPageState.ResultStatus.EMPTY
+    else -> SearchPageState.ResultStatus.SHOW
 }

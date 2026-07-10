@@ -14,16 +14,31 @@
  * limitations under the License.
  */
 
-package io.github.xiaotong6666.fusehide.ui.feature.config.applist
+package io.github.xiaotong6666.uihelper.model
 
-import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.GroupedApps
-import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.SearchStatus
-
-data class AppListUiState(
-    val isRefreshing: Boolean = false,
-    val hasLoaded: Boolean = false,
-    val groupedApps: List<GroupedApps> = emptyList(),
-    val searchResults: List<GroupedApps> = emptyList(),
-    val searchStatus: SearchStatus = SearchStatus(placeholder = ""),
-    val userIds: Set<Int> = emptySet(),
+data class GridActionItem(
+    val label: String,
+    val action: () -> Unit,
+    val style: GridActionStyle = GridActionStyle.Outlined,
+    val isError: Boolean = false,
 )
+
+enum class GridActionStyle {
+    Filled,
+    Tonal,
+    Outlined,
+}
+
+enum class SectionTitleStyle {
+    Large,
+    Medium,
+    EmphasizedMedium,
+    Small,
+    Label,
+    Subsection,
+}
+
+enum class SectionDescriptionStyle {
+    Body,
+    Supporting,
+}

@@ -41,13 +41,13 @@ import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.fusehide.ui.core.model.ConfigUiState
 import io.github.xiaotong6666.fusehide.ui.core.model.HomeCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.HookStatusUiState
-import io.github.xiaotong6666.uihelper.components.DeviceStatusList
-import io.github.xiaotong6666.uihelper.components.RuntimeSummaryCard
-import io.github.xiaotong6666.uihelper.components.SectionCard
-import io.github.xiaotong6666.uihelper.components.SectionDescription
-import io.github.xiaotong6666.uihelper.components.SectionTitle
-import io.github.xiaotong6666.uihelper.components.StatusChip
-import io.github.xiaotong6666.uihelper.components.model.SectionDescriptionStyle
+import io.github.xiaotong6666.uihelper.adaptive.DeviceStatusList
+import io.github.xiaotong6666.uihelper.adaptive.RuntimeSummaryCard
+import io.github.xiaotong6666.uihelper.adaptive.SectionCard
+import io.github.xiaotong6666.uihelper.adaptive.SectionDescription
+import io.github.xiaotong6666.uihelper.adaptive.SectionTitle
+import io.github.xiaotong6666.uihelper.adaptive.StatusChip
+import io.github.xiaotong6666.uihelper.model.SectionDescriptionStyle
 
 @Composable
 fun HomePage(
