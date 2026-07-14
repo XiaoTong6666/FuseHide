@@ -18,7 +18,6 @@
 
 package io.github.xiaotong6666.fusehide.ui.feature.config.applist
 
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +25,6 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,12 +41,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -102,7 +94,7 @@ fun AppListScreen(
     FilterableListHost(
         state = uiState.searchStatus,
         onStateChange = appListViewModel::updateSearchStatus,
-        isRefreshing = uiState.isRefreshing,
+        isRefreshing = uiState.isRefreshing && uiState.hasLoaded,
         onRefresh = { appListViewModel.loadAppList(force = true) },
         contentPadding = contentPadding,
         isCurrentPage = isCurrentPage,
@@ -192,98 +184,60 @@ fun AppListScreen(
                 }
             }
         },
-        miuixMainContent = { contentModifier, _, dynamicTopPadding ->
+        miuixMainContent = { contentModifier, _, _ ->
             val layoutDirection = LocalLayoutDirection.current
-            val density = LocalDensity.current
-            val searchStatus = uiState.searchStatus
             val expandedUids = remember { mutableStateOf(setOf<Int>()) }
             val listState = rememberLazyListState()
-            var searchContainerBottom by remember { mutableStateOf(0.dp) }
 
-            Box(modifier = Modifier.fillMaxSize()) {
+            if (uiState.groupedApps.isEmpty() && !uiState.hasLoaded) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = contentPadding.calculateTopPadding())
-                        .alpha(if (searchStatus.isCollapsed()) 1f else 0f)
-                        .onGloballyPositioned { coordinates ->
-                            with(density) {
-                                val newOffsetY = coordinates.positionInWindow().y.toDp()
-                                if (searchStatus.anchorOffsetY != newOffsetY) {
-                                    appListViewModel.updateSearchStatus(searchStatus.copy(anchorOffsetY = newOffsetY))
-                                }
-                                searchContainerBottom = coordinates.positionInParent().y.toDp() + coordinates.size.height.toDp() + 12.dp
-                            }
-                        }
-                        .then(
-                            if (searchStatus.isCollapsed()) {
-                                Modifier.pointerInput(searchStatus) {
-                                    detectTapGestures {
-                                        appListViewModel.updateSearchStatus(searchStatus.copy(current = SearchPageState.Status.EXPANDING))
-                                    }
-                                }
-                            } else {
-                                Modifier
-                            },
-                        ),
+                        .fillMaxSize()
+                        .padding(bottom = bottomInnerPadding),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    AppListSearchFieldMiuix(
-                        label = searchStatus.placeholder,
-                        dynamicTopPadding = dynamicTopPadding,
-                    )
+                    InfiniteProgressIndicator()
                 }
-
-                if (uiState.groupedApps.isEmpty() && !uiState.hasLoaded) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = searchContainerBottom, bottom = bottomInnerPadding),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        InfiniteProgressIndicator()
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = contentModifier
-                            .fillMaxHeight()
-                            .padding(top = searchContainerBottom)
-                            .scrollEndHaptic()
-                            .overScrollVertical(),
-                        contentPadding = PaddingValues(
-                            start = contentPadding.calculateStartPadding(layoutDirection),
-                            end = contentPadding.calculateEndPadding(layoutDirection),
-                        ),
-                        overscrollEffect = null,
-                    ) {
-                        if (state.draftVsAppliedDiff.hasDifferences) {
-                            item {
-                                WarningBanner(
-                                    message = stringResource(R.string.unsaved_config_changes),
-                                    modifier = Modifier
-                                        .padding(horizontal = 12.dp)
-                                        .padding(bottom = 12.dp),
-                                    onClick = onNavigateToGlobalConfig,
-                                )
-                            }
-                        }
-                        itemsIndexed(orderedGroups, key = { _, item -> item.uid }, contentType = { _, _ -> "group" }) { _, group ->
-                            val expanded = expandedUids.value.contains(group.uid)
-                            AppListGroupMiuix(
-                                group = group,
-                                hiddenPackages = hiddenPackages,
-                                enabledLabel = stringResource(R.string.app_hide_enabled_label),
-                                expanded = expanded,
-                                onToggleExpand = {
-                                    if (group.apps.size > 1) {
-                                        expandedUids.value = if (expanded) expandedUids.value - group.uid else expandedUids.value + group.uid
-                                    }
-                                },
-                                onOpenApp = onNavigateToAppConfig,
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = contentModifier
+                        .fillMaxHeight()
+                        .scrollEndHaptic()
+                        .overScrollVertical(),
+                    contentPadding = PaddingValues(
+                        start = contentPadding.calculateStartPadding(layoutDirection),
+                        end = contentPadding.calculateEndPadding(layoutDirection),
+                    ),
+                    overscrollEffect = null,
+                ) {
+                    if (state.draftVsAppliedDiff.hasDifferences) {
+                        item {
+                            WarningBanner(
+                                message = stringResource(R.string.unsaved_config_changes),
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp)
+                                    .padding(bottom = 12.dp),
+                                onClick = onNavigateToGlobalConfig,
                             )
                         }
-                        item { Spacer(Modifier.height(bottomInnerPadding)) }
                     }
+                    itemsIndexed(orderedGroups, key = { _, item -> item.uid }, contentType = { _, _ -> "group" }) { _, group ->
+                        val expanded = expandedUids.value.contains(group.uid)
+                        AppListGroupMiuix(
+                            group = group,
+                            hiddenPackages = hiddenPackages,
+                            enabledLabel = stringResource(R.string.app_hide_enabled_label),
+                            expanded = expanded,
+                            onToggleExpand = {
+                                if (group.apps.size > 1) {
+                                    expandedUids.value = if (expanded) expandedUids.value - group.uid else expandedUids.value + group.uid
+                                }
+                            },
+                            onOpenApp = onNavigateToAppConfig,
+                        )
+                    }
+                    item { Spacer(Modifier.height(bottomInnerPadding)) }
                 }
             }
         },
