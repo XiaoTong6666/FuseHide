@@ -41,10 +41,14 @@ import io.github.xiaotong6666.uihelper.adaptive.InfoPanel
 import io.github.xiaotong6666.uihelper.adaptive.SectionCard
 import io.github.xiaotong6666.uihelper.adaptive.SectionDescription
 import io.github.xiaotong6666.uihelper.adaptive.SectionTitle
+import io.github.xiaotong6666.uihelper.mode.LocalUiMode
+import io.github.xiaotong6666.uihelper.mode.UiMode
 import io.github.xiaotong6666.uihelper.model.GridActionItem
 import io.github.xiaotong6666.uihelper.model.GridActionStyle
 import io.github.xiaotong6666.uihelper.model.SectionDescriptionStyle
 import io.github.xiaotong6666.uihelper.model.SectionTitleStyle
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 @Composable
 fun DebugPage(
@@ -65,10 +69,17 @@ private fun DebugPageContent(
     modifier: Modifier,
 ) {
     val scrollState = rememberScrollState()
+    val miuixScrollFeedbackModifier = if (LocalUiMode.current == UiMode.Miuix) {
+        Modifier.scrollEndHaptic().overScrollVertical()
+    } else {
+        Modifier
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .then(modifier)
+            .then(miuixScrollFeedbackModifier)
             .verticalScroll(scrollState)
             .padding(contentPadding)
             .padding(horizontal = 16.dp, vertical = 16.dp),

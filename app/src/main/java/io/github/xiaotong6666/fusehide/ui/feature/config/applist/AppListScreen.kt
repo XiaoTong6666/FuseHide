@@ -39,7 +39,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
@@ -54,8 +53,8 @@ import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.SearchS
 import io.github.xiaotong6666.uihelper.adaptive.WarningBanner
 import io.github.xiaotong6666.uihelper.chrome.FilterableListHost
 import io.github.xiaotong6666.uihelper.chrome.SearchPageState
+import io.github.xiaotong6666.uihelper.material.materialChromeIconButtonColors
 import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
@@ -94,17 +93,14 @@ fun AppListScreen(
     FilterableListHost(
         state = uiState.searchStatus,
         onStateChange = appListViewModel::updateSearchStatus,
-        isRefreshing = uiState.isRefreshing && uiState.hasLoaded,
+        isRefreshing = uiState.isRefreshing,
         onRefresh = { appListViewModel.loadAppList(force = true) },
         contentPadding = contentPadding,
         isCurrentPage = isCurrentPage,
         materialActions = {
             androidx.compose.material3.IconButton(
                 onClick = onNavigateToGlobalConfig,
-                colors = androidx.compose.material3.IconButtonDefaults.iconButtonColors(
-                    containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHighest,
-                    contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
+                colors = materialChromeIconButtonColors(),
             ) {
                 androidx.compose.material3.Icon(
                     imageVector = Icons.Default.Settings,
@@ -189,56 +185,45 @@ fun AppListScreen(
             val expandedUids = remember { mutableStateOf(setOf<Int>()) }
             val listState = rememberLazyListState()
 
-            if (uiState.groupedApps.isEmpty() && !uiState.hasLoaded) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = bottomInnerPadding),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    InfiniteProgressIndicator()
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = contentModifier
-                        .fillMaxHeight()
-                        .scrollEndHaptic()
-                        .overScrollVertical(),
-                    contentPadding = PaddingValues(
-                        start = contentPadding.calculateStartPadding(layoutDirection),
-                        end = contentPadding.calculateEndPadding(layoutDirection),
-                    ),
-                    overscrollEffect = null,
-                ) {
-                    if (state.draftVsAppliedDiff.hasDifferences) {
-                        item {
-                            WarningBanner(
-                                message = stringResource(R.string.unsaved_config_changes),
-                                modifier = Modifier
-                                    .padding(horizontal = 12.dp)
-                                    .padding(bottom = 12.dp),
-                                onClick = onNavigateToGlobalConfig,
-                            )
-                        }
-                    }
-                    itemsIndexed(orderedGroups, key = { _, item -> item.uid }, contentType = { _, _ -> "group" }) { _, group ->
-                        val expanded = expandedUids.value.contains(group.uid)
-                        AppListGroupMiuix(
-                            group = group,
-                            hiddenPackages = hiddenPackages,
-                            enabledLabel = stringResource(R.string.app_hide_enabled_label),
-                            expanded = expanded,
-                            onToggleExpand = {
-                                if (group.apps.size > 1) {
-                                    expandedUids.value = if (expanded) expandedUids.value - group.uid else expandedUids.value + group.uid
-                                }
-                            },
-                            onOpenApp = onNavigateToAppConfig,
+            LazyColumn(
+                state = listState,
+                modifier = contentModifier
+                    .fillMaxHeight()
+                    .scrollEndHaptic()
+                    .overScrollVertical(),
+                contentPadding = PaddingValues(
+                    start = contentPadding.calculateStartPadding(layoutDirection),
+                    end = contentPadding.calculateEndPadding(layoutDirection),
+                ),
+                overscrollEffect = null,
+            ) {
+                if (state.draftVsAppliedDiff.hasDifferences) {
+                    item {
+                        WarningBanner(
+                            message = stringResource(R.string.unsaved_config_changes),
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp)
+                                .padding(bottom = 12.dp),
+                            onClick = onNavigateToGlobalConfig,
                         )
                     }
-                    item { Spacer(Modifier.height(bottomInnerPadding)) }
                 }
+                itemsIndexed(orderedGroups, key = { _, item -> item.uid }, contentType = { _, _ -> "group" }) { _, group ->
+                    val expanded = expandedUids.value.contains(group.uid)
+                    AppListGroupMiuix(
+                        group = group,
+                        hiddenPackages = hiddenPackages,
+                        enabledLabel = stringResource(R.string.app_hide_enabled_label),
+                        expanded = expanded,
+                        onToggleExpand = {
+                            if (group.apps.size > 1) {
+                                expandedUids.value = if (expanded) expandedUids.value - group.uid else expandedUids.value + group.uid
+                            }
+                        },
+                        onOpenApp = onNavigateToAppConfig,
+                    )
+                }
+                item { Spacer(Modifier.height(bottomInnerPadding)) }
             }
         },
         miuixSearchResultContent = { contentModifier, _, closeSearch ->

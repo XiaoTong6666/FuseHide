@@ -37,6 +37,7 @@ import io.github.xiaotong6666.fusehide.ui.core.model.ConfigUiState
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigPageScaffold
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigTargetsCard
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigToggleCard
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.ConfigDetailGroup
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.ConfigDetailPageBody
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.ConfigPageOverflowAction
 import io.github.xiaotong6666.uihelper.adaptive.InfoBanner
@@ -79,53 +80,63 @@ fun GlobalConfigPage(
                 message = stringResource(R.string.section_editable_draft_desc),
             )
 
-            AppConfigToggleCard(
-                checked = state.currentHideConfig.enableHideAllRootEntries,
-                title = stringResource(R.string.field_hide_all_title),
-                description = stringResource(R.string.field_hide_all_desc),
-                onToggle = {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    callbacks.onConfigUpdate(
-                        state.currentHideConfig.copy(enableHideAllRootEntries = !state.currentHideConfig.enableHideAllRootEntries),
+            ConfigDetailGroup {
+                item {
+                    AppConfigToggleCard(
+                        checked = state.currentHideConfig.enableHideAllRootEntries,
+                        title = stringResource(R.string.field_hide_all_title),
+                        description = stringResource(R.string.field_hide_all_desc),
+                        onToggle = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            callbacks.onConfigUpdate(
+                                state.currentHideConfig.copy(enableHideAllRootEntries = !state.currentHideConfig.enableHideAllRootEntries),
+                            )
+                        },
                     )
-                },
-            )
+                }
+            }
 
-            AppConfigTargetsCard(
-                value = visibleExemptionsDraft,
-                onValueChange = { newValue ->
-                    visibleExemptionsDraft = newValue
-                    callbacks.onConfigUpdate(updatedConfigForVisibleExemptions(state.currentHideConfig, newValue))
-                },
-                label = stringResource(R.string.field_visible_exemptions),
-                description = stringResource(R.string.field_visible_exemptions_help),
-                minLines = 5,
-                maxLines = 5,
-            )
-
-            AppConfigTargetsCard(
-                value = hiddenTargetsDraft,
-                onValueChange = { newValue ->
-                    hiddenTargetsDraft = newValue
-                    callbacks.onConfigUpdate(updatedConfigForHiddenTargets(state.currentHideConfig, newValue))
-                },
-                label = stringResource(R.string.field_hidden_targets),
-                description = stringResource(R.string.field_hidden_targets_help),
-                minLines = 5,
-                maxLines = 5,
-            )
-
-            AppConfigTargetsCard(
-                value = hiddenPackagesDraft,
-                onValueChange = { newValue ->
-                    hiddenPackagesDraft = newValue
-                    callbacks.onConfigUpdate(updatedConfigForHiddenPackages(state.currentHideConfig, newValue))
-                },
-                label = stringResource(R.string.field_hidden_package_names),
-                description = stringResource(R.string.field_hidden_package_names_help),
-                minLines = 5,
-                maxLines = 5,
-            )
+            ConfigDetailGroup {
+                item {
+                    AppConfigTargetsCard(
+                        value = visibleExemptionsDraft,
+                        onValueChange = { newValue ->
+                            visibleExemptionsDraft = newValue
+                            callbacks.onConfigUpdate(updatedConfigForVisibleExemptions(state.currentHideConfig, newValue))
+                        },
+                        label = stringResource(R.string.field_visible_exemptions),
+                        description = stringResource(R.string.field_visible_exemptions_help),
+                        minLines = 5,
+                        maxLines = 5,
+                    )
+                }
+                item {
+                    AppConfigTargetsCard(
+                        value = hiddenTargetsDraft,
+                        onValueChange = { newValue ->
+                            hiddenTargetsDraft = newValue
+                            callbacks.onConfigUpdate(updatedConfigForHiddenTargets(state.currentHideConfig, newValue))
+                        },
+                        label = stringResource(R.string.field_hidden_targets),
+                        description = stringResource(R.string.field_hidden_targets_help),
+                        minLines = 5,
+                        maxLines = 5,
+                    )
+                }
+                item {
+                    AppConfigTargetsCard(
+                        value = hiddenPackagesDraft,
+                        onValueChange = { newValue ->
+                            hiddenPackagesDraft = newValue
+                            callbacks.onConfigUpdate(updatedConfigForHiddenPackages(state.currentHideConfig, newValue))
+                        },
+                        label = stringResource(R.string.field_hidden_package_names),
+                        description = stringResource(R.string.field_hidden_package_names_help),
+                        minLines = 5,
+                        maxLines = 5,
+                    )
+                }
+            }
         }
     }
 }

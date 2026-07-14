@@ -24,24 +24,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,124 +39,9 @@ import androidx.compose.ui.unit.sp
 import io.github.xiaotong6666.uihelper.common.StatusTag
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
-import top.yukonga.miuix.kmp.basic.DropdownImpl
-import top.yukonga.miuix.kmp.basic.IconButton
-import top.yukonga.miuix.kmp.basic.ListPopupColumn
-import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
-import top.yukonga.miuix.kmp.basic.PopupPositionProvider
-import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.TopAppBar
-import top.yukonga.miuix.kmp.overlay.OverlayListPopup
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.overScrollVertical
-import top.yukonga.miuix.kmp.utils.scrollEndHaptic
-
-@Composable
-fun AppConfigPageScaffoldMiuix(
-    title: String,
-    onBack: () -> Unit,
-    onSave: () -> Unit,
-    overflowActions: List<ConfigPageOverflowAction>,
-    content: @Composable (PaddingValues, Modifier) -> Unit,
-) {
-    val scrollBehavior = MiuixScrollBehavior()
-    var showOverflowMenu by remember { mutableStateOf(false) }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = title,
-                color = MiuixTheme.colorScheme.surface,
-                titleColor = MiuixTheme.colorScheme.onSurface,
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        androidx.compose.material3.Icon(
-                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = null,
-                            tint = MiuixTheme.colorScheme.onSurface,
-                        )
-                    }
-                },
-                actions = {
-                    if (overflowActions.isNotEmpty()) {
-                        IconButton(
-                            onClick = { showOverflowMenu = true },
-                            holdDownState = showOverflowMenu,
-                        ) {
-                            androidx.compose.material3.Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                tint = MiuixTheme.colorScheme.onSurface,
-                                contentDescription = null,
-                            )
-                        }
-                        OverlayListPopup(
-                            show = showOverflowMenu,
-                            alignment = PopupPositionProvider.Align.TopEnd,
-                            onDismissRequest = { showOverflowMenu = false },
-                            content = {
-                                ListPopupColumn {
-                                    overflowActions.forEachIndexed { index, action ->
-                                        DropdownImpl(
-                                            text = action.label,
-                                            optionSize = overflowActions.size,
-                                            isSelected = false,
-                                            index = index,
-                                            onSelectedIndexChange = {
-                                                showOverflowMenu = false
-                                                action.onClick()
-                                            },
-                                        )
-                                    }
-                                }
-                            },
-                        )
-                    }
-                    IconButton(onClick = onSave) {
-                        androidx.compose.material3.Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = MiuixTheme.colorScheme.onSurface,
-                        )
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
-        },
-    ) { paddingValues ->
-        content(paddingValues, Modifier.nestedScroll(scrollBehavior.nestedScrollConnection))
-    }
-}
-
-@Composable
-fun ConfigDetailPageBodyMiuix(
-    contentPadding: PaddingValues,
-    scrollModifier: Modifier,
-    content: @Composable () -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(scrollModifier)
-            .scrollEndHaptic()
-            .overScrollVertical(),
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = contentPadding.calculateTopPadding() + 12.dp,
-            bottom = contentPadding.calculateBottomPadding() + 20.dp,
-        ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        overscrollEffect = null,
-    ) {
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                content()
-                androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(8.dp))
-            }
-        }
-    }
-}
 
 @Composable
 fun AppConfigInfoCardMiuix(
@@ -183,10 +57,6 @@ fun AppConfigInfoCardMiuix(
     val appId = if (uid >= 0) uid % 100000 else -1
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
-        ),
         insideMargin = PaddingValues(start = 12.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -261,10 +131,6 @@ fun AppConfigToggleCardMiuix(
     Card(
         modifier = modifier.fillMaxWidth(),
         onClick = onToggle,
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
-        ),
         insideMargin = PaddingValues(0.dp),
     ) {
         Row(
@@ -296,10 +162,6 @@ fun AppConfigTargetsCardMiuix(
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.defaultColors(
-            color = MiuixTheme.colorScheme.surfaceContainerHighest,
-            contentColor = MiuixTheme.colorScheme.onSurfaceContainerHighest,
-        ),
         insideMargin = PaddingValues(0.dp),
     ) {
         Column(

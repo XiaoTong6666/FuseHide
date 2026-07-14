@@ -40,6 +40,7 @@ import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppCo
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigPageScaffold
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigTargetsCard
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.AppConfigToggleCard
+import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.ConfigDetailGroup
 import io.github.xiaotong6666.fusehide.ui.feature.config.appdetail.widgets.ConfigDetailPageBody
 import io.github.xiaotong6666.fusehide.ui.feature.config.applist.AppListViewModel
 import io.github.xiaotong6666.uihelper.extensions.androidapp.AppIconImage
@@ -77,54 +78,64 @@ fun AppConfigPage(
             contentPadding = contentPadding,
             scrollModifier = scrollModifier.fillMaxSize(),
         ) {
-            AppConfigInfoCard(
-                label = appInfo?.label ?: packageName,
-                packageName = appInfo?.packageName ?: packageName,
-                versionName = appInfo?.packageInfo?.versionName.orEmpty(),
-                versionCode = appInfo?.packageInfo?.longVersionCode ?: 0L,
-                uid = appInfo?.uid ?: -1,
-                appIcon = appInfo?.let {
-                    {
-                        AppIconImage(
-                            applicationInfo = it.applicationInfo,
-                            label = it.label,
-                            modifier = Modifier.size(if (LocalUiMode.current == UiMode.Miuix) 64.dp else 48.dp),
-                        )
-                    }
-                },
-            )
-            AppConfigToggleCard(
-                checked = isEnabled,
-                title = stringResource(R.string.enable_hide_title),
-                description = stringResource(R.string.enable_hide_desc),
-                onToggle = {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    callbacks.onConfigUpdate(
-                        updatedConfigForPackageRule(
-                            currentConfig = state.currentHideConfig,
-                            packageName = packageName,
-                            enabled = !isEnabled,
-                            targetsText = specificTargetsDraft,
-                        ),
+            ConfigDetailGroup {
+                item {
+                    AppConfigInfoCard(
+                        label = appInfo?.label ?: packageName,
+                        packageName = appInfo?.packageName ?: packageName,
+                        versionName = appInfo?.packageInfo?.versionName.orEmpty(),
+                        versionCode = appInfo?.packageInfo?.longVersionCode ?: 0L,
+                        uid = appInfo?.uid ?: -1,
+                        appIcon = appInfo?.let {
+                            {
+                                AppIconImage(
+                                    applicationInfo = it.applicationInfo,
+                                    label = it.label,
+                                    modifier = Modifier.size(if (LocalUiMode.current == UiMode.Miuix) 64.dp else 48.dp),
+                                )
+                            }
+                        },
                     )
-                },
-            )
-            AppConfigTargetsCard(
-                value = specificTargetsDraft,
-                onValueChange = { newText ->
-                    specificTargetsDraft = newText
-                    callbacks.onConfigUpdate(
-                        updatedConfigForPackageRule(
-                            currentConfig = state.currentHideConfig,
-                            packageName = packageName,
-                            enabled = isEnabled,
-                            targetsText = newText,
-                        ),
+                }
+            }
+            ConfigDetailGroup {
+                item {
+                    AppConfigToggleCard(
+                        checked = isEnabled,
+                        title = stringResource(R.string.enable_hide_title),
+                        description = stringResource(R.string.enable_hide_desc),
+                        onToggle = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            callbacks.onConfigUpdate(
+                                updatedConfigForPackageRule(
+                                    currentConfig = state.currentHideConfig,
+                                    packageName = packageName,
+                                    enabled = !isEnabled,
+                                    targetsText = specificTargetsDraft,
+                                ),
+                            )
+                        },
                     )
-                },
-                label = stringResource(R.string.subdirectory_title),
-                description = stringResource(R.string.subdirectory_desc),
-            )
+                }
+                item {
+                    AppConfigTargetsCard(
+                        value = specificTargetsDraft,
+                        onValueChange = { newText ->
+                            specificTargetsDraft = newText
+                            callbacks.onConfigUpdate(
+                                updatedConfigForPackageRule(
+                                    currentConfig = state.currentHideConfig,
+                                    packageName = packageName,
+                                    enabled = isEnabled,
+                                    targetsText = newText,
+                                ),
+                            )
+                        },
+                        label = stringResource(R.string.subdirectory_title),
+                        description = stringResource(R.string.subdirectory_desc),
+                    )
+                }
+            }
         }
     }
 }

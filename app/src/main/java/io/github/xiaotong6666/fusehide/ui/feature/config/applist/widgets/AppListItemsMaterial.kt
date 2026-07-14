@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.uihelper.common.StatusTag
 import io.github.xiaotong6666.uihelper.extensions.androidapp.AppIconImage
+import io.github.xiaotong6666.uihelper.material.materialSurfaceLadder
 import io.github.xiaotong6666.uihelper.material.primitive.SegmentedItem
 import io.github.xiaotong6666.uihelper.material.primitive.SegmentedListItem
 
@@ -59,6 +60,7 @@ fun AppListGroupMaterial(
     index: Int? = null,
     count: Int? = null,
 ) {
+    val surfaces = materialSurfaceLadder()
     val content: @Composable () -> Unit = {
         Column {
             GroupItemMaterial(
@@ -106,10 +108,11 @@ private fun SimpleAppItemMaterial(
     matched: Boolean = false,
     onNavigate: () -> Unit,
 ) {
+    val surfaces = materialSurfaceLadder()
     Surface(
         modifier = Modifier.padding(horizontal = 4.dp),
         onClick = onNavigate,
-        color = if (matched) colorScheme.secondaryContainer else colorScheme.surfaceBright,
+        color = if (matched) surfaces.groupedSelected else surfaces.grouped,
         shape = androidx.compose.material3.MaterialTheme.shapes.large,
     ) {
         ListItem(

@@ -26,6 +26,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -33,13 +37,17 @@ import androidx.compose.ui.unit.dp
 import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.fusehide.ui.core.model.SettingsCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.SettingsUiState
+import io.github.xiaotong6666.uihelper.adaptive.SettingsDropdownItem
 import io.github.xiaotong6666.uihelper.adaptive.SettingsGroup
 import io.github.xiaotong6666.uihelper.adaptive.SettingsGroupDivider
 import io.github.xiaotong6666.uihelper.adaptive.SettingsGroupHeader
 import io.github.xiaotong6666.uihelper.adaptive.SettingsInfoItem
+import io.github.xiaotong6666.uihelper.adaptive.SettingsNavigationItem
 import io.github.xiaotong6666.uihelper.adaptive.SettingsToggleItem
 import io.github.xiaotong6666.uihelper.mode.LocalUiMode
 import io.github.xiaotong6666.uihelper.mode.UiMode
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 @Composable
 fun SettingsPage(
@@ -61,11 +69,17 @@ private fun SettingsPageContent(
 ) {
     val scrollState = rememberScrollState()
     val groupHorizontalPadding = if (LocalUiMode.current == UiMode.Miuix) 12.dp else 16.dp
+    val miuixScrollFeedbackModifier = if (LocalUiMode.current == UiMode.Miuix) {
+        Modifier.scrollEndHaptic().overScrollVertical()
+    } else {
+        Modifier
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .then(modifier)
+            .then(miuixScrollFeedbackModifier)
             .verticalScroll(scrollState)
             .padding(contentPadding)
             .padding(vertical = 16.dp),
@@ -75,15 +89,25 @@ private fun SettingsPageContent(
             SettingsGroupHeader(stringResource(R.string.section_ui_family))
             Box(modifier = Modifier.padding(horizontal = groupHorizontalPadding)) {
                 SettingsGroup {
-                    SettingsToggleItem(
-                        checked = state.uiMode == UiMode.Miuix,
-                        title = stringResource(R.string.field_use_miuix_title),
+                    SettingsDropdownItem(
+                        title = stringResource(R.string.section_ui_family),
+                        icon = Icons.Filled.Palette,
                         description = if (state.uiMode == UiMode.Miuix) {
                             stringResource(R.string.field_use_miuix_desc_enabled)
                         } else {
                             stringResource(R.string.field_use_miuix_desc_disabled)
                         },
-                        onToggle = callbacks.onToggleUiMode,
+                        items = listOf(
+                            stringResource(R.string.value_ui_family_miuix),
+                            stringResource(R.string.value_ui_family_material),
+                        ),
+                        selectedIndex = if (state.uiMode == UiMode.Miuix) 0 else 1,
+                        onItemSelected = { index ->
+                            val wantsMiuix = index == 0
+                            if (wantsMiuix != (state.uiMode == UiMode.Miuix)) {
+                                callbacks.onToggleUiMode()
+                            }
+                        },
                     )
                 }
             }
@@ -95,6 +119,7 @@ private fun SettingsPageContent(
                 SettingsGroup {
                     SettingsInfoItem(
                         title = stringResource(R.string.label_current_ui_family),
+                        icon = Icons.Rounded.Dashboard,
                         value = if (state.uiMode == UiMode.Miuix) {
                             stringResource(R.string.value_ui_family_miuix)
                         } else {
@@ -102,9 +127,11 @@ private fun SettingsPageContent(
                         },
                     )
                     SettingsGroupDivider()
-                    SettingsInfoItem(
+                    SettingsNavigationItem(
                         title = stringResource(R.string.app_name),
-                        value = stringResource(R.string.app_description),
+                        icon = Icons.Filled.Info,
+                        description = stringResource(R.string.app_description),
+                        onClick = {},
                     )
                 }
             }
