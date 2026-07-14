@@ -71,6 +71,7 @@ fun AppListScreen(
     val uiState by appListViewModel.uiState.collectAsState()
     val bottomInnerPadding = contentPadding.calculateBottomPadding() + 8.dp
     var hasActivated by remember { mutableStateOf(false) }
+    val localizedSearchPlaceholder = stringResource(R.string.search_apps_placeholder)
     val hiddenPackages = remember(state.currentHideConfig) { hiddenPackageSet(state) }
     val orderedGroups = remember(uiState.groupedApps, hiddenPackages) {
         prioritizeHiddenGroups(uiState.groupedApps, hiddenPackages)
@@ -86,6 +87,14 @@ fun AppListScreen(
     if (hasActivated) {
         LaunchedEffect(appListViewModel) {
             appListViewModel.loadAppList().join()
+        }
+    }
+
+    LaunchedEffect(localizedSearchPlaceholder, uiState.searchStatus) {
+        if (uiState.searchStatus.placeholder != localizedSearchPlaceholder) {
+            appListViewModel.updateSearchStatus(
+                uiState.searchStatus.copy(placeholder = localizedSearchPlaceholder),
+            )
         }
     }
 
