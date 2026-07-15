@@ -18,6 +18,8 @@
 
 package io.github.xiaotong6666.fusehide.ui.feature.config.applist
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -53,11 +55,13 @@ import io.github.xiaotong6666.uihelper.adaptive.WarningBanner
 import io.github.xiaotong6666.uihelper.chrome.FilterableListHost
 import io.github.xiaotong6666.uihelper.chrome.SearchPageState
 import io.github.xiaotong6666.uihelper.material.materialChromeIconButtonColors
+import io.github.xiaotong6666.uihelper.material.materialSurfaceLadder
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppListScreen(
     state: ConfigUiState,
@@ -127,13 +131,22 @@ fun AppListScreen(
         },
         materialMainContent = { contentModifier, searchBar ->
             val expandedUids = remember { mutableStateOf(setOf<Int>()) }
+            val surfaces = materialSurfaceLadder()
             LazyColumn(
                 state = rememberLazyListState(),
                 modifier = contentModifier,
                 verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 16.dp + bottomInnerPadding),
             ) {
-                item { searchBar() }
+                stickyHeader {
+                    Box(
+                        modifier = Modifier
+                            .fillParentMaxWidth()
+                            .background(surfaces.page),
+                    ) {
+                        searchBar()
+                    }
+                }
                 if (state.draftVsAppliedDiff.hasDifferences) {
                     item {
                         WarningBanner(
