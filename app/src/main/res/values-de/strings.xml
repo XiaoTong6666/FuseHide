@@ -110,6 +110,7 @@
     <string name="global_hide_config_desc">Konfigurieren Sie das Ausblenden von Verzeichnissen der ersten Ebene, sichtbare Ausnahmen und globale Ziele.</string>
     <string name="unsaved_config_changes">Ungespeicherte Konfigurationsänderungen</string>
     <string name="search_apps_placeholder">Apps suchen…</string>
+    <string name="group_contains_apps">%1$d Apps</string>
     <string name="app_hide_enabled_label">Verstecken aktiviert</string>
     <string name="enable_hide_title">Verstecken aktivieren</string>
     <string name="enable_hide_desc">Dateisystemanfragen für diese App abfangen</string>

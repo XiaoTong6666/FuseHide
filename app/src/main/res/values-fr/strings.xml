@@ -110,6 +110,7 @@
     <string name="global_hide_config_desc">Configurer le masquage des répertoires de premier niveau, les exceptions visibles et les cibles globales.</string>
     <string name="unsaved_config_changes">Modifications de configuration non enregistrées</string>
     <string name="search_apps_placeholder">Rechercher des applications…</string>
+    <string name="group_contains_apps">%1$d applications</string>
     <string name="app_hide_enabled_label">Masquage activé</string>
     <string name="enable_hide_title">Activer le masquage</string>
     <string name="enable_hide_desc">Intercepter les requêtes du système de fichiers pour cette application</string>

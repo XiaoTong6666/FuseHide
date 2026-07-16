@@ -110,6 +110,7 @@
     <string name="global_hide_config_desc">Configurar la ocultación de directorios de primer nivel, excepciones visibles y objetivos globales.</string>
     <string name="unsaved_config_changes">Cambios de configuración sin guardar</string>
     <string name="search_apps_placeholder">Buscar aplicaciones…</string>
+    <string name="group_contains_apps">%1$d aplicaciones</string>
     <string name="app_hide_enabled_label">Ocultación activada</string>
     <string name="enable_hide_title">Activar ocultación</string>
     <string name="enable_hide_desc">Interceptar solicitudes del sistema de archivos para esta aplicación</string>

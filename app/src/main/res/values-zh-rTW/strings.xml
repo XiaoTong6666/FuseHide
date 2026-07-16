@@ -95,6 +95,7 @@
     <string name="global_hide_config_desc">設定第一層目錄隱藏、可見例外以及全域目標。</string>
     <string name="unsaved_config_changes">未儲存的設定變更</string>
     <string name="search_apps_placeholder">搜尋應用程式...</string>
+    <string name="group_contains_apps">%1$d 個應用程式</string>
     <string name="app_hide_enabled_label">已啟用隱藏</string>
     <string name="enable_hide_title">啟用隱藏</string>
     <string name="enable_hide_desc">攔截此應用程式的檔案系統請求</string>

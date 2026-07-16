@@ -110,6 +110,7 @@
     <string name="global_hide_config_desc">최상위 디렉터리 숨김, 표시 예외 및 글로벌 대상을 구성합니다.</string>
     <string name="unsaved_config_changes">저장되지 않은 구성 변경 사항</string>
     <string name="search_apps_placeholder">앱 검색…</string>
+    <string name="group_contains_apps">%1$d개 앱</string>
     <string name="app_hide_enabled_label">숨김 활성화됨</string>
     <string name="enable_hide_title">숨김 활성화</string>
     <string name="enable_hide_desc">이 앱의 파일 시스템 요청 가로채기</string>

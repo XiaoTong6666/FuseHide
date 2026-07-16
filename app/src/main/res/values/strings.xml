@@ -110,6 +110,7 @@
     <string name="global_hide_config_desc">Configure first-level directory hiding, visible exemptions, and global targets.</string>
     <string name="unsaved_config_changes">Unsaved configuration changes</string>
     <string name="search_apps_placeholder">Search apps…</string>
+    <string name="group_contains_apps">%1$d apps</string>
     <string name="app_hide_enabled_label">Hide enabled</string>
     <string name="enable_hide_title">Enable hide</string>
     <string name="enable_hide_desc">Intercept file system requests for this app</string>

@@ -18,6 +18,7 @@ package io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets
 
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 
 data class AppInfo(
     val packageName: String,
@@ -35,7 +36,30 @@ data class GroupedApps(
     val isHidden: Boolean = false,
 )
 
-fun ownerNameForUid(uid: Int): String {
-    val userId = uid / 100000
-    return if (userId == 0) "Primary" else "User $userId"
+fun ownerNameForGroup(
+    group: GroupedApps,
+    packageManager: PackageManager,
+): String {
+    val labeledApp = group.apps.firstOrNull { it.packageInfo.sharedUserLabel != 0 }
+    if (labeledApp != null) {
+        val label = runCatching {
+            packageManager.getText(
+                labeledApp.packageName,
+                labeledApp.packageInfo.sharedUserLabel,
+                labeledApp.applicationInfo,
+            )
+        }.getOrNull()?.toString().orEmpty()
+        if (label.isNotBlank()) {
+            return label
+        }
+    }
+
+    val sharedUserId = group.apps.firstOrNull {
+        !it.packageInfo.sharedUserId.isNullOrEmpty()
+    }?.packageInfo?.sharedUserId
+    if (!sharedUserId.isNullOrEmpty()) {
+        return sharedUserId
+    }
+
+    return group.primary.label.ifBlank { group.uid.toString() }
 }

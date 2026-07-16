@@ -110,6 +110,7 @@
     <string name="global_hide_config_desc">第1レベルのディレクトリの非表示、表示する例外、およびグローバルターゲットを構成します。</string>
     <string name="unsaved_config_changes">未保存の構成の変更</string>
     <string name="search_apps_placeholder">アプリを検索…</string>
+    <string name="group_contains_apps">%1$d 個のアプリ</string>
     <string name="app_hide_enabled_label">非表示有効</string>
     <string name="enable_hide_title">非表示を有効にする</string>
     <string name="enable_hide_desc">このアプリのファイルシステムリクエストをインターセプトする</string>

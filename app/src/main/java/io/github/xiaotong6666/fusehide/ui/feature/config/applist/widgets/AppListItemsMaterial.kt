@@ -33,17 +33,19 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme.colorScheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.uihelper.common.StatusTag
 import io.github.xiaotong6666.uihelper.extensions.androidapp.AppIconImage
-import io.github.xiaotong6666.uihelper.material.materialSurfaceLadder
 import io.github.xiaotong6666.uihelper.material.primitive.SegmentedItem
 import io.github.xiaotong6666.uihelper.material.primitive.SegmentedListItem
 
@@ -60,7 +62,6 @@ fun AppListGroupMaterial(
     index: Int? = null,
     count: Int? = null,
 ) {
-    val surfaces = materialSurfaceLadder()
     val content: @Composable () -> Unit = {
         Column {
             GroupItemMaterial(
@@ -108,39 +109,39 @@ private fun SimpleAppItemMaterial(
     matched: Boolean = false,
     onNavigate: () -> Unit,
 ) {
-    val surfaces = materialSurfaceLadder()
-    Surface(
-        modifier = Modifier.padding(horizontal = 4.dp),
+    ListItem(
         onClick = onNavigate,
-        color = if (matched) surfaces.groupedSelected else surfaces.grouped,
-        shape = androidx.compose.material3.MaterialTheme.shapes.large,
-    ) {
-        ListItem(
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            content = { Text(app.label, overflow = TextOverflow.Ellipsis, maxLines = 1) },
-            supportingContent = { Text(app.packageName, overflow = TextOverflow.Ellipsis, maxLines = 1) },
-            leadingContent = {
-                AppIconImage(
-                    applicationInfo = app.applicationInfo,
-                    label = app.label,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .padding(start = 4.dp),
+        modifier = Modifier.padding(horizontal = 4.dp),
+        colors = ListItemDefaults.colors(
+            containerColor = if (matched) {
+                colorScheme.secondaryContainer
+            } else {
+                colorScheme.surfaceColorAtElevation(3.dp)
+            },
+        ),
+        content = { Text(app.label, overflow = TextOverflow.Ellipsis, maxLines = 1) },
+        supportingContent = { Text(app.packageName, overflow = TextOverflow.Ellipsis, maxLines = 1) },
+        leadingContent = {
+            AppIconImage(
+                applicationInfo = app.applicationInfo,
+                label = app.label,
+                modifier = Modifier
+                    .size(40.dp)
+                    .padding(start = 4.dp),
+            )
+        },
+        trailingContent = {
+            if (app.packageName in hiddenPackages) {
+                StatusTag(
+                    label = enabledLabel,
+                    backgroundColor = colorScheme.primaryContainer,
+                    contentColor = colorScheme.onPrimaryContainer,
                 )
-            },
-            trailingContent = {
-                if (app.packageName in hiddenPackages) {
-                    StatusTag(
-                        label = enabledLabel,
-                        backgroundColor = colorScheme.primaryContainer,
-                        contentColor = colorScheme.onPrimaryContainer,
-                    )
-                } else {
-                    Icon(Icons.Filled.Remove, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                }
-            },
-        )
-    }
+            } else {
+                Icon(Icons.Filled.Remove, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+            }
+        },
+    )
 }
 
 @Composable
@@ -152,8 +153,14 @@ private fun GroupItemMaterial(
     onToggleExpand: () -> Unit,
     onClickPrimary: () -> Unit,
 ) {
+    val packageManager = LocalContext.current.packageManager
+    val ownerName = remember(group.uid, group.apps) { ownerNameForGroup(group, packageManager) }
     val userId = group.uid / 100000
-    val summaryText = if (group.apps.size > 1) "${group.apps.size} apps" else group.primary.packageName
+    val summaryText = if (group.apps.size > 1) {
+        stringResource(R.string.group_contains_apps, group.apps.size)
+    } else {
+        group.primary.packageName
+    }
 
     SegmentedListItem(
         selected = selected,
@@ -161,7 +168,7 @@ private fun GroupItemMaterial(
         onLongClick = if (group.apps.size > 1) onToggleExpand else null,
         headlineContent = {
             Text(
-                text = if (group.apps.size > 1) ownerNameForUid(group.uid) else group.primary.label,
+                text = if (group.apps.size > 1) ownerName else group.primary.label,
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 1,
             )

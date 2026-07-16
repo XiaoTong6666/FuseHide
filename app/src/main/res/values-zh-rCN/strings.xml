@@ -110,6 +110,7 @@
     <string name="global_hide_config_desc">配置一级目录隐藏、可见例外及全局目标</string>
     <string name="unsaved_config_changes">有未保存的配置更改</string>
     <string name="search_apps_placeholder">搜索应用...</string>
+    <string name="group_contains_apps">%1$d 个应用</string>
     <string name="app_hide_enabled_label">已启用隐藏</string>
     <string name="enable_hide_title">启用隐藏</string>
     <string name="enable_hide_desc">拦截该应用的文件系统请求</string>
