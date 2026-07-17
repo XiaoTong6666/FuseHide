@@ -261,7 +261,8 @@ std::string InodePath(uint64_t ino) {
 }
 
 bool IsHiddenLookupTarget(uint32_t uid, uint64_t parent, uint32_t error_in, const char* name) {
-    if (!IsTestHiddenUid(uid) || error_in != 0 || name == nullptr) {
+    (void)error_in;
+    if (!IsTestHiddenUid(uid) || name == nullptr) {
         return false;
     }
     if (IsHiddenLookupCacheTarget(uid, parent, name)) {
@@ -275,17 +276,12 @@ bool IsHiddenLookupCacheTarget(uint32_t uid, uint64_t parent, const char* name) 
     if (name == nullptr) {
         return false;
     }
-    const auto rule = ResolveHideRuleForUid(uid);
-    if (rule == nullptr) {
+    if (!IsTestHiddenUid(uid)) {
         return false;
     }
     const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
-    if (rootParent != 0 && parent == rootParent && rule->enableHideAllRootEntries &&
-        IsWildcardRootEntryCandidate(name)) {
-        return true;
-    }
-    return HiddenPathPolicy::IsConfiguredHiddenRootEntryName(uid, name) &&
-           (rootParent == 0 || parent == rootParent);
+    return rootParent != 0 && parent == rootParent &&
+           HiddenPathPolicy::IsHiddenRootEntryName(uid, name);
 }
 
 std::optional<HiddenNamedTargetKind> ClassifyHiddenNamedTargetByTrackedPath(uint32_t uid,
@@ -322,12 +318,8 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     if (rule == nullptr) {
         return HiddenNamedTargetKind::None;
     }
-    if (parent == rootParent && rule->enableHideAllRootEntries &&
-        IsWildcardRootEntryCandidate(name)) {
-        return HiddenNamedTargetKind::Root;
-    }
-    if (HiddenPathPolicy::IsConfiguredHiddenRootEntryName(uid, name) &&
-        (rootParent == 0 || parent == rootParent)) {
+    if (rootParent != 0 && parent == rootParent &&
+        HiddenPathPolicy::IsHiddenRootEntryName(uid, name)) {
         return HiddenNamedTargetKind::Root;
     }
     if (const auto trackedPathKind = ClassifyHiddenNamedTargetByTrackedPath(uid, parent, name);

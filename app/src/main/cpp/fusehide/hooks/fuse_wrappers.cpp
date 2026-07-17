@@ -493,8 +493,9 @@ void InvalidateFilteredParentChildren(std::string_view parentPath,
 extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* name) {
     RuntimeState::RememberFuseSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
-    if (name != nullptr && HiddenPathPolicy::IsConfiguredHiddenRootEntryName(uid, name) &&
-        parent != 0) {
+    std::string parentPath;
+    if (name != nullptr && parent != 0 && ResolveVisibleParentPath(parent, &parentPath) &&
+        IsVisibleRootPath(parentPath) && HiddenPathPolicy::IsHiddenRootEntryName(uid, name)) {
         uint64_t expected = 0;
         if (gHiddenRootParentInode.compare_exchange_strong(expected, parent,
                                                            std::memory_order_relaxed)) {
@@ -1026,7 +1027,7 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
                 RuntimeState::ScheduleSpecificEntryInvalidation(gCurrentLookupParentInode,
                                                                 gCurrentLookupName);
             }
-            if (e != nullptr && e->ino != 0) {
+            if (e != nullptr && e->ino != 0 && TrackHiddenSubtreeInode(e->ino)) {
                 RuntimeState::ScheduleHiddenInodeInvalidation(e->ino);
             }
             return *ret;

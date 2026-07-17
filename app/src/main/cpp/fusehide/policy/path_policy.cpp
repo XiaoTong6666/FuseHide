@@ -67,11 +67,12 @@ std::string CanonicalizeHiddenEntryNameForMatch(std::string_view name) {
 }
 
 std::string CanonicalizeRelativeHiddenPathForMatch(std::string_view path) {
-    std::string canonical = NormalizeRelativeHiddenPath(path);
+    std::string canonical(path);
+    UnicodePolicy::RewriteString(canonical);
+    canonical = NormalizeRelativeHiddenPath(canonical);
     if (canonical.empty()) {
         return canonical;
     }
-    UnicodePolicy::RewriteString(canonical);
     FoldAsciiForMatch(&canonical);
     return canonical;
 }
@@ -319,7 +320,7 @@ bool HiddenPathPolicy::ShouldFilterHiddenRootDirent(uint32_t uid, uint64_t ino,
         return false;
     }
     const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
-    return rootParent == 0 || ino == rootParent;
+    return rootParent != 0 && ino == rootParent;
 }
 
 }  // namespace fusehide
