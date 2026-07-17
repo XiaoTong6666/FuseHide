@@ -1109,13 +1109,22 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
                       exactHiddenTargetReplyEntry ? 1 : 0);
     }
     int ret = fn ? fn(req, replyEntry) : -1;
+    const std::string replyIno = replyEntry != nullptr ? InodePath(replyEntry->ino) : "(null)";
+    const double replyEntryTimeout = replyEntry != nullptr ? replyEntry->entry_timeout : 0.0;
+    const double replyAttrTimeout = replyEntry != nullptr ? replyEntry->attr_timeout : 0.0;
+    const unsigned long replyBpfFd =
+        replyEntry != nullptr ? (unsigned long)replyEntry->bpf_fd : 0UL;
+    const unsigned long replyBpfAction =
+        replyEntry != nullptr ? (unsigned long)replyEntry->bpf_action : 0UL;
+    const unsigned long replyBackingAction =
+        replyEntry != nullptr ? (unsigned long)replyEntry->backing_action : 0UL;
+    const unsigned long replyBackingFd =
+        replyEntry != nullptr ? (unsigned long)replyEntry->backing_fd : 0UL;
     DebugLogPrint(3,
                   "fuse_reply_entry: req=%lu ino=%s timeout=%.2le attr_timeout=%.2le bpf_fd=%lu "
                   "bpf_action=%lu backing_action=%lu backing_fd=%lu ret=%d",
-                  (unsigned long)req->unique, InodePath(replyEntry->ino).c_str(),
-                  replyEntry->entry_timeout, replyEntry->attr_timeout,
-                  (unsigned long)replyEntry->bpf_fd, (unsigned long)replyEntry->bpf_action,
-                  (unsigned long)replyEntry->backing_action, (unsigned long)replyEntry->backing_fd,
+                  req ? (unsigned long)req->unique : 0UL, replyIno.c_str(), replyEntryTimeout,
+                  replyAttrTimeout, replyBpfFd, replyBpfAction, replyBackingAction, replyBackingFd,
                   ret);
     return ret;
 }
@@ -1298,8 +1307,8 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
     if (gInPfLookupPostfilter) {
         DebugLogPrint(3, "pf_lookup_postfilter fuse_reply_buf req=%p", req);
     } else {
-        DebugLogPrint(3, "fuse_reply_buf: req=%lu size=%zu ret=%d", (unsigned long)req->unique,
-                      replySize, ret);
+        DebugLogPrint(3, "fuse_reply_buf: req=%lu size=%zu ret=%d",
+                      req ? (unsigned long)req->unique : 0UL, replySize, ret);
     }
     return ret;
 }

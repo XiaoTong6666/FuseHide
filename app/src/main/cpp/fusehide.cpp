@@ -442,6 +442,11 @@ std::optional<std::shared_ptr<const CompiledHideRule>> ResolveHideRuleForUidWith
     }
 
     jclass applicationClass = env->GetObjectClass(application);
+    if (applicationClass == nullptr || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(application);
+        return finish(std::nullopt);
+    }
     jmethodID getPackageManager = env->GetMethodID(applicationClass, "getPackageManager",
                                                    "()Landroid/content/pm/PackageManager;");
     if (getPackageManager == nullptr || env->ExceptionCheck()) {
@@ -464,6 +469,11 @@ std::optional<std::shared_ptr<const CompiledHideRule>> ResolveHideRuleForUidWith
     }
 
     jclass packageManagerClass = env->FindClass("android/content/pm/PackageManager");
+    if (packageManagerClass == nullptr || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(packageManager);
+        return finish(std::nullopt);
+    }
     jmethodID getPackagesForUid =
         env->GetMethodID(packageManagerClass, "getPackagesForUid", "(I)[Ljava/lang/String;");
     if (getPackagesForUid == nullptr || env->ExceptionCheck()) {
