@@ -61,6 +61,7 @@ thread_local bool gInPfReaddirplus = false;
 thread_local bool gInPfGetattr = false;
 thread_local uint32_t gPfGetattrUid = 0;
 thread_local uint32_t gPfReaddirUid = 0;
+thread_local uint32_t gCurrentLookupUid = 0;
 thread_local uint64_t gPfGetattrIno = 0;
 thread_local uint64_t gPfReaddirIno = 0;
 thread_local uint64_t gCurrentLookupParentInode = 0;
@@ -123,7 +124,8 @@ std::optional<int> Reply(fuse_req_t req, int err, const char* caller) {
 }  // namespace ReplyErrorBridge
 
 std::mutex gHiddenSubtreeInodesMutex;
-std::unordered_set<uint64_t> gHiddenSubtreeInodes;
+std::unordered_map<uint64_t, std::vector<std::shared_ptr<const CompiledHideRule>>>
+    gHiddenSubtreeInodeRules;
 std::mutex gInodePathCacheMutex;
 std::unordered_map<uint64_t, std::string> gInodePathCache;
 std::mutex gPendingReaddirContextsMutex;
@@ -311,7 +313,7 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
         return HiddenNamedTargetKind::None;
     }
     const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
-    if (parent != 0 && parent != rootParent && IsTrackedHiddenSubtreeInode(parent)) {
+    if (parent != 0 && parent != rootParent && IsTrackedHiddenSubtreeInode(uid, parent)) {
         return HiddenNamedTargetKind::Descendant;
     }
     const auto rule = ResolveHideRuleForUid(uid);
@@ -475,25 +477,61 @@ extern "C" bool WrappedShouldNotCache(void* fuse, AbiStringParam pathArg) {
     return fn ? fn(fuse, pathArg) : false;
 }
 
-bool IsTrackedHiddenSubtreeInode(uint64_t ino) {
-    std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-    return gHiddenSubtreeInodes.find(ino) != gHiddenSubtreeInodes.end();
-}
-
-bool TrackHiddenSubtreeInode(uint64_t ino) {
-    if (ino == 0) {
+bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
+    const auto rule = ResolveHideRuleForUid(uid);
+    if (rule == nullptr || ino == 0) {
         return false;
     }
     std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-    return gHiddenSubtreeInodes.insert(ino).second;
+    const auto it = gHiddenSubtreeInodeRules.find(ino);
+    if (it == gHiddenSubtreeInodeRules.end()) {
+        return false;
+    }
+    return std::any_of(it->second.begin(), it->second.end(), [&](const auto& trackedRule) {
+        return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
+    });
 }
 
-bool RemoveTrackedHiddenSubtreeInode(uint64_t ino) {
-    if (ino == 0) {
+bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
+    const auto rule = ResolveHideRuleForUid(uid);
+    if (rule == nullptr || ino == 0) {
         return false;
     }
     std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-    return gHiddenSubtreeInodes.erase(ino) != 0;
+    auto& rules = gHiddenSubtreeInodeRules[ino];
+    const bool alreadyTracked =
+        std::any_of(rules.begin(), rules.end(), [&](const auto& trackedRule) {
+            return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
+        });
+    if (alreadyTracked) {
+        return false;
+    }
+    rules.push_back(rule);
+    return true;
+}
+
+bool RemoveTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
+    const auto rule = ResolveHideRuleForUid(uid);
+    if (rule == nullptr || ino == 0) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
+    const auto it = gHiddenSubtreeInodeRules.find(ino);
+    if (it == gHiddenSubtreeInodeRules.end()) {
+        return false;
+    }
+    auto& rules = it->second;
+    const size_t oldSize = rules.size();
+    rules.erase(std::remove_if(rules.begin(), rules.end(),
+                               [&](const auto& trackedRule) {
+                                   return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
+                               }),
+                rules.end());
+    const bool changed = rules.size() != oldSize;
+    if (rules.empty()) {
+        gHiddenSubtreeInodeRules.erase(it);
+    }
+    return changed;
 }
 
 std::optional<std::string> LookupTrackedPathForInode(uint64_t ino) {
@@ -562,6 +600,7 @@ std::optional<std::string> LookupRecentHiddenParentPath(uint32_t uid, uint32_t* 
             }
             return it->second;
         }
+        return std::nullopt;
     }
     if (gRecentHiddenParentPathAnyUid.empty()) {
         return std::nullopt;
@@ -587,8 +626,8 @@ void ClearRecentHiddenParentPath(uint32_t uid) {
 // AOSP only decides dentry caching from the resolved path, not from uid policy.
 // Once the daemon sees any path inside the hidden subtree, force cache invalidation globally for
 // that subtree so positive dentries from other apps stop leaking into the target uid.
-void NoteHiddenSubtreePathForCache(std::string_view path) {
-    if (!HiddenPathPolicy::IsAnyHiddenSubtreePath(path)) {
+void NoteHiddenSubtreePathForCache(uint32_t uid, std::string_view path) {
+    if (!HiddenPathPolicy::IsAnyHiddenSubtreePath(uid, path)) {
         return;
     }
 
@@ -599,13 +638,13 @@ void NoteHiddenSubtreePathForCache(std::string_view path) {
 
     if (gInPfLookup && gCurrentLookupParentInode != 0) {
         const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
-        if (HiddenPathPolicy::IsExactHiddenTargetPath(path) &&
+        if (HiddenPathPolicy::IsExactHiddenTargetPath(uid, path) &&
             gCurrentLookupParentInode == rootParent) {
-            RemoveTrackedHiddenSubtreeInode(gCurrentLookupParentInode);
+            RemoveTrackedHiddenSubtreeInode(uid, gCurrentLookupParentInode);
             return;
         }
         gTrackHiddenSubtreeLookup = true;
-        if (TrackHiddenSubtreeInode(gCurrentLookupParentInode)) {
+        if (TrackHiddenSubtreeInode(uid, gCurrentLookupParentInode)) {
             DebugLogPrint(4, "track hidden lookup parent=%s path=%s",
                           InodePath(gCurrentLookupParentInode).c_str(), DebugPreview(path).c_str());
             RuntimeState::ScheduleHiddenInodeInvalidation(gCurrentLookupParentInode);
@@ -614,7 +653,7 @@ void NoteHiddenSubtreePathForCache(std::string_view path) {
 
     if (gInPfGetattr && gPfGetattrIno != 0) {
         gZeroAttrCacheForCurrentGetattr = true;
-        if (TrackHiddenSubtreeInode(gPfGetattrIno)) {
+        if (TrackHiddenSubtreeInode(uid, gPfGetattrIno)) {
             DebugLogPrint(4, "track hidden getattr ino=%s path=%s",
                           InodePath(gPfGetattrIno).c_str(), DebugPreview(path).c_str());
             RuntimeState::ScheduleHiddenInodeInvalidation(gPfGetattrIno);

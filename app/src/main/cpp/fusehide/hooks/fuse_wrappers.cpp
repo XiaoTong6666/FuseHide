@@ -454,7 +454,7 @@ bool IsFirstComponentOfHiddenRelativePath(uint32_t uid, std::string_view name) {
                name)) != rule->hiddenRelativePathFirstComponentSet.end();
 }
 
-void InvalidateFilteredParentChildren(std::string_view parentPath,
+void InvalidateFilteredParentChildren(uint32_t uid, std::string_view parentPath,
                                       const std::vector<FilteredDirentMatch>& removedEntries) {
     if (parentPath.empty() || removedEntries.empty()) {
         return;
@@ -472,7 +472,7 @@ void InvalidateFilteredParentChildren(std::string_view parentPath,
             const std::string childPath =
                 HiddenPathPolicy::JoinPathComponent(parentPath, entry.name);
             RememberTrackedPathForInode(entry.ino, childPath);
-            if (TrackHiddenSubtreeInode(entry.ino)) {
+            if (TrackHiddenSubtreeInode(uid, entry.ino)) {
                 DebugLogPrint(4, "track filtered child inode parent=%s child=%s ino=%s",
                               DebugPreview(parentPath).c_str(), DebugPreview(entry.name).c_str(),
                               InodePath(entry.ino).c_str());
@@ -503,16 +503,18 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
         }
     }
     gInPfLookup = true;
+    gCurrentLookupUid = uid;
     gCurrentLookupParentInode = parent;
     gCurrentLookupName = name != nullptr ? std::string(name) : std::string();
     gTrackRootHiddenLookup = IsHiddenLookupCacheTarget(uid, parent, name);
-    gTrackHiddenSubtreeLookup = IsTrackedHiddenSubtreeInode(parent);
+    gTrackHiddenSubtreeLookup = IsTrackedHiddenSubtreeInode(uid, parent);
     DebugLogPrint(3, "lookup: req=%lu parent=%s name=%s", (unsigned long)req->unique,
                   InodePath(parent).c_str(), name ? DebugPreview(name).c_str() : "null");
 
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, const char*)>(gOriginalPfLookup);
     if (fn)
         fn(req, parent, name);
+    gCurrentLookupUid = 0;
     gCurrentLookupParentInode = 0;
     gCurrentLookupName.clear();
     gInPfLookup = false;
@@ -1027,7 +1029,8 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
                 RuntimeState::ScheduleSpecificEntryInvalidation(gCurrentLookupParentInode,
                                                                 gCurrentLookupName);
             }
-            if (e != nullptr && e->ino != 0 && TrackHiddenSubtreeInode(e->ino)) {
+            if (e != nullptr && e->ino != 0 &&
+                TrackHiddenSubtreeInode(RuntimeState::ReqUid(req), e->ino)) {
                 RuntimeState::ScheduleHiddenInodeInvalidation(e->ino);
             }
             return *ret;
@@ -1046,7 +1049,7 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
                       req ? (unsigned long)req->unique : 0UL, InodePath(e->ino).c_str(),
                       gTrackRootHiddenLookup ? 1 : 0, gTrackHiddenSubtreeLookup ? 1 : 0);
         RuntimeState::ScheduleHiddenEntryInvalidation();
-        if (TrackHiddenSubtreeInode(e->ino)) {
+        if (TrackHiddenSubtreeInode(RuntimeState::ReqUid(req), e->ino)) {
             RuntimeState::ScheduleHiddenInodeInvalidation(e->ino);
         }
     }
@@ -1080,7 +1083,7 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
             exactHiddenTargetReplyEntry =
                 HiddenPathPolicy::IsExactHiddenTargetPath(uid, *childPath);
             if (hiddenSubtreePath) {
-                TrackHiddenSubtreeInode(e->ino);
+                TrackHiddenSubtreeInode(uid, e->ino);
                 forceUncachedReplyEntry = true;
             }
             if (exactHiddenTargetReplyEntry) {
@@ -1243,7 +1246,7 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
                 replyBuf = filteredStorage.data();
                 replySize = filteredStorage.size();
                 filterMode = "fallback_parent_direntplus";
-                InvalidateFilteredParentChildren(*fallbackParentPath, removedEntries);
+                InvalidateFilteredParentChildren(filterUid, *fallbackParentPath, removedEntries);
                 ClearRecentHiddenParentPath(filterUid);
             } else if (fallbackParentPath.has_value() &&
                        BuildFilteredDirentPayloadForParentPath(
@@ -1252,7 +1255,7 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
                 replyBuf = filteredStorage.data();
                 replySize = filteredStorage.size();
                 filterMode = "fallback_parent_dirent";
-                InvalidateFilteredParentChildren(*fallbackParentPath, removedEntries);
+                InvalidateFilteredParentChildren(filterUid, *fallbackParentPath, removedEntries);
                 ClearRecentHiddenParentPath(filterUid);
             } else if (size >= sizeof(fuse_read_out) && fallbackParentPath.has_value()) {
                 const auto* readOut = reinterpret_cast<const fuse_read_out*>(buf);
@@ -1271,7 +1274,8 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
                     replyBuf = filteredStorage.data();
                     replySize = filteredStorage.size();
                     filterMode = "fallback_parent_read_out_dirent";
-                    InvalidateFilteredParentChildren(*fallbackParentPath, removedEntries);
+                    InvalidateFilteredParentChildren(filterUid, *fallbackParentPath,
+                                                     removedEntries);
                     ClearRecentHiddenParentPath(filterUid);
                 }
             }
@@ -1339,7 +1343,7 @@ extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
 extern "C" void WrappedPfGetattr(fuse_req_t req, uint64_t ino, void* fi) {
     RuntimeState::RememberFuseSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
-    gZeroAttrCacheForCurrentGetattr = IsTrackedHiddenSubtreeInode(ino);
+    gZeroAttrCacheForCurrentGetattr = IsTrackedHiddenSubtreeInode(uid, ino);
     if (HiddenPathPolicy::IsTestHiddenUid(uid)) {
         DebugLogPrint(4, "pf_getattr test uid=%u ino=0x%lx", static_cast<unsigned>(uid),
                       (unsigned long)ino);
@@ -1375,13 +1379,13 @@ extern "C" int WrappedLstat(const char* path, struct stat* st) {
             DebugLogPrint(4, "record hidden root parent from getattr=%s path=%s",
                           InodePath(gPfGetattrIno).c_str(), DebugPreview(pathView).c_str());
         }
-        RemoveTrackedHiddenSubtreeInode(gPfGetattrIno);
+        RemoveTrackedHiddenSubtreeInode(gPfGetattrUid, gPfGetattrIno);
         if (const auto rule = RuleForAnyPackage();
             recorded && rule != nullptr && rule->enableHideAllRootEntries) {
             RuntimeState::ScheduleHiddenEntryInvalidation();
         }
     }
-    NoteHiddenSubtreePathForCache(pathView);
+    NoteHiddenSubtreePathForCache(gPfGetattrUid, pathView);
     if (gInPfGetattr && HiddenPathPolicy::IsTestHiddenUid(gPfGetattrUid)) {
         DebugLogPrint(4, "pf_getattr lstat uid=%u path=%s", static_cast<unsigned>(gPfGetattrUid),
                       DebugPreview(pathView).c_str());
@@ -1407,7 +1411,7 @@ extern "C" int WrappedLstat(const char* path, struct stat* st) {
                               static_cast<unsigned>(gPfGetattrUid), DebugPreview(pathView).c_str());
             }
             if (HiddenPathPolicy::IsAnyHiddenSubtreePath(gPfGetattrUid, pathView)) {
-                TrackHiddenSubtreeInode(gPfGetattrIno);
+                TrackHiddenSubtreeInode(gPfGetattrUid, gPfGetattrIno);
             }
         }
         return ret;
@@ -1624,7 +1628,7 @@ bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid
             DebugLogPrint(3, "app_accessible direct uid=%u path=%s", uid,
                           DebugPreview(path).c_str());
         }
-        NoteHiddenSubtreePathForCache(path);
+        NoteHiddenSubtreePathForCache(uid, path);
         if (HiddenPathPolicy::ShouldHideTestPath(uid, path)) {
             DebugLogPrint(4, "hide test path uid=%u path=%s", static_cast<unsigned>(uid),
                           DebugPreview(path).c_str());
@@ -1639,7 +1643,7 @@ bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid
         DebugLogPrint(3, "app_accessible rewrite uid=%u old=%s new=%s", uid,
                       DebugPreview(path).c_str(), DebugPreview(sanitized).c_str());
     }
-    NoteHiddenSubtreePathForCache(sanitized);
+    NoteHiddenSubtreePathForCache(uid, sanitized);
     if (HiddenPathPolicy::ShouldHideTestPath(uid, sanitized)) {
         DebugLogPrint(4, "hide test path uid=%u path=%s src=%s", static_cast<unsigned>(uid),
                       DebugPreview(sanitized).c_str(), DebugPreview(path).c_str());

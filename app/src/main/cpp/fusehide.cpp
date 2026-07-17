@@ -242,7 +242,7 @@ void InvalidateTrackedHideTargetsForCurrentConfig() {
 
     {
         std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-        gHiddenSubtreeInodes.clear();
+        gHiddenSubtreeInodeRules.clear();
     }
     {
         std::lock_guard<std::mutex> lock(gRecentHiddenParentPathsMutex);

@@ -549,6 +549,7 @@ extern thread_local bool gInPfReaddirplus;
 extern thread_local bool gInPfGetattr;
 extern thread_local uint32_t gPfGetattrUid;
 extern thread_local uint32_t gPfReaddirUid;
+extern thread_local uint32_t gCurrentLookupUid;
 extern thread_local uint64_t gPfGetattrIno;
 extern thread_local uint64_t gPfReaddirIno;
 extern thread_local uint64_t gCurrentLookupParentInode;
@@ -560,7 +561,8 @@ extern thread_local fuse_req_t gPendingHiddenErrReq;
 extern thread_local uint64_t gPendingHiddenErrReqUnique;
 extern thread_local int gPendingHiddenErrno;
 extern std::mutex gHiddenSubtreeInodesMutex;
-extern std::unordered_set<uint64_t> gHiddenSubtreeInodes;
+extern std::unordered_map<uint64_t, std::vector<std::shared_ptr<const CompiledHideRule>>>
+    gHiddenSubtreeInodeRules;
 extern std::mutex gInodePathCacheMutex;
 extern std::unordered_map<uint64_t, std::string> gInodePathCache;
 struct PendingReaddirContext {
@@ -608,13 +610,13 @@ void ArmHiddenErrorRemap(fuse_req_t req, int err, const char* opName);
 int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller);
 void ArmHiddenCreateLeakRemap(fuse_req_t req, const char* opName);
 
-bool IsTrackedHiddenSubtreeInode(uint64_t ino);
-bool TrackHiddenSubtreeInode(uint64_t ino);
-bool RemoveTrackedHiddenSubtreeInode(uint64_t ino);
+bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino);
+bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino);
+bool RemoveTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino);
 std::optional<std::string> LookupTrackedPathForInode(uint64_t ino);
 std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path);
 void RememberTrackedPathForInode(uint64_t ino, std::string_view path);
-void NoteHiddenSubtreePathForCache(std::string_view path);
+void NoteHiddenSubtreePathForCache(uint32_t uid, std::string_view path);
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path);
 std::optional<std::string> LookupRecentHiddenParentPath(uint32_t uid,
                                                         uint32_t* matchedHiddenUid = nullptr);

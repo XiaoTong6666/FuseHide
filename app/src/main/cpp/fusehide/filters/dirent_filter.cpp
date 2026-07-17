@@ -32,7 +32,7 @@ bool ShouldFilterTrackedHiddenDirentInode(uint32_t uid, uint64_t childIno, std::
     if (!HiddenPathPolicy::IsTestHiddenUid(uid) || childIno == 0) {
         return false;
     }
-    if (!IsTrackedHiddenSubtreeInode(childIno)) {
+    if (!IsTrackedHiddenSubtreeInode(uid, childIno)) {
         return false;
     }
     DebugLogPrint(4, "filter dirent by tracked inode uid=%u child=%s name=%s",
