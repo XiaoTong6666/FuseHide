@@ -126,8 +126,12 @@ std::optional<int> Reply(fuse_req_t req, int err, const char* caller) {
 std::mutex gHiddenSubtreeInodesMutex;
 std::unordered_map<uint64_t, std::vector<std::shared_ptr<const CompiledHideRule>>>
     gHiddenSubtreeInodeRules;
+std::unordered_map<uint64_t, uint64_t> gHiddenSubtreeInodeRuleAccessOrder;
+uint64_t gHiddenSubtreeInodeRuleAccessGeneration = 0;
 std::mutex gInodePathCacheMutex;
 std::unordered_map<uint64_t, std::string> gInodePathCache;
+std::unordered_map<uint64_t, uint64_t> gInodePathCacheAccessOrder;
+uint64_t gInodePathCacheAccessGeneration = 0;
 std::mutex gPendingReaddirContextsMutex;
 std::unordered_map<uint64_t, PendingReaddirContext> gPendingReaddirContexts;
 std::mutex gRecentHiddenParentPathsMutex;
@@ -145,7 +149,47 @@ struct UidErrRemapState {
 
 std::unordered_map<uint32_t, UidErrRemapState> gUidErrRemapStates;
 
-namespace {}  // namespace
+namespace {
+
+constexpr size_t kMaxTrackedInodeEntries = 16384;
+
+void NoteHiddenSubtreeInodeAccessLocked(uint64_t ino) {
+    gHiddenSubtreeInodeRuleAccessOrder[ino] = ++gHiddenSubtreeInodeRuleAccessGeneration;
+}
+
+void NoteTrackedPathAccessLocked(uint64_t ino) {
+    gInodePathCacheAccessOrder[ino] = ++gInodePathCacheAccessGeneration;
+}
+
+void EvictOldestHiddenSubtreeInodeLocked() {
+    if (gHiddenSubtreeInodeRuleAccessOrder.empty()) {
+        return;
+    }
+    const auto oldest = std::min_element(
+        gHiddenSubtreeInodeRuleAccessOrder.begin(), gHiddenSubtreeInodeRuleAccessOrder.end(),
+        [](const auto& lhs, const auto& rhs) { return lhs.second < rhs.second; });
+    if (oldest == gHiddenSubtreeInodeRuleAccessOrder.end()) {
+        return;
+    }
+    gHiddenSubtreeInodeRules.erase(oldest->first);
+    gHiddenSubtreeInodeRuleAccessOrder.erase(oldest);
+}
+
+void EvictOldestTrackedPathLocked() {
+    if (gInodePathCacheAccessOrder.empty()) {
+        return;
+    }
+    const auto oldest =
+        std::min_element(gInodePathCacheAccessOrder.begin(), gInodePathCacheAccessOrder.end(),
+                         [](const auto& lhs, const auto& rhs) { return lhs.second < rhs.second; });
+    if (oldest == gInodePathCacheAccessOrder.end()) {
+        return;
+    }
+    gInodePathCache.erase(oldest->first);
+    gInodePathCacheAccessOrder.erase(oldest);
+}
+
+}  // namespace
 
 uint32_t RuntimeState::ReqUid(fuse_req_t req) {
     if (req == nullptr) {
@@ -487,9 +531,14 @@ bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
     if (it == gHiddenSubtreeInodeRules.end()) {
         return false;
     }
-    return std::any_of(it->second.begin(), it->second.end(), [&](const auto& trackedRule) {
-        return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
-    });
+    const bool tracked =
+        std::any_of(it->second.begin(), it->second.end(), [&](const auto& trackedRule) {
+            return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
+        });
+    if (tracked) {
+        NoteHiddenSubtreeInodeAccessLocked(ino);
+    }
+    return tracked;
 }
 
 bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
@@ -498,11 +547,20 @@ bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
         return false;
     }
     std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
+    if (gHiddenSubtreeInodeRules.empty() && !gHiddenSubtreeInodeRuleAccessOrder.empty()) {
+        gHiddenSubtreeInodeRuleAccessOrder.clear();
+        gHiddenSubtreeInodeRuleAccessGeneration = 0;
+    }
+    if (gHiddenSubtreeInodeRules.size() >= kMaxTrackedInodeEntries &&
+        gHiddenSubtreeInodeRules.find(ino) == gHiddenSubtreeInodeRules.end()) {
+        EvictOldestHiddenSubtreeInodeLocked();
+    }
     auto& rules = gHiddenSubtreeInodeRules[ino];
     const bool alreadyTracked =
         std::any_of(rules.begin(), rules.end(), [&](const auto& trackedRule) {
             return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
         });
+    NoteHiddenSubtreeInodeAccessLocked(ino);
     if (alreadyTracked) {
         return false;
     }
@@ -530,6 +588,7 @@ bool RemoveTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
     const bool changed = rules.size() != oldSize;
     if (rules.empty()) {
         gHiddenSubtreeInodeRules.erase(it);
+        gHiddenSubtreeInodeRuleAccessOrder.erase(ino);
     }
     return changed;
 }
@@ -547,6 +606,7 @@ std::optional<std::string> LookupTrackedPathForInode(uint64_t ino) {
     if (it == gInodePathCache.end()) {
         return std::nullopt;
     }
+    NoteTrackedPathAccessLocked(ino);
     return it->second;
 }
 
@@ -561,6 +621,7 @@ std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path) {
     std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
     for (const auto& [ino, trackedPath] : gInodePathCache) {
         if (trackedPath == path) {
+            NoteTrackedPathAccessLocked(ino);
             return ino;
         }
     }
@@ -572,7 +633,12 @@ void RememberTrackedPathForInode(uint64_t ino, std::string_view path) {
         return;
     }
     std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
+    if (gInodePathCache.size() >= kMaxTrackedInodeEntries &&
+        gInodePathCache.find(ino) == gInodePathCache.end()) {
+        EvictOldestTrackedPathLocked();
+    }
     gInodePathCache[ino] = std::string(path);
+    NoteTrackedPathAccessLocked(ino);
 }
 
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path) {
