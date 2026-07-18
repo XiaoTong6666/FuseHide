@@ -128,6 +128,8 @@ std::unordered_map<uint64_t, std::vector<std::shared_ptr<const CompiledHideRule>
     gHiddenSubtreeInodeRules;
 std::mutex gInodePathCacheMutex;
 std::unordered_map<uint64_t, std::string> gInodePathCache;
+std::unordered_map<uint64_t, uint64_t> gInodePathCacheAccessOrder;
+uint64_t gInodePathCacheAccessGeneration = 0;
 std::mutex gPendingReaddirContextsMutex;
 std::unordered_map<uint64_t, PendingReaddirContext> gPendingReaddirContexts;
 std::mutex gRecentHiddenParentPathsMutex;
@@ -145,7 +147,76 @@ struct UidErrRemapState {
 
 std::unordered_map<uint32_t, UidErrRemapState> gUidErrRemapStates;
 
-namespace {}  // namespace
+namespace {
+
+constexpr size_t kMaxTrackedPathEntries = 16384;
+
+void NoteTrackedPathAccessLocked(uint64_t ino) {
+    gInodePathCacheAccessOrder[ino] = ++gInodePathCacheAccessGeneration;
+}
+
+bool IsProtectedTrackedPath(std::string_view path) {
+    if (HiddenPathPolicy::IsAnyHiddenSubtreePath(path) || IsParentOfExactHiddenTargetPath(path)) {
+        return true;
+    }
+
+    const auto rule = RuleForAnyPackage();
+    if (rule == nullptr) {
+        return false;
+    }
+
+    for (const auto& root : kVisibleStorageRoots) {
+        if (path == root) {
+            return !rule->hiddenRootEntryNames.empty() || rule->enableHideAllRootEntries ||
+                   !rule->normalizedHiddenRelativePathExactSet.empty();
+        }
+    }
+
+    const auto relativePath = RelativePathForVisibleRoot(path);
+    if (!relativePath.has_value() || relativePath->empty()) {
+        return false;
+    }
+    const std::string canonicalRelativePath = CanonicalizeRelativeHiddenPathForMatch(*relativePath);
+    if (canonicalRelativePath.empty()) {
+        return false;
+    }
+    for (const auto& hiddenPath : rule->normalizedHiddenRelativePathExactSet) {
+        if (hiddenPath.size() > canonicalRelativePath.size() &&
+            hiddenPath.compare(0, canonicalRelativePath.size(), canonicalRelativePath) == 0 &&
+            hiddenPath[canonicalRelativePath.size()] == '/') {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool EvictOldestTrackedPathLocked() {
+    if (gInodePathCacheAccessOrder.empty()) {
+        return false;
+    }
+    uint64_t victimIno = 0;
+    uint64_t victimAccess = 0;
+    bool foundVictim = false;
+    for (const auto& [ino, access] : gInodePathCacheAccessOrder) {
+        const auto pathIt = gInodePathCache.find(ino);
+        if (pathIt == gInodePathCache.end() || IsProtectedTrackedPath(pathIt->second)) {
+            continue;
+        }
+        if (!foundVictim || access < victimAccess) {
+            victimIno = ino;
+            victimAccess = access;
+            foundVictim = true;
+        }
+    }
+    if (!foundVictim) {
+        return false;
+    }
+    gInodePathCache.erase(victimIno);
+    gInodePathCacheAccessOrder.erase(victimIno);
+    return true;
+}
+
+}  // namespace
 
 uint32_t RuntimeState::ReqUid(fuse_req_t req) {
     if (req == nullptr) {
@@ -547,6 +618,7 @@ std::optional<std::string> LookupTrackedPathForInode(uint64_t ino) {
     if (it == gInodePathCache.end()) {
         return std::nullopt;
     }
+    NoteTrackedPathAccessLocked(ino);
     return it->second;
 }
 
@@ -561,6 +633,7 @@ std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path) {
     std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
     for (const auto& [ino, trackedPath] : gInodePathCache) {
         if (trackedPath == path) {
+            NoteTrackedPathAccessLocked(ino);
             return ino;
         }
     }
@@ -572,7 +645,16 @@ void RememberTrackedPathForInode(uint64_t ino, std::string_view path) {
         return;
     }
     std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
+    const bool newEntry = gInodePathCache.find(ino) == gInodePathCache.end();
+    if (newEntry) {
+        while (gInodePathCache.size() >= kMaxTrackedPathEntries && EvictOldestTrackedPathLocked()) {
+        }
+        if (gInodePathCache.size() >= kMaxTrackedPathEntries && !IsProtectedTrackedPath(path)) {
+            return;
+        }
+    }
     gInodePathCache[ino] = std::string(path);
+    NoteTrackedPathAccessLocked(ino);
 }
 
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path) {
