@@ -24,8 +24,8 @@ namespace {
 
 thread_local uint32_t gActiveCreateUid = 0;
 thread_local uint32_t gActiveCreateScopeDepth = 0;
-thread_local uint32_t gLastPathPolicyUid = 0;
-thread_local std::string gLastPathPolicyPath;
+thread_local uint32_t gActivePathPolicyUid = 0;
+thread_local std::string gActivePathPolicyPath;
 
 enum class HiddenPathClassification : uint8_t {
     kNone,
@@ -116,6 +116,35 @@ class ScopedCreateUid final {
 
    private:
     uint32_t previous_;
+};
+
+class ScopedPathPolicyContext final {
+   public:
+    ScopedPathPolicyContext(uint32_t uid, std::string_view path)
+        : previousUid_(gActivePathPolicyUid), previousPath_(gActivePathPolicyPath) {
+        gActivePathPolicyUid = uid;
+        gActivePathPolicyPath.assign(path.data(), path.size());
+    }
+
+    ~ScopedPathPolicyContext() {
+        gActivePathPolicyUid = previousUid_;
+        gActivePathPolicyPath = std::move(previousPath_);
+    }
+
+   private:
+    uint32_t previousUid_;
+    std::string previousPath_;
+};
+
+class ScopedFuseRequestSession final {
+   public:
+    explicit ScopedFuseRequestSession(fuse_req_t req) {
+        RuntimeState::RememberFuseSession(req);
+    }
+
+    ~ScopedFuseRequestSession() {
+        ClearActiveFuseRequestSession();
+    }
 };
 
 std::string_view TrimTrailingSlashes(std::string_view path) {
@@ -414,12 +443,12 @@ std::optional<const char*> TakePendingRootSnapshotMutation(fuse_req_t req) {
 }
 
 bool ShouldHideLowerFsCreatePath(std::string_view pathView) {
-    const uint32_t uid = gActiveCreateUid != 0 ? gActiveCreateUid : gLastPathPolicyUid;
+    const uint32_t uid = gActiveCreateUid != 0 ? gActiveCreateUid : gActivePathPolicyUid;
     return uid != 0 && IsExactHiddenPathClassification(ClassifyHiddenPath(uid, pathView));
 }
 
 bool ShouldHideLowerFsPath(std::string_view pathView) {
-    const uint32_t uid = gActiveCreateUid != 0 ? gActiveCreateUid : gLastPathPolicyUid;
+    const uint32_t uid = gActiveCreateUid != 0 ? gActiveCreateUid : gActivePathPolicyUid;
     return uid != 0 && IsHiddenPathClassification(ClassifyHiddenPath(uid, pathView));
 }
 
@@ -487,11 +516,16 @@ void InvalidateFilteredParentChildren(uint32_t uid, std::string_view parentPath,
 
 }  // namespace
 
+void ClearPendingRootSnapshotMutations() {
+    std::lock_guard<std::mutex> lock(gPendingRootSnapshotMutationsMutex);
+    gPendingRootSnapshotMutations.clear();
+}
+
 // pf_lookup is the earliest reliable place to learn the real root parent inode on this device.
 // AOSP reference: jni/FuseDaemon.cpp#851
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#851
 extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* name) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     std::string parentPath;
     if (name != nullptr && parent != 0 && ResolveVisibleParentPath(parent, &parentPath) &&
@@ -586,7 +620,11 @@ DirectoryEntries WrappedGetDirectoryEntries(void* wrapper, uint32_t uid, AbiStri
         }
     }
 
-    DirectoryEntries entries = fn ? fn(wrapper, uid, pathArg, dirp) : DirectoryEntries();
+    DirectoryEntries entries;
+    {
+        const ScopedPathPolicyContext scopedPath(uid, path);
+        entries = fn ? fn(wrapper, uid, pathArg, dirp) : DirectoryEntries();
+    }
     entries = FilterHiddenDirectoryEntries(uid, path, std::move(entries));
     if (dirp != nullptr && fn != nullptr) {
         MaybeStoreRootSnapshotCache(uid, path, rule, entries);
@@ -606,14 +644,14 @@ void WrappedAddDirectoryEntriesFromLowerFs(DIR* dirp, LowerFsDirentFilterFn filt
         return;
     }
 
-    const uint32_t uid = gLastPathPolicyUid;
+    const uint32_t uid = gActivePathPolicyUid;
     if (!HiddenPathPolicy::IsTestHiddenUid(uid)) {
         return;
     }
 
     std::string parentPath = ReadDirectoryPathFromDir(dirp);
     if (parentPath.empty()) {
-        parentPath = gLastPathPolicyPath;
+        parentPath = gActivePathPolicyPath;
     }
     if (parentPath.empty()) {
         return;
@@ -636,7 +674,7 @@ void WrappedAddDirectoryEntriesFromLowerFs(DIR* dirp, LowerFsDirentFilterFn filt
 extern "C" void WrappedPfReaddirPostfilter(fuse_req_t req, uint64_t ino, uint32_t error_in,
                                            off_t off_in, off_t off_out, size_t size_out,
                                            const void* dirents_in, void* fi) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, uint32_t, off_t, off_t, size_t,
                                         const void*, void*)>(gOriginalPfReaddirPostfilter);
@@ -665,7 +703,7 @@ extern "C" void WrappedPfReaddirPostfilter(fuse_req_t req, uint64_t ino, uint32_
 extern "C" void WrappedPfLookupPostfilter(fuse_req_t req, uint64_t parent, uint32_t error_in,
                                           const char* name, struct fuse_entry_out* feo,
                                           struct fuse_entry_bpf_out* febo) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     DebugLogPrint(3, "pf_lookup_postfilter req=%p uid=%u parent=%s name=%s err_in=%u", req,
                   static_cast<unsigned>(uid), InodePath(parent).c_str(),
@@ -690,7 +728,7 @@ extern "C" void WrappedPfLookupPostfilter(fuse_req_t req, uint64_t parent, uint3
 }
 
 extern "C" void WrappedPfAccess(fuse_req_t req, uint64_t ino, int mask) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, int)>(gOriginalPfAccess);
     if (fn) {
         fn(req, ino, mask);
@@ -698,7 +736,7 @@ extern "C" void WrappedPfAccess(fuse_req_t req, uint64_t ino, int mask) {
 }
 
 extern "C" void WrappedPfOpen(fuse_req_t req, uint64_t ino, void* fi) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, void*)>(gOriginalPfOpen);
     if (fn) {
         fn(req, ino, fi);
@@ -706,7 +744,7 @@ extern "C" void WrappedPfOpen(fuse_req_t req, uint64_t ino, void* fi) {
 }
 
 extern "C" void WrappedPfOpendir(fuse_req_t req, uint64_t ino, void* fi) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, void*)>(gOriginalPfOpendir);
     if (fn) {
         fn(req, ino, fi);
@@ -717,7 +755,7 @@ extern "C" void WrappedPfOpendir(fuse_req_t req, uint64_t ino, void* fi) {
 // hidden leaf name would still leak existence semantics unless we stop it here.
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1184
 extern "C" void WrappedPfMkdir(fuse_req_t req, uint64_t parent, const char* name, uint32_t mode) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const HiddenNamedTargetKind kind = ClassifyHiddenNamedTarget(uid, parent, name);
     DebugLogPrint(4,
@@ -743,7 +781,7 @@ extern "C" void WrappedPfMkdir(fuse_req_t req, uint64_t parent, const char* name
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1134
 extern "C" void WrappedPfMknod(fuse_req_t req, uint64_t parent, const char* name, uint32_t mode,
                                uint64_t rdev) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const HiddenNamedTargetKind kind = ClassifyHiddenNamedTarget(uid, parent, name);
     DebugLogPrint(4,
@@ -769,7 +807,7 @@ extern "C" void WrappedPfMknod(fuse_req_t req, uint64_t parent, const char* name
 // names must return ENOENT here instead of reaching the lower filesystem.
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1218
 extern "C" void WrappedPfUnlink(fuse_req_t req, uint64_t parent, const char* name) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const HiddenNamedTargetKind kind = ClassifyHiddenNamedTarget(uid, parent, name);
     const auto trackedParentPath = LookupTrackedPathForInode(parent);
@@ -794,7 +832,7 @@ extern "C" void WrappedPfUnlink(fuse_req_t req, uint64_t parent, const char* nam
 // names must be rejected before the real directory delete runs.
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1248
 extern "C" void WrappedPfRmdir(fuse_req_t req, uint64_t parent, const char* name) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const HiddenNamedTargetKind kind =
         ClassifyHiddenNamedTarget(RuntimeState::ReqUid(req), parent, name);
     if (ReplyHiddenNamedTargetError(req, "pf_rmdir", kind, ENOENT, ENOENT)) {
@@ -816,7 +854,7 @@ extern "C" void WrappedPfRmdir(fuse_req_t req, uint64_t parent, const char* name
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1369
 extern "C" void WrappedPfRename(fuse_req_t req, uint64_t parent, const char* name,
                                 uint64_t new_parent, const char* new_name, uint32_t flags) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const HiddenNamedTargetKind srcKind = ClassifyHiddenNamedTarget(uid, parent, name);
     const HiddenNamedTargetKind dstKind = ClassifyHiddenNamedTarget(uid, new_parent, new_name);
@@ -866,7 +904,7 @@ extern "C" void WrappedPfRename(fuse_req_t req, uint64_t parent, const char* nam
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#2121
 extern "C" void WrappedPfCreate(fuse_req_t req, uint64_t parent, const char* name, uint32_t mode,
                                 void* fi) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const HiddenNamedTargetKind kind = ClassifyHiddenNamedTarget(uid, parent, name);
     const auto trackedParentPath = LookupTrackedPathForInode(parent);
@@ -894,7 +932,7 @@ extern "C" void WrappedPfCreate(fuse_req_t req, uint64_t parent, const char* nam
 // AOSP reference: jni/FuseDaemon.cpp#1944
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1944
 extern "C" void WrappedPfReaddir(fuse_req_t req, uint64_t ino, size_t size, off_t off, void* fi) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     auto fn =
         reinterpret_cast<void (*)(fuse_req_t, uint64_t, size_t, off_t, void*)>(gOriginalPfReaddir);
@@ -920,7 +958,7 @@ extern "C" void WrappedPfReaddir(fuse_req_t req, uint64_t ino, size_t size, off_
 
 extern "C" void WrappedDoReaddirCommon(fuse_req_t req, uint64_t ino, size_t size, off_t off,
                                        void* fi, bool plus) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, size_t, off_t, void*, bool)>(
         gOriginalDoReaddirCommon);
@@ -946,7 +984,7 @@ extern "C" void WrappedDoReaddirCommon(fuse_req_t req, uint64_t ino, size_t size
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#2000
 extern "C" void WrappedPfReaddirplus(fuse_req_t req, uint64_t ino, size_t size, off_t off,
                                      void* fi) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     auto fn = reinterpret_cast<void (*)(fuse_req_t, uint64_t, size_t, off_t, void*)>(
         gOriginalPfReaddirplus);
@@ -1341,7 +1379,7 @@ extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
 }
 
 extern "C" void WrappedPfGetattr(fuse_req_t req, uint64_t ino, void* fi) {
-    RuntimeState::RememberFuseSession(req);
+    const ScopedFuseRequestSession scopedSession(req);
     const uint32_t uid = RuntimeState::ReqUid(req);
     gZeroAttrCacheForCurrentGetattr = IsTrackedHiddenSubtreeInode(uid, ino);
     if (HiddenPathPolicy::IsTestHiddenUid(uid)) {
@@ -1620,9 +1658,8 @@ bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid
     }
     const std::string_view path = AbiStringView(pathArg);
     const std::string pathString(path);
-    gLastPathPolicyUid = uid;
-    gLastPathPolicyPath = path;
     if (!UnicodePolicy::NeedsSanitization(pathString)) {
+        const ScopedPathPolicyContext scopedPath(uid, path);
         UnicodePolicy::LogSuspiciousDirectPath("app_accessible", path);
         if (ShouldLogLimited(gAppAccessibleLogCount)) {
             DebugLogPrint(3, "app_accessible direct uid=%u path=%s", uid,
@@ -1638,7 +1675,7 @@ bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid
     }
     std::string sanitized(path);
     UnicodePolicy::RewriteString(sanitized);
-    gLastPathPolicyPath = sanitized;
+    const ScopedPathPolicyContext scopedPath(uid, sanitized);
     if (ShouldLogLimited(gAppAccessibleLogCount)) {
         DebugLogPrint(3, "app_accessible rewrite uid=%u old=%s new=%s", uid,
                       DebugPreview(path).c_str(), DebugPreview(sanitized).c_str());

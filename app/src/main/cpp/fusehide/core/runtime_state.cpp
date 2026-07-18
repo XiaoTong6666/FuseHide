@@ -151,6 +151,47 @@ namespace {
 
 constexpr size_t kMaxTrackedPathEntries = 16384;
 
+std::mutex gFuseSessionStateMutex;
+thread_local void* gActiveFuseRequestSession = nullptr;
+
+void ClearSessionScopedTracking() {
+    gHiddenRootParentInode.store(0, std::memory_order_release);
+    gHiddenEntryInvalidationPending.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
+        gHiddenSubtreeInodeRules.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
+        gInodePathCache.clear();
+        gInodePathCacheAccessOrder.clear();
+        gInodePathCacheAccessGeneration = 0;
+    }
+    {
+        std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
+        gPendingReaddirContexts.clear();
+    }
+    ClearPendingRootSnapshotMutations();
+    {
+        std::lock_guard<std::mutex> lock(gRecentHiddenParentPathsMutex);
+        gRecentHiddenParentPaths.clear();
+        gRecentHiddenParentPathUids.clear();
+        gRecentHiddenParentPathAnyUid.clear();
+        gRecentHiddenParentPathAnyUidOwner = 0;
+    }
+    {
+        std::lock_guard<std::mutex> lock(gUidErrRemapMutex);
+        gUidErrRemapStates.clear();
+    }
+}
+
+void* CurrentSchedulingFuseSession() {
+    if (gActiveFuseRequestSession != nullptr) {
+        return gActiveFuseRequestSession;
+    }
+    return gLastFuseSession.load(std::memory_order_acquire);
+}
+
 void NoteTrackedPathAccessLocked(uint64_t ino) {
     gInodePathCacheAccessOrder[ino] = ++gInodePathCacheAccessGeneration;
 }
@@ -231,9 +272,19 @@ uint32_t RuntimeState::ReqUid(fuse_req_t req) {
 }
 
 void RuntimeState::RememberFuseSession(fuse_req_t req) {
-    if (req != nullptr && req->se != nullptr) {
-        gLastFuseSession.store(req->se, std::memory_order_relaxed);
+    if (req == nullptr || req->se == nullptr) {
+        gActiveFuseRequestSession = nullptr;
+        return;
     }
+    {
+        std::lock_guard<std::mutex> lock(gFuseSessionStateMutex);
+        void* previous = gLastFuseSession.load(std::memory_order_relaxed);
+        if (previous != req->se) {
+            ClearSessionScopedTracking();
+            gLastFuseSession.store(req->se, std::memory_order_release);
+        }
+    }
+    gActiveFuseRequestSession = req->se;
 }
 
 // Shared dentry cache is not scoped per uid. Once another app resolves the hidden entry, the
@@ -241,7 +292,7 @@ void RuntimeState::RememberFuseSession(fuse_req_t req) {
 void RuntimeState::ScheduleHiddenEntryInvalidation() {
     auto notifyEntry =
         reinterpret_cast<int (*)(void*, uint64_t, const char*, size_t)>(gOriginalNotifyInvalEntry);
-    void* session = gLastFuseSession.load(std::memory_order_relaxed);
+    void* session = CurrentSchedulingFuseSession();
     if (notifyEntry == nullptr || session == nullptr) {
         return;
     }
@@ -292,7 +343,7 @@ void RuntimeState::ScheduleHiddenEntryInvalidation() {
 void RuntimeState::ScheduleSpecificEntryInvalidation(uint64_t parent, std::string_view name) {
     auto notifyEntry =
         reinterpret_cast<int (*)(void*, uint64_t, const char*, size_t)>(gOriginalNotifyInvalEntry);
-    void* session = gLastFuseSession.load(std::memory_order_relaxed);
+    void* session = CurrentSchedulingFuseSession();
     if (notifyEntry == nullptr || session == nullptr || parent == 0 || name.empty()) {
         return;
     }
@@ -309,7 +360,7 @@ void RuntimeState::ScheduleSpecificEntryInvalidation(uint64_t parent, std::strin
 void RuntimeState::ScheduleHiddenInodeInvalidation(uint64_t ino) {
     auto notifyInode =
         reinterpret_cast<int (*)(void*, uint64_t, off_t, off_t)>(gOriginalNotifyInvalInode);
-    void* session = gLastFuseSession.load(std::memory_order_relaxed);
+    void* session = CurrentSchedulingFuseSession();
     if (notifyInode == nullptr || session == nullptr || ino == 0) {
         return;
     }
@@ -749,6 +800,10 @@ uint32_t ReqUid(fuse_req_t req) {
 
 void RememberFuseSession(fuse_req_t req) {
     RuntimeState::RememberFuseSession(req);
+}
+
+void ClearActiveFuseRequestSession() {
+    gActiveFuseRequestSession = nullptr;
 }
 
 void ScheduleHiddenEntryInvalidation() {

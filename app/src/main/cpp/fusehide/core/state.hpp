@@ -591,6 +591,7 @@ std::optional<int> Reply(fuse_req_t req, int err, const char* caller);
 
 uint32_t ReqUid(fuse_req_t req);
 void RememberFuseSession(fuse_req_t req);
+void ClearActiveFuseRequestSession();
 void ScheduleHiddenEntryInvalidation();
 void ScheduleHiddenInodeInvalidation(uint64_t ino);
 std::string InodePath(uint64_t ino);
@@ -609,6 +610,7 @@ bool ReplyHiddenNamedTargetError(fuse_req_t req, const char* opName, HiddenNamed
 void ArmHiddenErrorRemap(fuse_req_t req, int err, const char* opName);
 int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller);
 void ArmHiddenCreateLeakRemap(fuse_req_t req, const char* opName);
+void ClearPendingRootSnapshotMutations();
 
 bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino);
 bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino);
