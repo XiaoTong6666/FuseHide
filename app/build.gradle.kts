@@ -139,7 +139,7 @@ android {
 dependencies {
     compileOnly(libs.api)
     implementation(project(path = ":uihelper"))
-    implementation(libs.miuix)
+    implementation(libs.miuix.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.core.ktx)
