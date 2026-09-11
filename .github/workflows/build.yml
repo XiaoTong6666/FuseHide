@@ -16,6 +16,8 @@ on:
         value: ${{ jobs.build.outputs.release_artifact_name }}
       debug_artifact_name:
         value: ${{ jobs.build.outputs.debug_artifact_name }}
+      zygisk_release_zip_name:
+        value: ${{ jobs.build.outputs.zygisk_release_zip_name }}
       version_name:
         value: ${{ jobs.build.outputs.version_name }}
       version_code:
@@ -34,6 +36,8 @@ on:
         value: ${{ jobs.build.outputs.release_sha256 }}
       debug_sha256:
         value: ${{ jobs.build.outputs.debug_sha256 }}
+      zygisk_release_sha256:
+        value: ${{ jobs.build.outputs.zygisk_release_sha256 }}
 
 permissions:
   contents: write
@@ -52,6 +56,7 @@ jobs:
       debug_apk_name: ${{ steps.meta.outputs.debug_apk_name }}
       release_artifact_name: ${{ steps.meta.outputs.release_artifact_name }}
       debug_artifact_name: ${{ steps.meta.outputs.debug_artifact_name }}
+      zygisk_release_zip_name: ${{ steps.meta.outputs.zygisk_release_zip_name }}
       version_name: ${{ steps.meta.outputs.version_name }}
       version_code: ${{ steps.meta.outputs.version_code }}
       community_tag: ${{ steps.meta.outputs.community_tag }}
@@ -61,6 +66,7 @@ jobs:
       build_duration: ${{ steps.build.outputs.duration_human }}
       release_sha256: ${{ steps.meta.outputs.release_sha256 }}
       debug_sha256: ${{ steps.meta.outputs.debug_sha256 }}
+      zygisk_release_sha256: ${{ steps.meta.outputs.zygisk_release_sha256 }}
 
     steps:
       - name: Checkout
@@ -126,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p dist/apks/debug dist/apks/release dist/metadata
+          mkdir -p dist/apks/debug dist/apks/release dist/zygisk dist/metadata
 
           VERSION_CODE="$(git rev-list --count HEAD)"
           VERSION_NAME="1.${VERSION_CODE}"
@@ -138,18 +144,24 @@ jobs:
 
           DEBUG_APK="$(find app/build/outputs/apk/debug -type f -name '*.apk' | sort | head -n1)"
           RELEASE_APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | sort | head -n1)"
+          ZYGISK_RELEASE_ZIP="$(find app/build/zygisk -maxdepth 1 -type f -name '*-release.zip' | sort | head -n1)"
 
           test -f "$DEBUG_APK"
           test -f "$RELEASE_APK"
+          test -f "$ZYGISK_RELEASE_ZIP"
 
           cp "$DEBUG_APK" "dist/apks/debug/${DEBUG_APK_NAME}"
           cp "$RELEASE_APK" "dist/apks/release/${RELEASE_APK_NAME}"
+          cp "$ZYGISK_RELEASE_ZIP" dist/zygisk/
+
+          ZYGISK_RELEASE_ZIP_NAME="$(basename "$ZYGISK_RELEASE_ZIP")"
 
           COMMIT_SHA="$(git rev-parse --short HEAD)"
           COMMIT_FULL_SHA="$(git rev-parse HEAD)"
           COMMIT_URL="https://github.com/${{ github.repository }}/commit/${COMMIT_FULL_SHA}"
           RELEASE_SHA256="$(sha256sum "dist/apks/release/${RELEASE_APK_NAME}" | awk '{print $1}')"
           DEBUG_SHA256="$(sha256sum "dist/apks/debug/${DEBUG_APK_NAME}" | awk '{print $1}')"
+          ZYGISK_RELEASE_SHA256="$(sha256sum "dist/zygisk/${ZYGISK_RELEASE_ZIP_NAME}" | awk '{print $1}')"
 
           git log -1 --pretty=%B > dist/metadata/commit-message.txt
 
@@ -158,6 +170,7 @@ jobs:
 
           - Release APK: \`${RELEASE_APK_NAME}\`
           - Debug APK: \`${DEBUG_APK_NAME}\`
+          - Zygisk release ZIP: \`${ZYGISK_RELEASE_ZIP_NAME}\`
           - Version: \`${VERSION_NAME}\`
           - VersionCode: \`${VERSION_CODE}\`
           - Commit: [\`${COMMIT_SHA}\`](${COMMIT_URL})
@@ -167,6 +180,7 @@ jobs:
 
           - Release: \`${RELEASE_SHA256}\`
           - Debug: \`${DEBUG_SHA256}\`
+          - Zygisk release: \`${ZYGISK_RELEASE_SHA256}\`
           EOF
 
           cat dist/metadata/build-summary.md >> "$GITHUB_STEP_SUMMARY"
@@ -176,6 +190,7 @@ jobs:
             echo "debug_apk_name=${DEBUG_APK_NAME}"
             echo "release_artifact_name=${RELEASE_ARTIFACT_NAME}"
             echo "debug_artifact_name=${DEBUG_ARTIFACT_NAME}"
+            echo "zygisk_release_zip_name=${ZYGISK_RELEASE_ZIP_NAME}"
             echo "version_name=${VERSION_NAME}"
             echo "version_code=${VERSION_CODE}"
             echo "community_tag=${COMMUNITY_TAG}"
@@ -184,6 +199,7 @@ jobs:
             echo "commit_url=${COMMIT_URL}"
             echo "release_sha256=${RELEASE_SHA256}"
             echo "debug_sha256=${DEBUG_SHA256}"
+            echo "zygisk_release_sha256=${ZYGISK_RELEASE_SHA256}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload debug APK
@@ -205,6 +221,14 @@ jobs:
         with:
           name: apk-files
           path: dist/apks/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload Zygisk module ZIP
+        uses: actions/upload-artifact@main
+        with:
+          name: zygisk-zips
+          path: dist/zygisk/*.zip
           if-no-files-found: error
           retention-days: 7
 

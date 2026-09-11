@@ -52,8 +52,29 @@ jobs:
       build_duration: ${{ needs.build.outputs.build_duration }}
       release_apk_name: ${{ needs.build.outputs.release_apk_name }}
       debug_apk_name: ${{ needs.build.outputs.debug_apk_name }}
+      zygisk_release_zip_name: ${{ needs.build.outputs.zygisk_release_zip_name }}
       release_sha256: ${{ needs.build.outputs.release_sha256 }}
       debug_sha256: ${{ needs.build.outputs.debug_sha256 }}
+      zygisk_release_sha256: ${{ needs.build.outputs.zygisk_release_sha256 }}
+    secrets: inherit
+
+  pages:
+    name: Update pages metadata
+    needs:
+      - build
+      - release
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    uses: ./.github/workflows/pages.yml
+    with:
+      release_tag: v${{ needs.build.outputs.version_code }}
+      release_title: FuseHide ${{ needs.build.outputs.version_name }}
+      version_code: ${{ needs.build.outputs.version_code }}
+      version_name: ${{ needs.build.outputs.version_name }}
+      release_zip_name: ${{ needs.build.outputs.zygisk_release_zip_name }}
+      commit_sha: ${{ needs.build.outputs.commit_sha }}
+      commit_url: ${{ needs.build.outputs.commit_url }}
+      build_duration: ${{ needs.build.outputs.build_duration }}
+      release_sha256: ${{ needs.build.outputs.zygisk_release_sha256 }}
     secrets: inherit
 
   xposed-release:

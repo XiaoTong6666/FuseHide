@@ -1,0 +1,108 @@
+name: Pages Metadata
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      release_title:
+        required: true
+        type: string
+      version_code:
+        required: true
+        type: string
+      version_name:
+        required: true
+        type: string
+      release_zip_name:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
+      commit_url:
+        required: true
+        type: string
+      build_duration:
+        required: true
+        type: string
+      release_sha256:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  pages:
+    name: Update pages metadata
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build metadata
+        uses: actions/download-artifact@main
+        with:
+          name: build-metadata
+          path: dist/metadata
+
+      - name: Update Zygisk metadata and changelog
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_TITLE: ${{ inputs.release_title }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          RELEASE_ZIP_NAME: ${{ inputs.release_zip_name }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          COMMIT_URL: ${{ inputs.commit_url }}
+          BUILD_DURATION: ${{ inputs.build_duration }}
+          RELEASE_SHA256: ${{ inputs.release_sha256 }}
+        run: |
+          set -euo pipefail
+
+          ZIP_URL="https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/${RELEASE_ZIP_NAME}"
+          CHANGELOG_URL="https://raw.githubusercontent.com/${{ github.repository }}/pages/README.md"
+
+          git clone --depth=1 --branch pages "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}" pages
+          cd pages
+
+          {
+            echo "# ${RELEASE_TITLE}"
+            echo
+            echo "- **Version:** \`${VERSION_NAME}\`"
+            echo "- **VersionCode:** \`${VERSION_CODE}\`"
+            echo "- **Commit:** [\`${COMMIT_SHA}\`](${COMMIT_URL})"
+            echo "- **Build time:** \`${BUILD_DURATION}\`"
+            echo "- **SHA256:** \`${RELEASE_SHA256}\`"
+            echo
+            echo "## Message"
+            echo
+            echo '```text'
+            cat ../dist/metadata/commit-message.txt
+            echo '```'
+          } > README.md
+
+          cat > fusehide_zygisk.json <<EOF
+          {
+            "versionCode": ${VERSION_CODE},
+            "version": "${VERSION_NAME}",
+            "zipUrl": "${ZIP_URL}",
+            "changelog": "${CHANGELOG_URL}"
+          }
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add README.md fusehide_zygisk.json
+
+          if ! git diff --staged --quiet; then
+            git commit -m "Update pages metadata (versionCode=${VERSION_CODE})"
+            git push
+          else
+            echo "No changes, skip."
+          fi

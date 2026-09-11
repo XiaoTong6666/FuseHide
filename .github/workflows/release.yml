@@ -33,10 +33,16 @@ on:
       debug_apk_name:
         required: true
         type: string
+      zygisk_release_zip_name:
+        required: true
+        type: string
       release_sha256:
         required: true
         type: string
       debug_sha256:
+        required: true
+        type: string
+      zygisk_release_sha256:
         required: true
         type: string
 
@@ -64,6 +70,12 @@ jobs:
         with:
           name: build-metadata
           path: dist/metadata
+
+      - name: Download Zygisk module ZIP
+        uses: actions/download-artifact@main
+        with:
+          name: zygisk-zips
+          path: dist/zygisk
 
       - name: Delete existing release assets
         if: ${{ inputs.delete_existing_assets }}
@@ -98,8 +110,10 @@ jobs:
           BUILD_DURATION: ${{ inputs.build_duration }}
           RELEASE_APK_NAME: ${{ inputs.release_apk_name }}
           DEBUG_APK_NAME: ${{ inputs.debug_apk_name }}
+          ZYGISK_RELEASE_ZIP_NAME: ${{ inputs.zygisk_release_zip_name }}
           RELEASE_SHA256: ${{ inputs.release_sha256 }}
           DEBUG_SHA256: ${{ inputs.debug_sha256 }}
+          ZYGISK_RELEASE_SHA256: ${{ inputs.zygisk_release_sha256 }}
         run: |
           set -euo pipefail
 
@@ -115,11 +129,13 @@ jobs:
             echo
             echo "- \`${RELEASE_APK_NAME}\`"
             echo "- \`${DEBUG_APK_NAME}\`"
+            echo "- \`${ZYGISK_RELEASE_ZIP_NAME}\`"
             echo
             echo "## SHA256"
             echo
             echo "- Release: \`${RELEASE_SHA256}\`"
             echo "- Debug: \`${DEBUG_SHA256}\`"
+            echo "- Zygisk release: \`${ZYGISK_RELEASE_SHA256}\`"
             echo
             echo "## Message"
             echo
@@ -141,5 +157,6 @@ jobs:
           files: |
             dist/apks/debug/FuseHide_Debug_v*.apk
             dist/apks/release/FuseHide_v*.apk
+            dist/zygisk/FuseHide-*-release.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

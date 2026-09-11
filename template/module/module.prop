@@ -4,3 +4,4 @@ version=@VERSION_NAME@ (@VERSION_CODE@-@COMMIT_HASH@-@BUILD_TYPE@)
 versionCode=@VERSION_CODE@
 author=XiaoTong
 description=Hide /sdcard paths per-UID in the MediaProvider FUSE daemon via Zygisk
+updateJson=https://raw.githubusercontent.com/XiaoTong6666/FuseHide/pages/fusehide_zygisk.json
