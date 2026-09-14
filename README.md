@@ -1,26 +1,20 @@
-# FuseHide 1.166
+# FuseHide 1.167
 
-- **Version:** `1.166`
-- **VersionCode:** `166`
-- **Commit:** [`68a84ef`](https://github.com/XiaoTong6666/FuseHide/commit/68a84ef38ad764fed10cbc7363b5382ab3896e40)
-- **Build time:** `7m 40s`
-- **SHA256:** `95885d3b987eaa1d61912ef3e0a4997df96853be172a99f4d546a327a1dd5297`
+- **Version:** `1.167`
+- **VersionCode:** `167`
+- **Commit:** [`6f4d1ee`](https://github.com/XiaoTong6666/FuseHide/commit/6f4d1eeb51b90acea8ce3d3979fcc5b583bdf445)
+- **Build time:** `7m 25s`
+- **SHA256:** `b6f5af5a1a378745e7fdb12aa92888167d61c00f18b93301b508a89fdd2e2e96`
 
 ## Message
 
 ```text
-build(deps): bump androidx.navigation:navigation-compose (#72)
+docs(readme): add bilingual project documentation
 
-Bumps androidx.navigation:navigation-compose from 2.10.0 to 2.10.1.
+重写项目 README，以英文作为主文档，并新增完整中文版本。
 
----
-updated-dependencies:
-- dependency-name: androidx.navigation:navigation-compose
-  dependency-version: 2.10.1
-  dependency-type: direct:production
-  update-type: version-update:semver-patch
-...
+结合当前源码补充 LSPosed/libxposed 与独立 Zygisk 双注入后端、MediaProvider FUSE 多层路径过滤、按 UID/包名合并隐藏规则、运行时配置同步、缓存失效以及 native ABI 兼容策略。
 
-Signed-off-by: dependabot[bot] <support@github.com>
-Co-authored-by: dependabot[bot] <xiaotong6666@users.noreply.github.com>
+同时更新当前默认隐藏配置、安装方式、构建环境、Gradle 部署任务和排错说明，并加入中英文 README 互相切换入口。
+
 ```
