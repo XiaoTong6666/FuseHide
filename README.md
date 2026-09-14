@@ -1,185 +1,372 @@
 # FuseHide
 
-## 简介
+[🇨🇳 中文 README](README.zh-CN.md)
 
-FuseHide 是一个面向 Android 12+ 的 LSPosed/Xposed 模块与 MediaProvider/FUSE 调试工具。
+FuseHide is an Android 12+ storage-visibility module and MediaProvider/FUSE research tool. It injects into the MediaProvider process and hooks the userspace FUSE implementation in `libfuse_jni.so`, allowing selected apps to see a filtered view of `/storage/emulated/0` (`/sdcard`) according to runtime-configurable, per-UID rules.
 
-当前实现会在 `MediaProvider` 进程中加载 `libfusehide.so`，并在 `libfuse_jni.so` 加载后安装 native hook，用于按运行时配置对指定应用隐藏 `/storage/emulated/0`（`/sdcard`）下的普通路径，同时保留对 `Android/data`、`Android/obb` 相关 Unicode 场景的调试与修复逻辑。
+FuseHide currently provides two injection backends:
 
-当前版本同时包含 `/storage/emulated/0/Android/{data,obb}` 可忽略码点绕过修复与运行时可配置的普通路径隐藏策略：
+- **LSPosed / libxposed**, using the Android app as an Xposed module.
+- **Standalone Zygisk**, using a flashable root-module package and Dobby-based native hooks without requiring LSPosed.
 
-- 对指定包名对应的 UID 生效。
-- 支持隐藏 `/storage/emulated/0` 下的一级目录名，例如默认的 `xinhao`、`MT2`。
-- 支持配置相对路径隐藏，例如 `Download/private` 这类嵌套目录。
-- 支持“隐藏所有一级目录”的压力测试模式，并允许配置例外项。
-- 支持在应用侧编辑配置，并将配置热同步到已注入的 MediaProvider 进程。
+Both backends converge on the same `libfusehide.so` runtime, the same path policy, and the same configuration model.
 
-默认作用域为：
+FuseHide also keeps the original MediaProvider-oriented Unicode research and mitigation path for `Android/data` and `Android/obb`. Normal `/sdcard` path hiding and the special `Android/data` / `Android/obb` path are related to the same MediaProvider process, but they are **not the same hook path**.
 
-- `com.android.providers.media.module`
-- `com.google.android.providers.media.module`
+> [!WARNING]
+> FuseHide works by hooking internal MediaProvider and FUSE implementation details. These ABIs are not public Android APIs and can change between Android releases, MediaProvider updates, and vendor ROMs. The project deliberately skips unsafe hooks when an ABI cannot be verified instead of blindly applying offsets or layouts.
 
-启用模块后，需要重启 MediaProvider 作用域进程或重启设备。
+## Features
 
-## 工作原理
+- Hide first-level entries under `/storage/emulated/0` for selected packages.
+- Hide nested relative paths such as `Download/private` without hiding their visible parent directory.
+- Define package-specific hide rules in addition to global rules.
+- Optional stress-test mode for hiding all first-level entries except configured exemptions.
+- Filter directory enumeration as well as direct lookup/access paths.
+- Reduce cache-based visibility leaks through entry/attribute timeout control and active invalidation.
+- Hot-reload hide configuration into the already injected MediaProvider process.
+- Query the actual native configuration currently applied inside MediaProvider.
+- LSPosed/libxposed backend and standalone Zygisk backend.
+- Runtime ELF, file-backed ELF, relocation and verified device-profile based hook resolution.
+- Compatibility handling for multiple MediaProvider directory-entry ABIs, including newer API 37 layouts.
+- Debug/probe UI for filesystem operations and Unicode-path experiments.
 
-### 模块加载流程
+## Requirements
 
-1. LSPosed 通过 `assets/xposed_init` 加载 `io.github.xiaotong6666.fusehide.Entry`。
-2. `Entry` 在 `handleLoadPackage()` 中仅对 MediaProvider 包名生效。
-3. 命中作用域后，`Entry` 直接在目标进程中执行 `System.loadLibrary("fusehide")`。
-4. native 层通过 `assets/native_init` 暴露 `native_init()`，向宿主返回 `PostNativeInit` 回调。
-5. `PostNativeInit()` 在检测到 `libfuse_jni.so` 被加载后调用 `InstallFuseHooks()`。
-6. Java 层与注入进程通过广播、`HideConfigProvider`、`HideConfigRequestReceiver` 同步状态与隐藏配置。
+FuseHide currently targets:
 
-### 普通路径隐藏说明
+- Android 12 / API 31 or newer.
+- MediaProvider package:
+  - `com.android.providers.media.module`, or
+  - `com.google.android.providers.media.module`.
 
-普通路径隐藏并不依赖 fuse-bpf。
+For the **LSPosed backend**, a compatible LSPosed/libxposed environment is required.
 
-FuseHide 对 `/storage/emulated/0` 下普通目录的隐藏，是直接在 MediaProvider 的 FUSE 处理链路中完成的：
+For the **Zygisk backend**, a compatible root environment and Zygisk implementation are required. The packaged installer supports Magisk-compatible installation flows and KernelSU-style module installation; the actual runtime still depends on a working Zygisk implementation on the device.
 
-- `WrappedIsAppAccessiblePath()` 在路径访问判断处按 UID 与路径策略拒绝隐藏目标。
-- `WrappedReplyEntry()` 在隐藏目标 lookup 命中后，优先通过 `fuse_reply_err(ENOENT)` 把 positive lookup 改成不存在。
-- `WrappedReplyBuf()` 作为目录枚举最终出口，识别多种 FUSE reply payload 形式并过滤隐藏项。
-- `WrappedShouldNotCache()` 对隐藏子树强制返回 `true`，避免 positive dentry/file-cache 被跨 UID 复用。
-- `WrappedReplyAttr()` 在当前 `getattr` 命中隐藏子树时把 attr cache timeout 置 0。
-- `ScheduleHiddenEntryInvalidation()`、`ScheduleSpecificEntryInvalidation()`、`ScheduleHiddenInodeInvalidation()` 主动压掉 entry 与 inode cache，减少 positive cache 复活导致的泄漏。
+## Injection modes
 
-因此，对普通路径隐藏而言，核心依赖是 `libfuse_jni.so` 内部 FUSE handler 与 reply 链路的 hook，而不是内核是否启用了 fuse-bpf。
+### LSPosed / libxposed
 
-项目保留了 `is_bpf_backing_path` 相关 hook。该部分用于 `Android/data`、`Android/obb` 这类特殊 pass-through / backing 路径场景的 Unicode 相关处理；这与普通路径隐藏不是同一条依赖链路。
+The Xposed metadata is under `app/src/main/resources/META-INF/xposed/`.
 
-### Android/data 场景说明
-
-`/storage/emulated/0/Android/data` 与 `/storage/emulated/0/Android/obb` 不属于本项目用于普通目录隐藏的目录枚举过滤链路。
-
-MediaProvider 对这两类路径使用单独的访问控制路径。当前仓库中可直接对应的证据包括：
-
-- Java 调试层会在可调试构建中 hook 并记录 `MediaProvider.isUidAllowedAccessToDataOrObbPathForFuse()` 的返回值。
-- native 层保留了 `is_bpf_backing_path`、`is_package_owned_path`、`EqualsIgnoreCase` 相关 hook 安装逻辑。
-- 上游 MediaProvider/FuseDaemon 实现对 `Android/data`、`Android/obb` 使用 backing path 判定与后续专用处理，而不是普通公共目录的通用目录过滤路径。
-
-本项目在这部分的处理是修复特殊路径判断中的 Unicode 可忽略码点绕过，并保持 `Android/data`、`Android/obb` 的访问判定落入 MediaProvider 的专用访问控制路径。
-
-当前应用界面会展示这些系统属性：
-
-- `ro.fuse.bpf.is_running`
-- `persist.sys.vold_app_data_isolation_enabled`
-- `external_storage.sdcardfs.enabled`
-
-当前代码中的界面提示逻辑是：当 `ro.fuse.bpf.is_running=false` 且 `persist.sys.vold_app_data_isolation_enabled=false` 时，界面显示 `App data isolation is required to fix Android/data access.`，并显示 `setprop persist.sys.vold_app_data_isolation_enabled 1`。
-
-这部分内容对应的是当前应用的诊断输出与调试提示。
-
-## 当前主要能力
-
-### 运行时隐藏配置
-
-配置项包括：
-
-- `enableHideAllRootEntries`：隐藏 `/storage/emulated/0` 下所有一级目录，默认关闭。
-- `hideAllRootEntriesExemptions`：隐藏所有一级目录时的例外项，默认保留 `Android` 可见。
-- `hiddenRootEntryNames`：要隐藏的一级目录名，默认包括 `xinhao`、`MT2`。
-- `hiddenRelativePaths`：要隐藏的相对路径，默认为空，适合嵌套目标，例如 `Download/private`。
-- `hiddenPackages`：对哪些包名对应的 UID 生效，当前默认包括：
-  `com.eltavine.duckdetector`、`io.github.xiaotong6666.fusehide`、`io.github.a13e300.fusefixer`。
-
-默认值来自 native 层的 `HideConfigNativeBridge`，Java/Kotlin 层通过 `HideConfigDefaults` 读取。
-
-配置保存后可通过广播热加载到 MediaProvider。注入进程优先通过 `HideConfigProvider` 读取配置；如果 provider 暂不可用，则通过 `HideConfigRequestReceiver` 请求配置。当前请求超时为 3 秒。注入进程还会在以下系统阶段触发配置重试：
-
-- `Intent.ACTION_LOCKED_BOOT_COMPLETED`
-- `Intent.ACTION_BOOT_COMPLETED`
-- `Intent.ACTION_USER_UNLOCKED`
-
-### Hook 覆盖范围
-
-native 层会尝试覆盖以下链路：
-
-- 路径访问判断：`is_app_accessible_path`
-- Android/data backing 判断：`is_bpf_backing_path`
-- 包路径判断：`is_package_owned_path`
-- 字符串比较：`strcasecmp`、`EqualsIgnoreCase`
-- lookup：`pf_lookup`、`pf_lookup_postfilter`、`fuse_reply_entry`
-- getattr：`pf_getattr`、`fuse_reply_attr`
-- 目录枚举：`pf_readdir`、`pf_readdirplus`、`pf_readdir_postfilter`、`do_readdir_common`、`GetDirectoryEntries`、`addDirectoryEntriesFromLowerFs`、`fuse_reply_buf`
-- 创建、删除与重命名：`pf_mkdir`、`pf_mknod`、`pf_create`、`pf_unlink`、`pf_rmdir`、`pf_rename`
-- lower-fs 兜底：`stat`、`lstat`、`getxattr`、`lgetxattr`、`mkdir`、`mknod`、`open`、`__open_2`
-- 缓存控制与失效：`ShouldNotCache`、`fuse_lowlevel_notify_inval_entry`、`fuse_lowlevel_notify_inval_inode`
-- 错误码修正：`fuse_reply_err`
-
-这些 hook 先通过符号、`.gnu_debugdata`、重定位槽和布局推导解析；解析不足时再回退到设备 profile offset。
-
-### 目录枚举过滤
-
-目录隐藏不是只拦单个 lookup。FuseHide 会在多个层级过滤目录项：
-
-1. `GetDirectoryEntries()` 返回的 native vector。
-2. `addDirectoryEntriesFromLowerFs()` 追加的 lower-fs 目录项。
-3. `pf_readdir` / `pf_readdirplus` / `pf_readdir_postfilter` 的上下文记录。
-4. `WrappedReplyBuf()` 中的最终 FUSE wire payload。
-
-`WrappedReplyBuf()` 是最后一层过滤点。它会结合 pending readdir context、inode-path cache、最近可见父目录路径等信息过滤隐藏项。
-
-### 缓存与错误码泄漏处理
-
-为了避免“路径已经隐藏，但缓存或错误码仍然暴露目标存在”，native 层还处理了：
-
-- hidden subtree inode 跟踪。
-- inode 到 path 的缓存。
-- 最近隐藏父路径记录，用于嵌套相对路径的 fallback 过滤。
-- hidden lookup 命中后的 entry/inode invalidation。
-- hidden getattr 的 attr timeout 置 0。
-- hidden entry 的 entry timeout / attr timeout 置 0。
-- `EEXIST`、`EISDIR`、`ENOTEMPTY`、`ENOTDIR` 等存在性错误码 remap。
-- create / mkdir / rename / unlink / rmdir 路径中的隐藏目标短路。
-
-## 使用方法
-
-### 安装
-
-1. 安装 APK。
-2. 在 LSPosed 中启用 FuseHide。
-3. 勾选作用域：
-   - `com.android.providers.media.module`
-   - `com.google.android.providers.media.module`
-4. 重启 MediaProvider 作用域进程，或直接重启设备。
-5. 打开 FuseHide，确认 Hook 状态显示已 Hook。
-
-### 配置隐藏策略
-
-在“配置”页面可以编辑：
-
-- 是否隐藏所有一级目录。
-- 一级目录例外。
-- 隐藏目标。
-- 隐藏包名。
-
-“隐藏目标”每行一条：
+The runtime chain is:
 
 ```text
-xinhao
-MT2
-Download/private
+LSPosed / libxposed
+    -> Entry.onPackageLoaded()
+    -> only accept MediaProvider package names
+    -> System.loadLibrary("fusehide")
+    -> hook Application.attach()
+    -> capture MediaProvider Application
+    -> register config/status receivers
+    -> native_init()
+    -> PostNativeInit("libfuse_jni.so", ...)
+    -> InstallFuseHooks()
 ```
 
-当前应用中的解析规则如下：
+`Entry` intentionally ignores non-MediaProvider processes.
 
-- 不含 `/` 的值会作为一级目录名处理，进入 `hiddenRootEntryNames`。
-- 含 `/` 的值会作为相对路径处理，进入 `hiddenRelativePaths`。
-- 路径前后的 `/` 会被规范化。
-- 隐藏策略只对 `hiddenPackages` 中包名对应的 UID 生效。
+The default static scope contains:
 
-按钮说明：
+```text
+com.android.providers.media.module
+com.google.android.providers.media.module
+```
 
-- “保存”：只保存到 FuseHide 应用本地配置。
-- “应用”：保存并向 MediaProvider 作用域广播重新加载配置。
-- “刷新已应用配置”：从已注入的 MediaProvider 进程读取当前 native 配置快照。
-- “恢复默认值”：恢复源码内置默认隐藏配置到编辑器。
+### Standalone Zygisk
 
-### 路径检测
+The Zygisk implementation lives under `app/src/main/cpp/zygisk/`.
 
-“检测”页面提供直接文件系统测试：
+The runtime chain is:
+
+```text
+Zygisk
+    -> preAppSpecialize()
+    -> match MediaProvider process name
+    -> preload injected dex + libfusehide.so from the module directory
+    -> postAppSpecialize()
+    -> Dobby-hook linker do_dlopen
+    -> wait until libfuse_jni.so is loaded
+    -> call libfusehide native_init()
+    -> provide DobbyHook through the native hook API bridge
+    -> PostNativeInit("libfuse_jni.so", ...)
+    -> register HideConfigNativeBridge JNI methods
+    -> start ZygiskEntry with the MediaProvider system context
+```
+
+The injected Java classes are loaded from the APK dex payload through `InMemoryDexClassLoader`.
+
+### LSPosed and Zygisk arbitration
+
+FuseHide should not install both hook backends into the same MediaProvider process.
+
+The Zygisk module contains `post-fs-data.sh` logic that checks LSPosed's module/scope database for an enabled FuseHide MediaProvider scope. When that scope is detected, the module records `lsp_scope_enabled` and disables the Zygisk module path. The native Zygisk entry also checks the marker and refuses to inject when the LSPosed path is active.
+
+In other words, **use one injection backend for MediaProvider at a time**.
+
+## How path hiding works
+
+Normal path hiding does **not** require fuse-bpf. FuseHide performs the policy enforcement inside MediaProvider's userspace FUSE daemon.
+
+A simplified request flow is:
+
+```text
+restricted app
+    -> Linux VFS
+    -> /dev/fuse
+    -> MediaProvider libfuse_jni worker
+    -> FuseHide request/reply hooks
+    -> per-UID hide policy
+    -> filtered FUSE result
+```
+
+FuseHide does not rely on only one lookup hook. The implementation covers several layers so that a path cannot remain visible simply because a different filesystem operation was used.
+
+### Direct path operations
+
+The native layer hooks or wraps relevant MediaProvider paths such as:
+
+- `is_app_accessible_path`
+- `pf_lookup`
+- `pf_lookup_postfilter`
+- `pf_getattr`
+- `pf_create`
+- `pf_mkdir`
+- `pf_mknod`
+- `pf_unlink`
+- `pf_rmdir`
+- `pf_rename`
+- selected lower-filesystem fallbacks such as `stat`, `lstat`, `open`, `getxattr`, and related calls
+
+When a resolved per-UID rule says that the requested path belongs to a hidden subtree, FuseHide attempts to make the target behave as absent rather than merely inaccessible.
+
+### Directory enumeration
+
+Hiding a path from `stat()` or lookup is not enough: the entry must also disappear from directory listings.
+
+FuseHide therefore covers multiple enumeration stages, including:
+
+- `pf_readdir`
+- `pf_readdirplus`
+- `pf_readdir_postfilter`
+- `do_readdir_common`
+- `GetDirectoryEntries`
+- `addDirectoryEntriesFromLowerFs`
+- `fuse_reply_buf`
+
+`WrappedReplyBuf()` acts as a final FUSE-wire filtering layer. It recovers the request UID / inode / parent-path context, recognizes supported directory-entry payload layouts, removes entries matching the resolved hide rule, and forwards the rewritten reply buffer.
+
+### Reply and cache handling
+
+A hidden target may already have a positive dentry, inode, or attribute cache entry. Without cache handling, an app could observe a path even after the policy says it should be hidden.
+
+FuseHide therefore also handles:
+
+- `fuse_reply_entry`
+- `fuse_reply_attr`
+- `fuse_reply_err`
+- `ShouldNotCache`
+- `fuse_lowlevel_notify_inval_entry`
+- `fuse_lowlevel_notify_inval_inode`
+
+For hidden targets the implementation can zero entry/attribute timeouts, avoid caching, and schedule entry/inode invalidation. Runtime tracking is scoped carefully so that state learned from one UID is not blindly reused for another UID with a different hide policy.
+
+## `Android/data` and `Android/obb`
+
+`/storage/emulated/0/Android/data` and `/storage/emulated/0/Android/obb` are special MediaProvider paths. Their access control is not simply the same directory-enumeration path used for ordinary public `/sdcard` folders.
+
+FuseHide retains hooks and diagnostics around components such as:
+
+- `is_bpf_backing_path`
+- `is_package_owned_path`
+- case-insensitive path comparison
+- ICU `Default_Ignorable_Code_Point` handling
+- `MediaProvider.isUidAllowedAccessToDataOrObbPathForFuse()` tracing in debuggable builds
+
+The Unicode policy recognizes default-ignorable characters and normalizes the affected comparison paths so that visually disguised path components do not escape the intended MediaProvider checks.
+
+This special-path work should not be confused with normal configured path hiding: ordinary `/sdcard` filtering is implemented through the FUSE request/reply path even when fuse-bpf is not running.
+
+## Configuration model
+
+FuseHide maintains a runtime `HideConfig` with these main fields:
+
+- `enableHideAllRootEntries`
+- `hideAllRootEntriesExemptions`
+- `hiddenRootEntryNames`
+- `hiddenRelativePaths`
+- `hiddenPackages`
+- `packageRules`
+
+### Global rules
+
+`hiddenRootEntryNames` contains first-level names under `/storage/emulated/0`.
+
+For example:
+
+```text
+su
+daemonsu
+```
+
+`hiddenRelativePaths` contains paths relative to `/storage/emulated/0`:
+
+```text
+Download/private
+Documents/internal/test
+```
+
+Leading/trailing slashes and repeated separators are normalized by the native policy.
+
+### Which apps receive global rules
+
+`hiddenPackages` is the package allow-list for the **global** hide rule.
+
+For each FUSE request, FuseHide resolves the request UID to its current package set through `PackageManager#getPackagesForUid()`. If one of those packages is present in `hiddenPackages`, the global rule is merged into that UID's effective rule.
+
+The UID-to-rule result is cached, but package add/remove broadcasts invalidate the package-set generation and derived caches so a stale package association is not kept indefinitely.
+
+### Package-specific rules
+
+Package-specific targets are stored as `PackageHideRule` objects and can be edited with `[package.name]` sections.
+
+Example:
+
+```text
+su
+daemonsu
+
+[io.github.xiaotong6666.fusehide]
+xinhao
+Download/private
+
+[com.eltavine.duckdetector]
+MT2
+xinhao
+```
+
+Rules before the first section are global targets. A value containing `/` is treated as a relative path; a value without `/` is treated as a first-level entry name.
+
+Package-specific rules are matched against every package currently belonging to the request UID and merged together. A package-specific section can therefore apply even when that package is not listed in `hiddenPackages`; `hiddenPackages` specifically controls inheritance of the global rule.
+
+### Current source defaults
+
+The current native defaults are:
+
+Global root names:
+
+```text
+su
+daemonsu
+```
+
+Packages receiving the global rule:
+
+```text
+com.eltavine.duckdetector
+io.github.xiaotong6666.fusehide
+io.github.a13e300.fusefixer
+```
+
+Package-specific defaults:
+
+```text
+[io.github.xiaotong6666.fusehide]
+xinhao
+
+[com.eltavine.duckdetector]
+MT2
+xinhao
+```
+
+`enableHideAllRootEntries` is disabled by default.
+
+When enabled, all first-level entries are considered hidden except configured exemptions. The source defaults currently keep these names visible:
+
+```text
+Android
+DCIM
+Document
+Download
+Movies
+Pictures
+```
+
+## Runtime configuration sync
+
+The configuration UI is not just an editor for local preferences. FuseHide can synchronize a configuration into the already injected MediaProvider process and ask that process to report the native configuration it actually has applied.
+
+The main pieces are:
+
+- `HideConfigStore`
+- `HideConfigProvider`
+- `HideConfigRequestReceiver`
+- the injected `Entry` / `ZygiskEntry`
+- `HideConfigNativeBridge`
+
+The injected process first attempts to recover a persisted injected-process snapshot, then obtains current app-side configuration through the provider path. A broadcast fallback is available when the provider path cannot be used.
+
+Reload transactions use reload tokens, and the fallback IPC path contains authentication checks rather than accepting arbitrary unauthenticated configuration broadcasts.
+
+Configuration changes are published atomically to the native policy. Applying a new configuration increments its generation and invalidates dependent UID rules, root snapshots, path-classification caches, and tracked hidden targets.
+
+The injected process also retries configuration loading around boot/user lifecycle events such as:
+
+- `ACTION_LOCKED_BOOT_COMPLETED`
+- `ACTION_BOOT_COMPLETED`
+- `ACTION_USER_UNLOCKED`
+
+## Installation
+
+Download artifacts from [GitHub Releases](https://github.com/XiaoTong6666/FuseHide/releases).
+
+### LSPosed mode
+
+1. Install the FuseHide APK.
+2. Enable FuseHide in LSPosed.
+3. Scope it to MediaProvider:
+   - `com.android.providers.media.module`
+   - `com.google.android.providers.media.module`
+4. Restart the scoped MediaProvider process or reboot the device.
+5. Open FuseHide and check the runtime status page.
+
+Only the MediaProvider package present on your ROM needs to be active.
+
+### Zygisk mode
+
+1. Use a compatible root environment with a working Zygisk implementation.
+2. Install the FuseHide APK if you want the configuration/probe UI and provider-side runtime configuration.
+3. Flash the `FuseHide-*-release.zip` module from the release assets with your root manager.
+4. Reboot the device.
+5. Make sure FuseHide is not simultaneously scoped to MediaProvider in LSPosed.
+6. Open the app and verify that the MediaProvider hook is active.
+
+The module installer extracts the correct ABI's `libfusehide.so`, installs the Zygisk library, and extracts the injected dex payload from the packaged APK.
+
+## Using the app
+
+The current app has four main areas:
+
+- **Home** — hook/runtime status, device information, applied-state overview.
+- **Config** — global and per-app hide configuration.
+- **Probe** — direct filesystem checks for debugging policy behavior.
+- **Settings** — UI and application settings.
+
+### Applying configuration
+
+The configuration UI distinguishes the editable draft from the configuration currently applied in MediaProvider.
+
+Relevant actions include:
+
+- **Apply** — persist the edited configuration and request MediaProvider to reload it.
+- **Refresh Applied Config** — ask the injected MediaProvider process for its current native configuration snapshot.
+- **Restore Defaults** — restore source defaults into the editor.
+- **Detailed Diff** — compare the current draft against the applied MediaProvider snapshot.
+
+### Probe tools
+
+The probe screen includes operations such as:
 
 - `Stat`
 - `Access`
@@ -192,74 +379,224 @@ Download/private
 - `Rmdir`
 - `Unlink`
 - `All PKG`
-- `Self Data`
+- `App Data`
 - `Insert ZWJ`
 
-路径输入支持 `\uXXXX` 形式的 Unicode 转义。输出会把非 ASCII 字符转成 `\uXXXX`，便于和 logcat 对照。
+These tools are intended for debugging and reproducing MediaProvider/FUSE behavior, including Unicode-path cases.
 
-### 建议验证方式
+### Example validation
 
-以默认配置为例，目标应用包名命中 `hiddenPackages` 后：
+If `Download/private` is hidden for the test app, the expected behavior is:
 
-1. 在 `/storage/emulated/0` 下创建 `xinhao` 或 `MT2`。
-2. 在目标应用上下文中访问该路径。
-3. 预期：
-   - `lookup/stat/access/open` 类操作表现为不存在或不可访问。
-   - `list /storage/emulated/0` 不应列出隐藏目录项。
-   - 重复访问后不应因为 dentry / inode cache 恢复可见。
-4. 对嵌套路径，例如 `Download/private`：
-   - 父目录 `Download` 应保持可见。
-   - `Download` 的目录枚举中应过滤 `private`。
-   - 直接访问 `Download/private` 应被隐藏。
+```text
+/storage/emulated/0/Download              -> visible
+/storage/emulated/0/Download/private      -> hidden
+list(/storage/emulated/0/Download)        -> does not expose "private"
+stat/open(private)                        -> behaves as hidden/absent
+```
 
-## 构建
+Repeated access should not make the target visible again merely because a positive FUSE/VFS cache entry was created earlier.
+
+## Native compatibility strategy
+
+MediaProvider's internal C++ ABI changes over time, so FuseHide does not treat one device's offsets as universal.
+
+The native hook resolver can combine several evidence sources:
+
+- normal ELF symbol lookup
+- file-backed ELF parsing
+- runtime/in-memory ELF parsing for embedded APEX-style mappings
+- relocation/import resolution
+- `.gnu_debugdata`
+- resolved feature anchors
+- known device profiles, but only when the profile is sufficiently verified
+
+Some hooks require explicit ABI evidence. Examples include the libc++ string object layout and the MediaProvider `DirectoryEntries` container layout.
+
+If the string ABI cannot be verified, hooks that would decode or construct those string objects are skipped. If the directory-entry ABI is unknown, unsafe C++ container hooks are skipped. `fuse_req_ctx` is resolved from the linker/import/libfuse path and does not fall back to an unverified hand-written struct layout.
+
+This is intentional: an incomplete hook set is preferable to corrupting MediaProvider memory with an ABI guess.
+
+## Build
+
+Clone with submodules:
+
+```bash
+git clone --recurse-submodules https://github.com/XiaoTong6666/FuseHide.git
+cd FuseHide
+```
+
+If the repository was cloned without them:
+
+```bash
+git submodule update --init --recursive
+```
+
+The current build uses:
+
+- Gradle Wrapper `9.7.1`
+- Android Gradle Plugin `9.4.0`
+- Kotlin `2.4.20`
+- compileSdk / targetSdk `37`
+- minSdk `31`
+- Java / Kotlin target `17`
+- Android NDK `30.0.15729638`
+- C++20
+
+CI builds with JDK 21; local builds require a JDK compatible with the current Android Gradle Plugin configuration.
+
+Build debug and release artifacts:
 
 ```bash
 ./gradlew assembleDebug assembleRelease
 ```
 
-构建要求以当前 Gradle 配置为准。当前仓库使用的关键版本包括：
+The APK packaging pipeline also produces signed Zygisk module archives under:
 
-- Gradle Wrapper `9.4.1`
-- Android Gradle Plugin 9 系列
-- JDK 17+
-- Android SDK / NDK / CMake
+```text
+app/build/zygisk/
+```
 
-仓库中的 GitHub Actions 工作流会构建 debug 与 release APK，并上传 artifact；在主分支发布流程中还会创建 GitHub Release。
+Useful Gradle tasks include:
 
-## 日志与排错
+```bash
+./gradlew zipDebug
+./gradlew zipRelease
 
-建议过滤：
+./gradlew pushDebug
+./gradlew pushRelease
+
+./gradlew flashDebug
+./gradlew flashRelease
+
+./gradlew flashWithMagiskRelease
+./gradlew flashWithKsudRelease
+
+./gradlew flashAndRebootRelease
+./gradlew flashWithMagiskAndRebootRelease
+./gradlew flashWithKsudAndRebootRelease
+```
+
+`flash*` tasks use `adb` and therefore require a connected device and an appropriate root manager on that device.
+
+For formatting:
+
+```bash
+./gradlew format
+```
+
+The version code is derived from:
+
+```bash
+git rev-list --count HEAD
+```
+
+and the version name is `1.<versionCode>`. Use a full-history clone for reproducible release versioning; a shallow clone changes the commit count.
+
+## Project layout
+
+```text
+app/
+  src/main/java/io/github/xiaotong6666/fusehide/
+    config/           runtime configuration and IPC
+    debug/            probe/debug helpers
+    status/           injected-process status handling
+    ui/               Compose application UI
+    xposed/            LSPosed and injected Java entry points
+  src/main/cpp/
+    fusehide/          core FUSE hook/policy/runtime implementation
+    zygisk/            standalone Zygisk injection backend
+    third_party/Dobby/ native hook dependency
+
+baselineprofile/       Android baseline-profile module
+uihelper/              UI helper git submodule
+template/module/       Zygisk/root-module template
+scripts/               packaging/build helper scripts
+docs/                  architecture and reverse-engineering notes
+MediaProvider/          local AOSP MediaProvider reference tree; not part of the Gradle build
+```
+
+For the detailed FUSE hook architecture, see [`docs/architecture.md`](docs/architecture.md).
+
+## Troubleshooting
+
+### Capture logs
+
+A simple filter is:
+
+```bash
+adb logcat -v time | grep -i FuseHide
+```
+
+or:
 
 ```bash
 adb logcat -s FuseHide
 ```
 
-反馈问题时建议提供：
+Debug builds provide significantly more hook-resolution and request-path information than release builds.
 
-- 设备型号
-- Android 版本 / ROM 版本
-- Kernel 版本
-- MediaProvider APK 或版本信息
-- `ro.fuse.bpf.is_running`
-- `persist.sys.vold_app_data_isolation_enabled`
-- 目标路径与目标包名
-- FuseHide 配置截图或配置文本
-- 关键 logcat
+### Module reports “not hooked”
 
-## 发布地址
+Check that:
 
-- https://github.com/XiaoTong6666/FuseHide/releases
+- the device is Android 12 / API 31 or newer;
+- the ROM uses one of the supported MediaProvider package names;
+- exactly one intended injection backend is active;
+- LSPosed scope is correct when using LSPosed;
+- Zygisk is actually active when using the standalone Zygisk module;
+- MediaProvider or the device was restarted after installation/configuration changes.
 
-## 许可证
+### A path is still visible
 
-- `app/src/main/cpp/third_party/xz-embedded/*` 来自 xz-embedded，文件头声明 `SPDX-License-Identifier: 0BSD`。
-- 本仓库整体采用 Apache License 2.0，详见 [LICENSE](LICENSE)。
+When reporting a visibility problem, include both direct access and directory enumeration behavior. For example, say whether `stat`, `open`, and the parent `list` operation disagree.
 
-## 致谢
+Also include:
 
-特别感谢 5ec1cff 佬提供的原型模块作为参考以及技术指导支持，谢谢喵。
+- device model
+- Android version and ROM version
+- kernel version
+- MediaProvider version/APK information if available
+- injection backend and version
+- exact hidden configuration
+- target application/package
+- target path
+- relevant `FuseHide` logcat
 
-## 免责声明
+### `Android/data` behavior differs from normal folders
 
-本项目仅用于学习、调试、兼容性研究与个人设备实验。请仅在你有权限的设备与环境中使用，并自行承担相关风险。
+That can be expected. `Android/data` and `Android/obb` use special MediaProvider access-control/backing-path logic and should not be debugged as if they were ordinary public-directory entries.
+
+The app exposes useful system state such as:
+
+```text
+ro.fuse.bpf.is_running
+persist.sys.vold_app_data_isolation_enabled
+external_storage.sdcardfs.enabled
+```
+
+These values help describe the device's storage environment, but normal configured FuseHide path filtering itself is not dependent on fuse-bpf being enabled.
+
+## Releases
+
+Release builds are published at:
+
+https://github.com/XiaoTong6666/FuseHide/releases
+
+The release workflow publishes both APK artifacts and a standalone Zygisk module ZIP.
+
+## License
+
+FuseHide is licensed under the [Apache License 2.0](LICENSE).
+
+Third-party code keeps its own license terms. In particular, the bundled xz-embedded sources declare `SPDX-License-Identifier: 0BSD` in their source headers.
+
+## Acknowledgements
+
+Special thanks to **5ec1cff** for the prototype module reference and technical guidance.
+
+FuseHide also builds on the Android/MediaProvider ecosystem and open-source projects used by the injection, UI, build, and native-hook layers.
+
+## Disclaimer
+
+FuseHide is intended for learning, debugging, compatibility research, and experiments on devices and environments you are authorized to modify. Internal Android implementation details may change without notice. You are responsible for evaluating the risks before using the project on a production device.
