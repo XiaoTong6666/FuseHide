@@ -28,6 +28,9 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import io.github.xiaotong6666.fusehide.R
@@ -65,33 +68,46 @@ fun MainPage(
     settingsState: SettingsUiState,
     settingsCallbacks: SettingsCallbacks,
 ) {
-    val pageItems = listOf(
-        NavigationShellItem(
-            title = stringResource(R.string.nav_home),
-            icon = Icons.Outlined.Home,
-            selectedIcon = Icons.Filled.Home,
-        ),
-        NavigationShellItem(
-            title = stringResource(R.string.nav_config),
-            icon = Icons.Outlined.Tune,
-            selectedIcon = Icons.Filled.Tune,
-        ),
-        NavigationShellItem(
-            title = stringResource(R.string.nav_probe),
-            icon = Icons.Outlined.Search,
-            selectedIcon = Icons.Filled.Search,
-        ),
-        NavigationShellItem(
-            title = stringResource(R.string.nav_settings),
-            icon = Icons.Outlined.Settings,
-            selectedIcon = Icons.Filled.Settings,
-        ),
-    )
+    val homeTitle = stringResource(R.string.nav_home)
+    val configTitle = stringResource(R.string.nav_config)
+    val probeTitle = stringResource(R.string.nav_probe)
+    val settingsTitle = stringResource(R.string.nav_settings)
+    val pageItems = remember(homeTitle, configTitle, probeTitle, settingsTitle) {
+        listOf(
+            NavigationShellItem(
+                title = homeTitle,
+                icon = Icons.Outlined.Home,
+                selectedIcon = Icons.Filled.Home,
+            ),
+            NavigationShellItem(
+                title = configTitle,
+                icon = Icons.Outlined.Tune,
+                selectedIcon = Icons.Filled.Tune,
+            ),
+            NavigationShellItem(
+                title = probeTitle,
+                icon = Icons.Outlined.Search,
+                selectedIcon = Icons.Filled.Search,
+            ),
+            NavigationShellItem(
+                title = settingsTitle,
+                icon = Icons.Outlined.Settings,
+                selectedIcon = Icons.Filled.Settings,
+            ),
+        )
+    }
+
+    LaunchedEffect(appListViewModel) {
+        withFrameNanos { }
+        appListViewModel.loadAppList().join()
+    }
 
     AdaptiveNavigationShell(
         items = pageItems,
         selectedIndex = selectedTab,
         onSelectedIndexChange = onTabSelected,
+        enableMiuixBlur = settingsState.enableMiuixBlur,
+        enableMiuixFloatingBottomBar = settingsState.enableMiuixFloatingBottomBar,
     ) { page, contentPadding, isCurrentPage, pageModifier ->
         when (page) {
             0 -> HomePage(
@@ -202,8 +218,16 @@ private fun PreviewMainPage() {
                 onCopyAllClick = {},
                 onSelfDataClick = {},
             ),
-            settingsState = SettingsUiState(uiMode = UiMode.Miuix),
-            settingsCallbacks = SettingsCallbacks(onToggleUiMode = {}),
+            settingsState = SettingsUiState(
+                uiMode = UiMode.Miuix,
+                enableMiuixBlur = false,
+                enableMiuixFloatingBottomBar = false,
+            ),
+            settingsCallbacks = SettingsCallbacks(
+                onToggleUiMode = {},
+                onToggleMiuixBlur = {},
+                onToggleMiuixFloatingBottomBar = {},
+            ),
         )
     }
 }

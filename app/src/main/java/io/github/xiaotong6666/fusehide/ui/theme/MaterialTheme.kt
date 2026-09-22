@@ -18,7 +18,6 @@
 
 package io.github.xiaotong6666.fusehide.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
@@ -30,11 +29,8 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
-import androidx.core.view.WindowCompat
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
@@ -124,20 +120,7 @@ private fun ColorScheme.animateAsState(): ColorScheme {
 @Composable
 fun MaterialFuseHideTheme(content: @Composable () -> Unit) {
     val darkTheme = isSystemInDarkTheme()
-    val context = LocalContext.current
-    val view = LocalView.current
     val colorScheme = rememberFuseHideColorScheme(darkTheme).animateAsState()
-
-    if (!view.isInEditMode) {
-        LaunchedEffect(darkTheme) {
-            val window = (context as? Activity)?.window ?: return@LaunchedEffect
-            WindowCompat.getInsetsController(window, view).apply {
-                isAppearanceLightStatusBars = !darkTheme
-                isAppearanceLightNavigationBars = !darkTheme
-            }
-            window.isNavigationBarContrastEnforced = false
-        }
-    }
 
     MaterialExpressiveTheme(
         colorScheme = colorScheme,

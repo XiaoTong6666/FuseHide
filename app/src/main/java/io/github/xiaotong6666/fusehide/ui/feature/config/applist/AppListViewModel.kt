@@ -24,6 +24,7 @@ import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.AppInfo
 import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.GroupedApps
 import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.SearchStatus
+import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.ownerNameForApps
 import io.github.xiaotong6666.uihelper.chrome.SearchPageState.ResultStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -94,6 +95,15 @@ class AppListViewModel(application: Application) : AndroidViewModel(application)
                 uid = uid,
                 primary = primary,
                 apps = sorted,
+                ownerName = if (sorted.size > 1) {
+                    ownerNameForApps(
+                        apps = sorted,
+                        packageManager = packageManager,
+                        fallback = primary.label.ifBlank { uid.toString() },
+                    )
+                } else {
+                    null
+                },
             )
         }.sortedWith(compareBy(collator) { it.primary.label })
     }

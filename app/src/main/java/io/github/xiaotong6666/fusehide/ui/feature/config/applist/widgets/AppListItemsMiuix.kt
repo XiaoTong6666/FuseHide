@@ -38,13 +38,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -142,8 +140,8 @@ private fun SimpleAppItemMiuix(
                     if (app.packageName in hiddenPackages) {
                         StatusTag(
                             label = enabledLabel,
-                            backgroundColor = colorScheme.primary,
-                            contentColor = colorScheme.onPrimary,
+                            backgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                            contentColor = colorScheme.onSecondaryContainer,
                         )
                     }
                 },
@@ -161,8 +159,6 @@ private fun GroupItemMiuix(
     onToggleExpand: () -> Unit,
     onClickPrimary: () -> Unit,
 ) {
-    val packageManager = LocalContext.current.packageManager
-    val ownerName = remember(group.uid, group.apps) { ownerNameForGroup(group, packageManager) }
     val userId = group.uid / 100000
     val layoutDirection = LocalLayoutDirection.current
     val summaryText = if (group.apps.size > 1) {
@@ -189,7 +185,7 @@ private fun GroupItemMiuix(
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (group.apps.size > 1) ownerName else group.primary.label,
+                    text = if (group.apps.size > 1) group.ownerName ?: group.primary.label else group.primary.label,
                     modifier = Modifier.basicMarquee(),
                     fontWeight = FontWeight(550),
                     color = colorScheme.onSurface,
@@ -214,15 +210,15 @@ private fun GroupItemMiuix(
                 if (group.primary.packageName in hiddenPackages) {
                     StatusTag(
                         label = enabledLabel,
-                        backgroundColor = colorScheme.primary,
-                        contentColor = colorScheme.onPrimary,
+                        backgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                        contentColor = colorScheme.onSecondaryContainer,
                     )
                 }
                 if (userId != 0) {
                     StatusTag(
                         label = "USER $userId",
-                        backgroundColor = colorScheme.secondary,
-                        contentColor = colorScheme.onSecondary,
+                        backgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                        contentColor = colorScheme.onSecondaryContainer,
                     )
                 }
             }

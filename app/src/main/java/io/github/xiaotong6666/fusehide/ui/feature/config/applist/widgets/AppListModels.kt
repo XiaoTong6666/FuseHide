@@ -19,6 +19,7 @@ package io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import androidx.compose.runtime.Immutable
 
 data class AppInfo(
     val packageName: String,
@@ -28,19 +29,22 @@ data class AppInfo(
     val uid: Int,
 )
 
+@Immutable
 data class GroupedApps(
     val uid: Int,
     val primary: AppInfo,
     val apps: List<AppInfo>,
+    val ownerName: String? = null,
     val matchedPackageNames: Set<String> = emptySet(),
     val isHidden: Boolean = false,
 )
 
-fun ownerNameForGroup(
-    group: GroupedApps,
+fun ownerNameForApps(
+    apps: List<AppInfo>,
     packageManager: PackageManager,
+    fallback: String,
 ): String {
-    val labeledApp = group.apps.firstOrNull { it.packageInfo.sharedUserLabel != 0 }
+    val labeledApp = apps.firstOrNull { it.packageInfo.sharedUserLabel != 0 }
     if (labeledApp != null) {
         val label = runCatching {
             packageManager.getText(
@@ -54,12 +58,12 @@ fun ownerNameForGroup(
         }
     }
 
-    val sharedUserId = group.apps.firstOrNull {
+    val sharedUserId = apps.firstOrNull {
         !it.packageInfo.sharedUserId.isNullOrEmpty()
     }?.packageInfo?.sharedUserId
     if (!sharedUserId.isNullOrEmpty()) {
         return sharedUserId
     }
 
-    return group.primary.label.ifBlank { group.uid.toString() }
+    return apps.firstOrNull()?.label?.ifBlank { fallback } ?: fallback
 }

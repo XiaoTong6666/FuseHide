@@ -23,6 +23,8 @@ import io.github.xiaotong6666.uihelper.mode.UiMode
 object FuseHideUiModeStore {
     private const val PREFS_NAME = "settings"
     private const val KEY_UI_MODE = "ui_mode"
+    private const val KEY_ENABLE_MIUIX_BLUR = "enable_miuix_blur"
+    private const val KEY_ENABLE_MIUIX_FLOATING_BOTTOM_BAR = "enable_miuix_floating_bottom_bar"
 
     fun fromPrefs(context: Context): UiMode {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -33,6 +35,26 @@ object FuseHideUiModeStore {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit {
                 putString(KEY_UI_MODE, mode.value)
+            }
+    }
+
+    fun isMiuixBlurEnabled(context: Context): Boolean = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getBoolean(KEY_ENABLE_MIUIX_BLUR, false)
+
+    fun saveMiuixBlurEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit {
+                putBoolean(KEY_ENABLE_MIUIX_BLUR, enabled)
+            }
+    }
+
+    fun isMiuixFloatingBottomBarEnabled(context: Context): Boolean = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .getBoolean(KEY_ENABLE_MIUIX_FLOATING_BOTTOM_BAR, false)
+
+    fun saveMiuixFloatingBottomBarEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit {
+                putBoolean(KEY_ENABLE_MIUIX_FLOATING_BOTTOM_BAR, enabled)
             }
     }
 }

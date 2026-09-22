@@ -16,14 +16,17 @@
 
 package io.github.xiaotong6666.fusehide.ui.core.model
 
+import androidx.compose.runtime.Immutable
 import io.github.xiaotong6666.uihelper.mode.UiMode
 
+@Immutable
 data class HideConfigDiff(
     val hasDifferences: Boolean,
     val summary: String,
     val details: String,
 )
 
+@Immutable
 data class HookStatusUiState(
     val infoText: String,
     val statusText: String,
@@ -33,6 +36,7 @@ data class HookStatusUiState(
     val hookCheckCompleted: Boolean,
 )
 
+@Immutable
 data class ConfigUiState(
     val configStatusText: String,
     val lastAckTokenText: String,
@@ -45,12 +49,14 @@ data class ConfigUiState(
     val currentHideConfig: io.github.xiaotong6666.fusehide.config.HideConfig,
 )
 
+@Immutable
 data class DebugUiState(
     val pathText: String,
     val pathText2: String,
     val outputText: String,
 )
 
+@Immutable
 data class ConfigCallbacks(
     val onStatusClick: () -> Unit,
     val onConfigUpdate: (io.github.xiaotong6666.fusehide.config.HideConfig) -> Unit,
@@ -58,6 +64,7 @@ data class ConfigCallbacks(
     val onResetConfigClick: () -> Unit,
 )
 
+@Immutable
 data class DebugCallbacks(
     val onStatusClick: () -> Unit,
     val onPathChanged: (String) -> Unit,
@@ -87,14 +94,21 @@ enum class MainDestination {
     Settings,
 }
 
+@Immutable
 data class HomeCallbacks(
     val onStatusClick: () -> Unit,
 )
 
+@Immutable
 data class SettingsUiState(
     val uiMode: UiMode,
+    val enableMiuixBlur: Boolean,
+    val enableMiuixFloatingBottomBar: Boolean,
 )
 
+@Immutable
 data class SettingsCallbacks(
     val onToggleUiMode: () -> Unit,
+    val onToggleMiuixBlur: () -> Unit,
+    val onToggleMiuixFloatingBottomBar: () -> Unit,
 )

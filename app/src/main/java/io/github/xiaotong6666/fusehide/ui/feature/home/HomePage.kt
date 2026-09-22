@@ -19,19 +19,14 @@
 package io.github.xiaotong6666.fusehide.ui.feature.home
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -41,17 +36,14 @@ import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.fusehide.ui.core.model.ConfigUiState
 import io.github.xiaotong6666.fusehide.ui.core.model.HomeCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.HookStatusUiState
+import io.github.xiaotong6666.uihelper.adaptive.AdaptiveScrollColumn
 import io.github.xiaotong6666.uihelper.adaptive.DeviceStatusList
 import io.github.xiaotong6666.uihelper.adaptive.RuntimeSummaryCard
 import io.github.xiaotong6666.uihelper.adaptive.SectionCard
 import io.github.xiaotong6666.uihelper.adaptive.SectionDescription
 import io.github.xiaotong6666.uihelper.adaptive.SectionTitle
 import io.github.xiaotong6666.uihelper.adaptive.StatusChip
-import io.github.xiaotong6666.uihelper.mode.LocalUiMode
-import io.github.xiaotong6666.uihelper.mode.UiMode
 import io.github.xiaotong6666.uihelper.model.SectionDescriptionStyle
-import top.yukonga.miuix.kmp.utils.overScrollVertical
-import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 @Composable
 fun HomePage(
@@ -85,22 +77,9 @@ private fun HomePageContent(
     resultsNeedAttention: Boolean,
     modifier: Modifier,
 ) {
-    val scrollState = rememberScrollState()
-    val miuixScrollFeedbackModifier = if (LocalUiMode.current == UiMode.Miuix) {
-        Modifier.scrollEndHaptic().overScrollVertical()
-    } else {
-        Modifier
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .then(modifier)
-            .then(miuixScrollFeedbackModifier)
-            .verticalScroll(scrollState)
-            .padding(contentPadding)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    AdaptiveScrollColumn(
+        contentPadding = contentPadding,
+        modifier = modifier,
     ) {
         SectionCard {
             SectionTitle(stringResource(R.string.section_runtime_overview))

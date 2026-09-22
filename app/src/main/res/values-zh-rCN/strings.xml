@@ -10,6 +10,10 @@
     <string name="section_device_status">设备状态</string>
     <string name="section_ui_family">UI 风格</string>
     <string name="section_ui_family_desc">选择应用使用 MIUIX 外观风格还是 Material 3 外观风格。</string>
+    <string name="settings_miuix_blur">模糊</string>
+    <string name="settings_miuix_blur_desc">启用顶栏和底栏的模糊效果</string>
+    <string name="settings_miuix_floating_bottom_bar">悬浮底栏</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">使用 Apple 风格的悬浮底栏</string>
     <string name="section_about">关于</string>
     <string name="section_editable_draft">编辑配置</string>
     <string name="section_editable_draft_desc">这些字段是可编辑配置。点击“应用”会保存到本地并同步到 MediaProvider。</string>

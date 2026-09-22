@@ -20,6 +20,8 @@ import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +42,15 @@ class BaselineProfileGenerator {
         ) {
             pressHome()
             startActivityAndWait()
+            profileMainNavigation()
+        }
+    }
+
+    private fun androidx.benchmark.macro.MacrobenchmarkScope.profileMainNavigation() {
+        listOf("Config", "Probe", "Settings", "Home").forEach { label ->
+            val tab = device.wait(Until.findObject(By.text(label)), 3_000) ?: return@forEach
+            tab.click()
+            device.waitForIdle()
         }
     }
 }
