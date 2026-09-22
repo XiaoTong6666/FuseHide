@@ -1,20 +1,34 @@
-# FuseHide 1.167
+# FuseHide 1.168
 
-- **Version:** `1.167`
-- **VersionCode:** `167`
-- **Commit:** [`6f4d1ee`](https://github.com/XiaoTong6666/FuseHide/commit/6f4d1eeb51b90acea8ce3d3979fcc5b583bdf445)
-- **Build time:** `7m 25s`
-- **SHA256:** `b6f5af5a1a378745e7fdb12aa92888167d61c00f18b93301b508a89fdd2e2e96`
+- **Version:** `1.168`
+- **VersionCode:** `168`
+- **Commit:** [`e587970`](https://github.com/XiaoTong6666/FuseHide/commit/e5879706b1e53b702fd11363818c43f47cb45669)
+- **Build time:** `5m 15s`
+- **SHA256:** `b667ddf67dcf41c5710223d7973da10b3f3a8667c276e4b82024330379a3849d`
 
 ## Message
 
 ```text
-docs(readme): add bilingual project documentation
+build(deps): bump agp from 9.4.0 to 9.4.1
 
-重写项目 README，以英文作为主文档，并新增完整中文版本。
+Bumps `agp` from 9.4.0 to 9.4.1.
 
-结合当前源码补充 LSPosed/libxposed 与独立 Zygisk 双注入后端、MediaProvider FUSE 多层路径过滤、按 UID/包名合并隐藏规则、运行时配置同步、缓存失效以及 native ABI 兼容策略。
+Updates `com.android.application` from 9.4.0 to 9.4.1
 
-同时更新当前默认隐藏配置、安装方式、构建环境、Gradle 部署任务和排错说明，并加入中英文 README 互相切换入口。
+Updates `com.android.library` from 9.4.0 to 9.4.1
+
+---
+updated-dependencies:
+- dependency-name: com.android.application
+  dependency-version: 9.4.1
+  dependency-type: direct:production
+  update-type: version-update:semver-patch
+- dependency-name: com.android.library
+  dependency-version: 9.4.1
+  dependency-type: direct:production
+  update-type: version-update:semver-patch
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>
 
 ```
