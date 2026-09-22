@@ -36,10 +36,8 @@ import androidx.compose.material3.MaterialTheme.colorScheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -134,8 +132,8 @@ private fun SimpleAppItemMaterial(
             if (app.packageName in hiddenPackages) {
                 StatusTag(
                     label = enabledLabel,
-                    backgroundColor = colorScheme.primaryContainer,
-                    contentColor = colorScheme.onPrimaryContainer,
+                    backgroundColor = colorScheme.secondaryContainer,
+                    contentColor = colorScheme.onSecondaryContainer,
                 )
             } else {
                 Icon(Icons.Filled.Remove, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
@@ -153,8 +151,6 @@ private fun GroupItemMaterial(
     onToggleExpand: () -> Unit,
     onClickPrimary: () -> Unit,
 ) {
-    val packageManager = LocalContext.current.packageManager
-    val ownerName = remember(group.uid, group.apps) { ownerNameForGroup(group, packageManager) }
     val userId = group.uid / 100000
     val summaryText = if (group.apps.size > 1) {
         stringResource(R.string.group_contains_apps, group.apps.size)
@@ -168,7 +164,7 @@ private fun GroupItemMaterial(
         onLongClick = if (group.apps.size > 1) onToggleExpand else null,
         headlineContent = {
             Text(
-                text = if (group.apps.size > 1) ownerName else group.primary.label,
+                text = if (group.apps.size > 1) group.ownerName ?: group.primary.label else group.primary.label,
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 1,
             )
@@ -189,15 +185,15 @@ private fun GroupItemMaterial(
                 if (group.primary.packageName in hiddenPackages) {
                     StatusTag(
                         label = enabledLabel,
-                        backgroundColor = colorScheme.primaryContainer,
-                        contentColor = colorScheme.onPrimaryContainer,
+                        backgroundColor = colorScheme.secondaryContainer,
+                        contentColor = colorScheme.onSecondaryContainer,
                     )
                 }
                 if (userId != 0) {
                     StatusTag(
                         label = "USER $userId",
-                        backgroundColor = colorScheme.tertiaryContainer,
-                        contentColor = colorScheme.onTertiaryContainer,
+                        backgroundColor = colorScheme.tertiary,
+                        contentColor = colorScheme.onTertiary,
                     )
                 }
             }

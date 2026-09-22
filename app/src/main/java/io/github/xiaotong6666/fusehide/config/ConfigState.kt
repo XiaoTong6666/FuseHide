@@ -154,18 +154,23 @@ fun buildDraftVsAppliedDiff(context: Context, draft: HideConfig, applied: HideCo
         append(section("hiddenPackages", draft.hiddenPackages, applied.hiddenPackages)).append("\n")
         append(section("packageRules", draft.packageRules.map { it.toString() }, applied.packageRules.map { it.toString() }))
     }
-    val hasDifferences = !boolMatches ||
-        draft.hideAllRootEntriesExemptions.toSet() != applied.hideAllRootEntriesExemptions.toSet() ||
-        draft.hiddenRootEntryNames.toSet() != applied.hiddenRootEntryNames.toSet() ||
-        draft.hiddenRelativePaths.toSet() != applied.hiddenRelativePaths.toSet() ||
-        draft.hiddenPackages.toSet() != applied.hiddenPackages.toSet() ||
-        draft.packageRules.toSet() != applied.packageRules.toSet()
+    val hasDifferences = hasDraftVsAppliedDifferences(draft, applied)
     val summary = if (hasDifferences) {
         context.getString(R.string.diff_summary_mismatch)
     } else {
         context.getString(R.string.diff_summary_match)
     }
     return HideConfigDiff(hasDifferences = hasDifferences, summary = summary, details = details)
+}
+
+fun hasDraftVsAppliedDifferences(draft: HideConfig, applied: HideConfig?): Boolean {
+    if (applied == null) return false
+    return draft.enableHideAllRootEntries != applied.enableHideAllRootEntries ||
+        draft.hideAllRootEntriesExemptions.toSet() != applied.hideAllRootEntriesExemptions.toSet() ||
+        draft.hiddenRootEntryNames.toSet() != applied.hiddenRootEntryNames.toSet() ||
+        draft.hiddenRelativePaths.toSet() != applied.hiddenRelativePaths.toSet() ||
+        draft.hiddenPackages.toSet() != applied.hiddenPackages.toSet() ||
+        draft.packageRules.toSet() != applied.packageRules.toSet()
 }
 
 fun formatNow(): String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())

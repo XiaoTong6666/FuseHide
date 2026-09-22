@@ -20,17 +20,16 @@ package io.github.xiaotong6666.fusehide.ui.feature.config.appdetail
 
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.xiaotong6666.fusehide.R
 import io.github.xiaotong6666.fusehide.ui.adapter.appSpecificTargetsText
 import io.github.xiaotong6666.fusehide.ui.adapter.updatedConfigForPackageRule
@@ -44,8 +43,7 @@ import io.github.xiaotong6666.fusehide.ui.feature.config.applist.AppListViewMode
 import io.github.xiaotong6666.uihelper.adaptive.DetailGroup
 import io.github.xiaotong6666.uihelper.adaptive.SettingsTextAreaItem
 import io.github.xiaotong6666.uihelper.extensions.androidapp.AppIconImage
-import io.github.xiaotong6666.uihelper.mode.LocalUiMode
-import io.github.xiaotong6666.uihelper.mode.UiMode
+import io.github.xiaotong6666.uihelper.extensions.androidapp.AppIconVariant
 
 @Composable
 fun AppConfigPage(
@@ -57,8 +55,12 @@ fun AppConfigPage(
     onSave: () -> Unit,
 ) {
     val view = LocalView.current
-    val uiState by appListViewModel.uiState.collectAsState()
-    val appInfo = uiState.groupedApps.flatMap { it.apps }.find { it.packageName == packageName }
+    val uiState by appListViewModel.uiState.collectAsStateWithLifecycle()
+    val appInfo = remember(uiState.groupedApps, packageName) {
+        uiState.groupedApps.asSequence()
+            .flatMap { it.apps.asSequence() }
+            .find { it.packageName == packageName }
+    }
 
     val isHiddenGlobally = state.currentHideConfig.hiddenPackages.contains(packageName)
     val specificRule = state.currentHideConfig.packageRules.find { it.packageName == packageName }
@@ -91,7 +93,7 @@ fun AppConfigPage(
                                 AppIconImage(
                                     applicationInfo = it.applicationInfo,
                                     label = it.label,
-                                    modifier = Modifier.size(if (LocalUiMode.current == UiMode.Miuix) 64.dp else 48.dp),
+                                    variant = AppIconVariant.Detail,
                                 )
                             }
                         },

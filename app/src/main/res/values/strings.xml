@@ -10,6 +10,10 @@
     <string name="section_device_status">Device Status</string>
     <string name="section_ui_family">UI Family</string>
     <string name="section_ui_family_desc">Choose whether the app uses the MIUIX surface style or the Material 3 surface style.</string>
+    <string name="settings_miuix_blur">Blur</string>
+    <string name="settings_miuix_blur_desc">Enable blur effect for top and bottom bars.</string>
+    <string name="settings_miuix_floating_bottom_bar">Floating bottom bar</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">Use Apple style floating bottom bar.</string>
     <string name="section_about">About</string>
     <string name="section_editable_draft">Editable Config</string>
     <string name="section_editable_draft_desc">These fields are your editable config. Apply persists them locally and syncs MediaProvider.</string>

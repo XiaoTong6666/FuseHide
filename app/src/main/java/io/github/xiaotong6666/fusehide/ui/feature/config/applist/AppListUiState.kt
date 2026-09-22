@@ -16,9 +16,11 @@
 
 package io.github.xiaotong6666.fusehide.ui.feature.config.applist
 
+import androidx.compose.runtime.Stable
 import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.GroupedApps
 import io.github.xiaotong6666.fusehide.ui.feature.config.applist.widgets.SearchStatus
 
+@Stable
 data class AppListUiState(
     val isRefreshing: Boolean = false,
     val hasLoaded: Boolean = false,

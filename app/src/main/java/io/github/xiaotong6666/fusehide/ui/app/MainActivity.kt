@@ -31,32 +31,33 @@ import android.system.Os
 import android.system.StructUtsname
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
-import androidx.navigation3.runtime.entryProvider
-import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
-import androidx.navigation3.ui.NavDisplay
 import io.github.xiaotong6666.fusehide.BuildConfig
 import io.github.xiaotong6666.fusehide.R
-import io.github.xiaotong6666.fusehide.config.HideConfig
 import io.github.xiaotong6666.fusehide.config.HideConfigDefaults
 import io.github.xiaotong6666.fusehide.config.HideConfigStore
 import io.github.xiaotong6666.fusehide.config.buildAppliedConfigSnapshot
 import io.github.xiaotong6666.fusehide.config.buildDraftVsAppliedDiff
 import io.github.xiaotong6666.fusehide.config.formatNow
+import io.github.xiaotong6666.fusehide.config.hasDraftVsAppliedDifferences
 import io.github.xiaotong6666.fusehide.debug.PathDebugActions
 import io.github.xiaotong6666.fusehide.debug.PathDebugText
 import io.github.xiaotong6666.fusehide.status.HookStatusProbe
@@ -74,12 +75,17 @@ import io.github.xiaotong6666.fusehide.ui.feature.config.applist.AppListViewMode
 import io.github.xiaotong6666.fusehide.ui.feature.config.global.GlobalConfigPage
 import io.github.xiaotong6666.fusehide.ui.navigation3.Route
 import io.github.xiaotong6666.fusehide.ui.theme.FuseHideTheme
+import io.github.xiaotong6666.uihelper.miuix.effect.LocalMiuixBlurEnabled
 import io.github.xiaotong6666.uihelper.mode.LocalUiMode
 import io.github.xiaotong6666.uihelper.mode.UiMode
 import io.github.xiaotong6666.uihelper.navigation3.LocalNavigator
 import io.github.xiaotong6666.uihelper.navigation3.rememberNavigator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.nav.core.NavDisplay
+import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
+import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
+import top.yukonga.miuix.kmp.nav.transition.NavSwipeDirection
 import java.lang.ref.WeakReference
 import java.util.UUID
 
@@ -102,30 +108,9 @@ class MainActivity :
         }
     }
 
-    private var infoText by mutableStateOf("")
-    private var statusText by mutableStateOf("")
-    private var selectedTab by mutableIntStateOf(0)
-    private var configStatusText by mutableStateOf("")
-    private var lastAckTokenText by mutableStateOf("-")
-    private var lastAckResultText by mutableStateOf("-")
-    private var lastApplyTimeText by mutableStateOf("-")
-    private var appliedHideConfig: HideConfig? by mutableStateOf(null)
-    private var appliedConfigSnapshotText by mutableStateOf("")
-    private var highlightConfigResults by mutableStateOf(false)
-    private var localConfigMissing by mutableStateOf(false)
-    private var defaultSaveExplicitlyRequested: Boolean = false
-    private var configResultsScrollToken by mutableIntStateOf(0)
-    private var shouldAutoScrollConfigResults by mutableStateOf(false)
-    private var currentHideConfig by mutableStateOf(HideConfigDefaults.value)
-    private var pathText by mutableStateOf(PathDebugActions.defaultPath())
-    private var pathText2 by mutableStateOf("")
-    private var outputText by mutableStateOf("")
-    private var uiMode by mutableStateOf(UiMode.Miuix)
+    private val mainViewModel by viewModels<MainActivityViewModel>()
 
-    private var hookedPackage: String? = null
-    private var hookedPid: Int = -1
     private var statusBinderReference: WeakReference<Binder>? = null
-    private var hookCheckCompleted: Boolean = false
     private var statusCheckInFlight: Boolean = false
     private var statusTimeoutRunnable: Runnable? = null
     private var activeStatusCheckToken: String? = null
@@ -133,8 +118,6 @@ class MainActivity :
     private lateinit var statusReceiver: StatusBroadcastReceiver
     private lateinit var configStatusReceiver: BroadcastReceiver
     private lateinit var appliedConfigReceiver: BroadcastReceiver
-    private var pendingReloadToken: String? = null
-    private var pendingQueryToken: String? = null
     private val hookStatusProbe by lazy {
         HookStatusProbe(
             context = this,
@@ -157,20 +140,22 @@ class MainActivity :
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        uiMode = FuseHideUiModeStore.fromPrefs(this)
-        appendInfo()
+        val uiMode = FuseHideUiModeStore.fromPrefs(this)
+        val enableMiuixBlur = FuseHideUiModeStore.isMiuixBlurEnabled(this)
+        val enableMiuixFloatingBottomBar = FuseHideUiModeStore.isMiuixFloatingBottomBarEnabled(this)
+        val infoText = buildInfoText()
         val savedConfig = HideConfigStore.loadSavedConfigOrNull(this)
-        if (savedConfig == null) {
-            localConfigMissing = true
-            applyConfigToEditor(HideConfigDefaults.value)
-            highlightConfigResults = true
-            configStatusText = getString(R.string.config_missing_local) + "\n"
-        } else {
-            applyConfigToEditor(savedConfig)
-            configStatusText = getString(R.string.config_loaded_saved) + "\n"
-        }
-        appliedConfigSnapshotText = getString(R.string.config_snapshot_missing) + "\n"
+        mainViewModel.initialize(
+            uiMode = uiMode,
+            enableMiuixBlur = enableMiuixBlur,
+            enableMiuixFloatingBottomBar = enableMiuixFloatingBottomBar,
+            infoText = infoText,
+            savedConfig = savedConfig,
+            configStatusText = getString(
+                if (savedConfig == null) R.string.config_missing_local else R.string.config_loaded_saved,
+            ) + "\n",
+            appliedConfigSnapshotText = getString(R.string.config_snapshot_missing) + "\n",
+        )
 
         statusReceiver = StatusBroadcastReceiver(this, 1, this)
         val filter = IntentFilter(HookStatusProbe.ACTION_SET_STATUS)
@@ -178,27 +163,26 @@ class MainActivity :
 
         configStatusReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: android.content.Context?, intent: Intent?) {
-                val token = intent?.getStringExtra(HideConfigStore.EXTRA_RELOAD_TOKEN)
-                if (token == null || token != pendingReloadToken) {
+                val statusIntent = intent ?: return
+                val token = statusIntent.getStringExtra(HideConfigStore.EXTRA_RELOAD_TOKEN) ?: return
+                if (!mainViewModel.consumeReloadAck(token)) {
                     return
                 }
-                pendingReloadToken = null
-                val applied = intent.getBooleanExtra(HideConfigStore.EXTRA_RELOAD_APPLIED, false)
-                val message = intent.getStringExtra(HideConfigStore.EXTRA_RELOAD_MESSAGE) ?: "unknown"
-                lastAckTokenText = token
-                lastAckResultText = getString(if (applied) R.string.ack_applied else R.string.ack_failed)
-                lastApplyTimeText = formatNow()
-                highlightConfigResults = !applied
-                configStatusText = if (applied) {
+                val applied = statusIntent.getBooleanExtra(HideConfigStore.EXTRA_RELOAD_APPLIED, false)
+                val message = statusIntent.getStringExtra(HideConfigStore.EXTRA_RELOAD_MESSAGE) ?: "unknown"
+                val statusText = if (applied) {
                     refreshAppliedConfig(autoScrollToResults = true)
                     getString(R.string.config_applied_ok) + "\n"
                 } else {
                     getString(R.string.config_applied_fail, message) + "\n"
                 }
-                if (!applied) {
-                    shouldAutoScrollConfigResults = true
-                    configResultsScrollToken += 1
-                }
+                mainViewModel.applyReloadAck(
+                    token = token,
+                    resultText = getString(if (applied) R.string.ack_applied else R.string.ack_failed),
+                    applyTimeText = formatNow(),
+                    applied = applied,
+                    statusText = statusText,
+                )
             }
         }
         val configFilter = IntentFilter(HideConfigStore.ACTION_SET_CONFIG_STATUS)
@@ -206,100 +190,208 @@ class MainActivity :
 
         appliedConfigReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: android.content.Context?, intent: Intent?) {
-                val token = intent?.getStringExtra(HideConfigStore.EXTRA_QUERY_TOKEN)
-                if (token == null || token != pendingQueryToken) {
+                val statusIntent = intent ?: return
+                val token = statusIntent.getStringExtra(HideConfigStore.EXTRA_QUERY_TOKEN) ?: return
+                if (!mainViewModel.consumeAppliedConfigResult(token)) {
                     return
                 }
-                pendingQueryToken = null
-                val config = HideConfigStore.fromBundle(intent.extras)
-                appliedHideConfig = config
-                appliedConfigSnapshotText = if (config == null) {
+                val config = HideConfigStore.fromBundle(statusIntent.extras)
+                val snapshotText = if (config == null) {
                     getString(R.string.config_snapshot_missing) + "\n"
                 } else {
                     buildAppliedConfigSnapshot(config)
                 }
-                if (localConfigMissing && config != null && config != HideConfigDefaults.value) {
-                    applyConfigToEditor(config)
+                val stateBeforeRecovery = mainViewModel.uiState.value
+                if (stateBeforeRecovery.localConfigMissing && config != null && config != HideConfigDefaults.value) {
+                    mainViewModel.recoverConfig(config)
                     saveAndReloadHideConfig(getString(R.string.config_recovered_applied) + "\n")
                 }
-                highlightConfigResults = config == null || buildDraftVsAppliedDiff(this@MainActivity, currentHideConfig, config).hasDifferences
-                if (shouldAutoScrollConfigResults) {
-                    configResultsScrollToken += 1
-                    shouldAutoScrollConfigResults = false
-                }
+                val draft = mainViewModel.uiState.value.currentHideConfig
+                mainViewModel.applyAppliedConfig(
+                    config = config,
+                    snapshotText = snapshotText,
+                    draftDiffers = hasDraftVsAppliedDifferences(draft, config),
+                )
             }
         }
         val appliedConfigFilter = IntentFilter(HideConfigStore.ACTION_SET_APPLIED_HIDE_CONFIG)
         ContextCompat.registerReceiver(this, appliedConfigReceiver, appliedConfigFilter, ContextCompat.RECEIVER_EXPORTED)
 
         setContent {
-            val navigator = rememberNavigator(Route.Main)
-            CompositionLocalProvider(LocalUiMode provides uiMode) {
-                CompositionLocalProvider(LocalNavigator provides navigator) {
+            val navigator = rememberNavigator<Route>(Route.Main)
+            val uiState by mainViewModel.uiState.collectAsStateWithLifecycle()
+            val darkMode = isSystemInDarkTheme()
+            DisposableEffect(darkMode) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
+                    ) { darkMode },
+                    navigationBarStyle = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
+                    ) { darkMode },
+                )
+                window.isNavigationBarContrastEnforced = false
+                onDispose { }
+            }
+            CompositionLocalProvider(LocalUiMode provides uiState.uiMode) {
+                CompositionLocalProvider(
+                    LocalNavigator provides navigator,
+                    LocalMiuixBlurEnabled provides uiState.enableMiuixBlur,
+                ) {
                     FuseHideTheme {
                         val appListViewModel: AppListViewModel = viewModel()
-                        val homeCallbacks = HomeCallbacks(
-                            onStatusClick = {
-                                startStatusCheck()
-                                refreshAppliedConfig()
-                            },
-                        )
+                        val hookStatusState = remember(
+                            uiState.infoText,
+                            uiState.statusText,
+                            uiState.hookedPackage,
+                            uiState.hookedPid,
+                            uiState.hookCheckCompleted,
+                        ) {
+                            hookStatusUiState(uiState)
+                        }
+                        val configDiff = remember(
+                            uiState.currentHideConfig,
+                            uiState.appliedHideConfig,
+                        ) {
+                            buildDraftVsAppliedDiff(
+                                this@MainActivity,
+                                uiState.currentHideConfig,
+                                uiState.appliedHideConfig,
+                            )
+                        }
+                        val configState = remember(
+                            uiState.configStatusText,
+                            uiState.lastAckTokenText,
+                            uiState.lastAckResultText,
+                            uiState.lastApplyTimeText,
+                            uiState.appliedConfigSnapshotText,
+                            uiState.highlightConfigResults,
+                            uiState.configResultsScrollToken,
+                            uiState.currentHideConfig,
+                            configDiff,
+                        ) {
+                            configUiState(uiState, configDiff)
+                        }
+                        val debugState = remember(
+                            uiState.pathText,
+                            uiState.pathText2,
+                            uiState.outputText,
+                        ) {
+                            debugUiState(uiState)
+                        }
+                        val settingsState = remember(
+                            uiState.uiMode,
+                            uiState.enableMiuixBlur,
+                            uiState.enableMiuixFloatingBottomBar,
+                        ) {
+                            SettingsUiState(
+                                uiMode = uiState.uiMode,
+                                enableMiuixBlur = uiState.enableMiuixBlur,
+                                enableMiuixFloatingBottomBar = uiState.enableMiuixFloatingBottomBar,
+                            )
+                        }
+                        val homeCallbacks = remember {
+                            HomeCallbacks(
+                                onStatusClick = {
+                                    startStatusCheck()
+                                    refreshAppliedConfig()
+                                },
+                            )
+                        }
+                        val configCallbacks = remember { configCallbacks() }
+                        val debugCallbacks = remember { debugCallbacks() }
+                        val settingsCallbacks = remember {
+                            SettingsCallbacks(
+                                onToggleUiMode = {
+                                    val current = mainViewModel.uiState.value.uiMode
+                                    val next = if (current == UiMode.Miuix) UiMode.Material else UiMode.Miuix
+                                    FuseHideUiModeStore.saveToPrefs(this@MainActivity, next)
+                                    mainViewModel.setUiMode(next)
+                                },
+                                onToggleMiuixBlur = {
+                                    val enabled = !mainViewModel.uiState.value.enableMiuixBlur
+                                    FuseHideUiModeStore.saveMiuixBlurEnabled(this@MainActivity, enabled)
+                                    mainViewModel.setMiuixBlurEnabled(enabled)
+                                },
+                                onToggleMiuixFloatingBottomBar = {
+                                    val enabled = !mainViewModel.uiState.value.enableMiuixFloatingBottomBar
+                                    FuseHideUiModeStore.saveMiuixFloatingBottomBarEnabled(this@MainActivity, enabled)
+                                    mainViewModel.setMiuixFloatingBottomBarEnabled(enabled)
+                                },
+                            )
+                        }
+                        val onTabSelected = remember {
+                            { index: Int -> mainViewModel.setSelectedTab(index) }
+                        }
+                        val onOpenGlobalConfig = remember(navigator) {
+                            { navigator.push(Route.GlobalConfig) }
+                        }
+                        val onOpenAppConfig = remember(navigator) {
+                            { packageName: String -> navigator.push(Route.AppConfig(packageName)) }
+                        }
                         val mainScreenEntry: @Composable () -> Unit = {
                             MainPage(
-                                selectedTab = selectedTab,
-                                onTabSelected = { selectedTab = it },
-                                hookStatus = hookStatusUiState(),
-                                configState = configUiState(),
-                                debugState = debugUiState(),
+                                selectedTab = uiState.selectedTab,
+                                onTabSelected = onTabSelected,
+                                hookStatus = hookStatusState,
+                                configState = configState,
+                                debugState = debugState,
                                 homeCallbacks = homeCallbacks,
-                                configCallbacks = configCallbacks(),
+                                configCallbacks = configCallbacks,
                                 appListViewModel = appListViewModel,
-                                onOpenGlobalConfig = { navigator.push(Route.GlobalConfig) },
-                                onOpenAppConfig = { packageName -> navigator.push(Route.AppConfig(packageName)) },
-                                debugCallbacks = debugCallbacks(),
-                                settingsState = SettingsUiState(uiMode = uiMode),
-                                settingsCallbacks = SettingsCallbacks(onToggleUiMode = {
-                                    val next = if (uiMode == UiMode.Miuix) UiMode.Material else UiMode.Miuix
-                                    FuseHideUiModeStore.saveToPrefs(this@MainActivity, next)
-                                    uiMode = next
-                                }),
+                                onOpenGlobalConfig = onOpenGlobalConfig,
+                                onOpenAppConfig = onOpenAppConfig,
+                                debugCallbacks = debugCallbacks,
+                                settingsState = settingsState,
+                                settingsCallbacks = settingsCallbacks,
                             )
                         }
 
                         val navDisplay: @Composable () -> Unit = {
+                            val swipeDismiss = if (
+                                LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+                            ) {
+                                NavSwipeDirection.RightToLeft
+                            } else {
+                                NavSwipeDirection.LeftToRight
+                            }
                             NavDisplay(
                                 backStack = navigator.backStack,
-                                entryDecorators = listOf(
-                                    rememberSaveableStateHolderNavEntryDecorator(),
-                                    rememberViewModelStoreNavEntryDecorator(),
+                                effects = NavDisplayEffects(
+                                    cornerClipRadius = rememberNavSystemCornerRadius(),
                                 ),
                                 onBack = { navigator.pop() },
-                                entryProvider = entryProvider {
-                                    entry<Route.Main> { mainScreenEntry() }
-                                    entry<Route.GlobalConfig> {
-                                        GlobalConfigPage(
-                                            state = configUiState(),
-                                            callbacks = configCallbacks(),
-                                            onBack = { navigator.pop() },
-                                            onSave = ::applyHideConfig,
-                                        )
-                                    }
-                                    entry<Route.AppConfig> { key ->
-                                        AppConfigPage(
-                                            packageName = key.packageName,
-                                            state = configUiState(),
-                                            callbacks = configCallbacks(),
-                                            appListViewModel = appListViewModel,
-                                            onBack = { navigator.pop() },
-                                            onSave = ::applyHideConfig,
-                                        )
-                                    }
-                                },
-                            )
+                            ) {
+                                entry<Route.Main>(swipeDismiss = swipeDismiss) {
+                                    mainScreenEntry()
+                                }
+                                entry<Route.GlobalConfig>(swipeDismiss = swipeDismiss) {
+                                    GlobalConfigPage(
+                                        state = configState,
+                                        callbacks = configCallbacks,
+                                        onBack = { navigator.pop() },
+                                        onSave = ::applyHideConfig,
+                                    )
+                                }
+                                entry<Route.AppConfig>(swipeDismiss = swipeDismiss) { key ->
+                                    AppConfigPage(
+                                        packageName = key.packageName,
+                                        state = configState,
+                                        callbacks = configCallbacks,
+                                        appListViewModel = appListViewModel,
+                                        onBack = { navigator.pop() },
+                                        onSave = ::applyHideConfig,
+                                    )
+                                }
+                            }
                         }
 
-                        when (uiMode) {
-                            UiMode.Material -> {
+                        when (uiState.uiMode) {
+                            UiMode.Material -> androidx.compose.material3.Scaffold(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                            ) { _ ->
                                 Box(modifier = Modifier.fillMaxSize()) {
                                     navDisplay()
                                 }
@@ -328,13 +420,12 @@ class MainActivity :
         if (debugPath.isNullOrEmpty()) {
             return
         }
-        selectedTab = 2
-        pathText = debugPath
-        pathText2 = intent.getStringExtra(EXTRA_DEBUG_PATH2).orEmpty()
+        val debugPath2 = intent.getStringExtra(EXTRA_DEBUG_PATH2).orEmpty()
+        mainViewModel.setDebugPaths(debugPath, debugPath2)
         val debugActions = intent.getStringExtra(EXTRA_DEBUG_ACTIONS)
-        Log.d("FuseHide", "handleDebugIntent path=$debugPath path2=$pathText2 actions=$debugActions")
+        Log.d("FuseHide", "handleDebugIntent path=$debugPath path2=$debugPath2 actions=$debugActions")
         appendOutput(
-            "ADB debug intent path=${PathDebugText.escapeNonAscii(debugPath)} path2=${PathDebugText.escapeNonAscii(pathText2)} actions=${debugActions ?: "(default)"}\n",
+            "ADB debug intent path=${PathDebugText.escapeNonAscii(debugPath)} path2=${PathDebugText.escapeNonAscii(debugPath2)} actions=${debugActions ?: "(default)"}\n",
         )
         window.decorView.postDelayed({ runDebugProbe() }, 1500L)
     }
@@ -345,8 +436,11 @@ class MainActivity :
             ?.map { it.trim().lowercase() }
             ?.filter { it.isNotEmpty() }
             ?: listOf("stat", "access", "list", "open")
+        val state = mainViewModel.uiState.value
+        val pathText = state.pathText
+        val pathText2 = state.pathText2
         Log.d("FuseHide", "runDebugProbe path=$pathText path2=$pathText2 actions=$actions")
-        outputText = ""
+        mainViewModel.clearOutput()
         appendOutput(
             "Running debug probe path=${PathDebugText.escapeNonAscii(pathText)} path2=${PathDebugText.escapeNonAscii(pathText2)} actions=${actions.joinToString(",")}\n",
         )
@@ -367,26 +461,29 @@ class MainActivity :
     }
 
     fun onHookCheckTimeout() {
-        hookCheckCompleted = true
-        updateStatusText()
+        statusCheckInFlight = false
+        mainViewModel.completeHookStatusCheck(getString(R.string.status_not_hooked) + "\n")
+        logUiText(mainViewModel.uiState.value.statusText)
     }
 
     override fun onHookStatusReceived(packageName: String, pid: Int) {
-        hookedPackage = packageName
-        hookedPid = pid
         statusTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         statusTimeoutRunnable = null
         activeStatusCheckToken = null
-        hookCheckCompleted = true
-        updateStatusText()
+        statusCheckInFlight = false
+        mainViewModel.setHookedStatus(
+            packageName = packageName,
+            pid = pid,
+            statusText = getString(R.string.status_hooked, packageName, pid) + "\n",
+        )
+        logUiText(mainViewModel.uiState.value.statusText)
     }
 
     override fun getActiveStatusCheckToken(): String? = activeStatusCheckToken
 
-    private fun appendInfo() {
+    private fun buildInfoText(): String {
         val utsname: StructUtsname = Os.uname()
-        val sdk = if (Build.VERSION.SDK_INT < 36) Build.VERSION.SDK_INT * 100000 else Build.VERSION.SDK_INT_FULL
-        buildString {
+        return buildString {
             append("Version: ${BuildConfig.VERSION_NAME} (${BuildConfig.COMMIT_HASH})\n")
             append("Kernel: ${utsname.release}\n")
             append("System: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
@@ -402,7 +499,7 @@ class MainActivity :
                 append("App data isolation is required to fix Android/data access.\n")
                 append("Use `setprop persist.sys.vold_app_data_isolation_enabled 1` to enable it.\n")
             }
-        }.also { infoText = it }
+        }
     }
 
     private fun startStatusCheck() {
@@ -412,34 +509,24 @@ class MainActivity :
         }
 
         val requestToken = UUID.randomUUID().toString()
-        hookedPackage = null
-        hookedPid = -1
-        hookCheckCompleted = false
         activeStatusCheckToken = requestToken
         statusCheckInFlight = true
-        updateStatusText()
+        val statusText = getString(R.string.status_checking) + "\n"
+        mainViewModel.beginHookStatusCheck(statusText)
+        logUiText(statusText)
         hookStatusProbe.start(requestToken)
     }
 
-    fun updateStatusText() {
-        Log.d("FuseHide", "updateStatusText hookedPackage=$hookedPackage hookCheckCompleted=$hookCheckCompleted pid=$hookedPid")
-        statusText = when {
-            hookedPackage != null -> getString(R.string.status_hooked, hookedPackage, hookedPid) + "\n"
-            hookCheckCompleted -> getString(R.string.status_not_hooked) + "\n"
-            else -> getString(R.string.status_checking) + "\n"
-        }
-        statusCheckInFlight = !hookCheckCompleted && hookedPackage == null
-        logUiText(statusText)
-    }
-
     private fun runPathCheck(mode: Int) {
-        appendOutput(PathDebugActions.runPathCheck(mode, pathText, pathText2))
+        val state = mainViewModel.uiState.value
+        appendOutput(PathDebugActions.runPathCheck(mode, state.pathText, state.pathText2))
     }
 
     private fun runAllPkgCheck() {
-        outputText = "Scanning all packages... (this may take a while)\n"
+        mainViewModel.setOutput("Scanning all packages... (this may take a while)\n")
+        val path = mainViewModel.uiState.value.pathText
         lifecycleScope.launch(Dispatchers.IO) {
-            val output = PathDebugActions.runAllPkgCheck(packageManager, pathText)
+            val output = PathDebugActions.runAllPkgCheck(packageManager, path)
             runOnUiThread {
                 appendOutput(output)
             }
@@ -447,66 +534,64 @@ class MainActivity :
     }
 
     private fun insertZwj() {
-        pathText += "\\u200d"
+        mainViewModel.appendZeroWidthJoiner()
     }
 
     private fun copyAll() {
         val clipboardManager = getSystemService(ClipboardManager::class.java) ?: return
+        val state = mainViewModel.uiState.value
         val allText = buildString {
             append("Info:\n")
-            append(infoText)
+            append(state.infoText)
             append("\nStatus:\n")
-            append(statusText)
+            append(state.statusText)
             append("\nTest:\n")
-            append(outputText)
+            append(state.outputText)
         }
         clipboardManager.setPrimaryClip(ClipData.newPlainText("", allText))
     }
 
-    private fun applyConfigToEditor(config: HideConfig) {
-        currentHideConfig = config
-    }
-
-    private fun currentHideConfig(): HideConfig = currentHideConfig
-
-    private fun hookStatusUiState(): HookStatusUiState = HookStatusUiState(
-        infoText = infoText,
-        statusText = statusText,
-        isHooked = hookedPackage != null,
-        hookedPackage = hookedPackage,
-        hookedPid = hookedPid,
-        hookCheckCompleted = hookCheckCompleted,
+    private fun hookStatusUiState(state: MainActivityUiState): HookStatusUiState = HookStatusUiState(
+        infoText = state.infoText,
+        statusText = state.statusText,
+        isHooked = state.hookedPackage != null,
+        hookedPackage = state.hookedPackage,
+        hookedPid = state.hookedPid,
+        hookCheckCompleted = state.hookCheckCompleted,
     )
 
-    private fun configUiState(): ConfigUiState = ConfigUiState(
-        configStatusText = configStatusText,
-        lastAckTokenText = lastAckTokenText,
-        lastAckResultText = lastAckResultText,
-        lastApplyTimeText = lastApplyTimeText,
-        draftVsAppliedDiff = buildDraftVsAppliedDiff(this, currentHideConfig, appliedHideConfig),
-        appliedConfigSnapshotText = appliedConfigSnapshotText,
-        highlightConfigResults = highlightConfigResults,
-        configResultsScrollToken = configResultsScrollToken,
-        currentHideConfig = currentHideConfig,
+    private fun configUiState(
+        state: MainActivityUiState,
+        diff: io.github.xiaotong6666.fusehide.ui.core.model.HideConfigDiff,
+    ): ConfigUiState = ConfigUiState(
+        configStatusText = state.configStatusText,
+        lastAckTokenText = state.lastAckTokenText,
+        lastAckResultText = state.lastAckResultText,
+        lastApplyTimeText = state.lastApplyTimeText,
+        draftVsAppliedDiff = diff,
+        appliedConfigSnapshotText = state.appliedConfigSnapshotText,
+        highlightConfigResults = state.highlightConfigResults,
+        configResultsScrollToken = state.configResultsScrollToken,
+        currentHideConfig = state.currentHideConfig,
     )
 
-    private fun debugUiState(): DebugUiState = DebugUiState(
-        pathText = pathText,
-        pathText2 = pathText2,
-        outputText = outputText,
+    private fun debugUiState(state: MainActivityUiState): DebugUiState = DebugUiState(
+        pathText = state.pathText,
+        pathText2 = state.pathText2,
+        outputText = state.outputText,
     )
 
     private fun configCallbacks(): ConfigCallbacks = ConfigCallbacks(
         onStatusClick = ::startStatusCheck,
-        onConfigUpdate = { currentHideConfig = it },
+        onConfigUpdate = mainViewModel::updateConfig,
         onApplyConfigClick = ::applyHideConfig,
         onResetConfigClick = ::resetHideConfigToDefaults,
     )
 
     private fun debugCallbacks(): DebugCallbacks = DebugCallbacks(
         onStatusClick = ::startStatusCheck,
-        onPathChanged = { pathText = it },
-        onPath2Changed = { pathText2 = it },
+        onPathChanged = mainViewModel::setPathText,
+        onPath2Changed = mainViewModel::setPathText2,
         onStatClick = { runPathCheck(0) },
         onAccessClick = { runPathCheck(1) },
         onListClick = { runPathCheck(2) },
@@ -519,8 +604,8 @@ class MainActivity :
         onUnlinkClick = { runPathCheck(9) },
         onAllPkgClick = ::runAllPkgCheck,
         onInsertZwjClick = ::insertZwj,
-        onClearClick = { outputText = "" },
-        onResetClick = { pathText = PathDebugActions.defaultPath() },
+        onClearClick = mainViewModel::clearOutput,
+        onResetClick = mainViewModel::resetDebugPath,
         onCopyAllClick = ::copyAll,
         onSelfDataClick = { appendOutput("external files dir: ${getExternalFilesDir("")}\n") },
     )
@@ -533,42 +618,38 @@ class MainActivity :
         if (refuseMissingLocalDefaultSave()) {
             return
         }
-        val reloadToken = UUID.randomUUID().toString()
-        pendingReloadToken = reloadToken
-        HideConfigStore.save(this, currentHideConfig, reloadToken)
-        localConfigMissing = false
-        defaultSaveExplicitlyRequested = false
+        val reloadToken = mainViewModel.beginConfigReload(statusMessage)
+        HideConfigStore.save(this, mainViewModel.uiState.value.currentHideConfig, reloadToken)
         HideConfigStore.sendReloadBroadcast(this, reloadToken)
-        configStatusText = statusMessage
         startStatusCheck()
     }
 
     private fun refreshAppliedConfig(autoScrollToResults: Boolean = false) {
-        val queryToken = UUID.randomUUID().toString()
-        pendingQueryToken = queryToken
-        shouldAutoScrollConfigResults = autoScrollToResults
-        appliedConfigSnapshotText = getString(R.string.config_snapshot_waiting) + "\n"
+        val queryToken = mainViewModel.beginAppliedConfigQuery(
+            snapshotText = getString(R.string.config_snapshot_waiting) + "\n",
+            autoScrollToResults = autoScrollToResults,
+        )
         HideConfigStore.sendAppliedConfigQueryBroadcast(this, queryToken)
     }
 
     private fun resetHideConfigToDefaults() {
-        applyConfigToEditor(HideConfigDefaults.value)
-        defaultSaveExplicitlyRequested = true
-        configStatusText = getString(R.string.config_restored_defaults) + "\n"
+        mainViewModel.markConfigRestoredDefaults(getString(R.string.config_restored_defaults) + "\n")
     }
 
     private fun refuseMissingLocalDefaultSave(): Boolean {
-        if (!localConfigMissing || currentHideConfig != HideConfigDefaults.value || defaultSaveExplicitlyRequested) {
+        val state = mainViewModel.uiState.value
+        if (!state.localConfigMissing ||
+            state.currentHideConfig != HideConfigDefaults.value ||
+            state.defaultSaveExplicitlyRequested
+        ) {
             return false
         }
-        configStatusText = getString(R.string.config_refuse_default_overwrite) + "\n"
-        highlightConfigResults = true
-        configResultsScrollToken += 1
+        mainViewModel.markDefaultOverwriteRefused(getString(R.string.config_refuse_default_overwrite) + "\n")
         return true
     }
 
     private fun appendOutput(text: String) {
-        outputText += text
+        mainViewModel.appendOutput(text)
         logUiText(text)
     }
 

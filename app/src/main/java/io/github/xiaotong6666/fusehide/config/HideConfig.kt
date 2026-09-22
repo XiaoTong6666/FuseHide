@@ -16,12 +16,16 @@
 
 package io.github.xiaotong6666.fusehide.config
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class PackageHideRule(
     val packageName: String,
     val hiddenRootEntryNames: List<String>,
     val hiddenRelativePaths: List<String>,
 )
 
+@Immutable
 data class HideConfig(
     val enableHideAllRootEntries: Boolean,
     val hideAllRootEntriesExemptions: List<String>,
