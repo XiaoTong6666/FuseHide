@@ -19,5 +19,9 @@ sealed interface Route :
 
     @Parcelize
     @Serializable
+    data object AppliedConfig : Route
+
+    @Parcelize
+    @Serializable
     data class AppConfig(val packageName: String) : Route
 }

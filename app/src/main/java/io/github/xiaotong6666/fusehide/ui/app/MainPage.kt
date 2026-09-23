@@ -70,14 +70,16 @@ fun MainPage(
     settingsCallbacks: SettingsCallbacks,
 ) {
     val homeTitle = stringResource(R.string.nav_home)
+    val appTitle = stringResource(R.string.app_name)
     val configTitle = stringResource(R.string.nav_config)
     val probeTitle = stringResource(R.string.nav_probe)
     val settingsTitle = stringResource(R.string.nav_settings)
     val globalConfigTitle = stringResource(R.string.global_hide_config_title)
-    val pageItems = remember(homeTitle, configTitle, probeTitle, settingsTitle, globalConfigTitle, onOpenGlobalConfig) {
+    val pageItems = remember(homeTitle, appTitle, configTitle, probeTitle, settingsTitle, globalConfigTitle, onOpenGlobalConfig) {
         listOf(
             NavigationShellItem(
                 title = homeTitle,
+                topBarTitle = appTitle,
                 icon = Icons.Outlined.Home,
                 selectedIcon = Icons.Filled.Home,
             ),
@@ -168,6 +170,7 @@ private fun PreviewMainPage() {
                 infoText = "Kernel: 6.1.118\nDevice: Fuxi\nSDK: 3600000",
                 statusText = "Hooked: com.example.app (1234)",
                 isHooked = true,
+                backend = io.github.xiaotong6666.fusehide.ui.core.model.HookBackend.Xposed,
                 hookedPackage = "com.example.app",
                 hookedPid = 1234,
                 hookCheckCompleted = true,
@@ -183,6 +186,8 @@ private fun PreviewMainPage() {
                     details = "",
                 ),
                 appliedConfigSnapshotText = "Current native config snapshot...",
+                appliedConfigQueryPending = false,
+                hasAppliedConfig = true,
                 highlightConfigResults = false,
                 configResultsScrollToken = 0,
                 currentHideConfig = io.github.xiaotong6666.fusehide.config.HideConfigDefaults.value,
@@ -194,6 +199,7 @@ private fun PreviewMainPage() {
             ),
             homeCallbacks = HomeCallbacks(
                 onStatusClick = {},
+                onConfigSyncClick = {},
             ),
             configCallbacks = ConfigCallbacks(
                 onStatusClick = {},

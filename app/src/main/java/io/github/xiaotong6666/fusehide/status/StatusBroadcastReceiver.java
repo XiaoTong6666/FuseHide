@@ -30,18 +30,20 @@ public final class StatusBroadcastReceiver extends BroadcastReceiver {
     private static final String ACTION_GET_STATUS = APP_PACKAGE + ".GET_STATUS";
     private static final String ACTION_SET_STATUS = APP_PACKAGE + ".SET_STATUS";
     private static final String EXTRA_STATUS_QUERY_TOKEN = APP_PACKAGE + ".extra.STATUS_QUERY_TOKEN";
+    private static final String EXTRA_BACKEND = APP_PACKAGE + ".extra.BACKEND";
     private static final String PACKAGE_MEDIA = "com.android.providers.media.module";
     private static final String PACKAGE_MEDIA_GOOGLE = "com.google.android.providers.media.module";
 
     public interface HookStatusCallback {
         String getActiveStatusCheckToken();
 
-        void onHookStatusReceived(String packageName, int pid);
+        void onHookStatusReceived(String packageName, int pid, String backend);
     }
 
     private final int mode;
     private final ContextWrapper owner;
     private final HookStatusCallback hookStatusCallback;
+    private final String backend;
 
     @SuppressWarnings("deprecation")
     private static PendingIntent getPendingIntentExtra(Intent intent) {
@@ -52,12 +54,22 @@ public final class StatusBroadcastReceiver extends BroadcastReceiver {
     }
 
     public StatusBroadcastReceiver(ContextWrapper owner, int mode) {
-        this(owner, mode, null);
+        this(owner, mode, null, null);
     }
 
     public StatusBroadcastReceiver(ContextWrapper owner, int mode, HookStatusCallback hookStatusCallback) {
+        this(owner, mode, null, hookStatusCallback);
+    }
+
+    public StatusBroadcastReceiver(ContextWrapper owner, int mode, String backend) {
+        this(owner, mode, backend, null);
+    }
+
+    private StatusBroadcastReceiver(
+            ContextWrapper owner, int mode, String backend, HookStatusCallback hookStatusCallback) {
         this.mode = mode;
         this.owner = owner;
+        this.backend = backend;
         this.hookStatusCallback = hookStatusCallback;
     }
 
@@ -88,6 +100,7 @@ public final class StatusBroadcastReceiver extends BroadcastReceiver {
                     "EXTRA_PENDING_INTENT",
                     PendingIntent.getBroadcast(owner, 1, statusIntent, PendingIntent.FLAG_IMMUTABLE));
             statusIntent.putExtra("EXTRA_PID", Process.myPid());
+            statusIntent.putExtra(EXTRA_BACKEND, backend);
             statusIntent.putExtra(EXTRA_STATUS_QUERY_TOKEN, intent.getStringExtra(EXTRA_STATUS_QUERY_TOKEN));
             if (statusIntent.getExtras() != null) {
                 statusIntent
@@ -123,7 +136,8 @@ public final class StatusBroadcastReceiver extends BroadcastReceiver {
                 Log.e("FuseHide", "invalid status pkg " + creatorPackage);
                 return;
             }
-            hookStatusCallback.onHookStatusReceived(creatorPackage, intent.getIntExtra("EXTRA_PID", -1));
+            hookStatusCallback.onHookStatusReceived(
+                    creatorPackage, intent.getIntExtra("EXTRA_PID", -1), intent.getStringExtra(EXTRA_BACKEND));
         } catch (Throwable th) {
             Log.e("FuseHide", "send: ", th);
         }

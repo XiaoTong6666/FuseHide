@@ -270,7 +270,7 @@ public class Entry extends XposedModule {
 
             hookedApplication = application;
             final Application app = application;
-            StatusBroadcastReceiver receiver = new StatusBroadcastReceiver(app, 0);
+            StatusBroadcastReceiver receiver = new StatusBroadcastReceiver(app, 0, "xposed");
             IntentFilter filter = new IntentFilter(ACTION_GET_STATUS);
             if (Build.VERSION.SDK_INT >= 33) {
                 app.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);

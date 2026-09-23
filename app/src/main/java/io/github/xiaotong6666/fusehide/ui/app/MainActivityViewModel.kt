@@ -21,6 +21,7 @@ import androidx.lifecycle.ViewModel
 import io.github.xiaotong6666.fusehide.config.HideConfig
 import io.github.xiaotong6666.fusehide.config.HideConfigDefaults
 import io.github.xiaotong6666.fusehide.debug.PathDebugActions
+import io.github.xiaotong6666.fusehide.ui.core.model.HookBackend
 import io.github.xiaotong6666.uihelper.mode.UiMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +37,7 @@ data class MainActivityUiState(
     val enableMiuixFloatingBottomBar: Boolean = false,
     val infoText: String = "",
     val statusText: String = "",
+    val hookBackend: HookBackend? = null,
     val hookedPackage: String? = null,
     val hookedPid: Int = -1,
     val hookCheckCompleted: Boolean = false,
@@ -45,6 +47,7 @@ data class MainActivityUiState(
     val lastApplyTimeText: String = "-",
     val appliedHideConfig: HideConfig? = null,
     val appliedConfigSnapshotText: String = "",
+    val appliedConfigQueryPending: Boolean = false,
     val highlightConfigResults: Boolean = false,
     val localConfigMissing: Boolean = false,
     val defaultSaveExplicitlyRequested: Boolean = false,
@@ -101,8 +104,6 @@ class MainActivityViewModel : ViewModel() {
     fun beginHookStatusCheck(statusText: String) = update {
         copy(
             statusText = statusText,
-            hookedPackage = null,
-            hookedPid = -1,
             hookCheckCompleted = false,
         )
     }
@@ -110,13 +111,17 @@ class MainActivityViewModel : ViewModel() {
     fun completeHookStatusCheck(statusText: String) = update {
         copy(
             statusText = statusText,
+            hookBackend = null,
+            hookedPackage = null,
+            hookedPid = -1,
             hookCheckCompleted = true,
         )
     }
 
-    fun setHookedStatus(packageName: String, pid: Int, statusText: String) = update {
+    fun setHookedStatus(packageName: String, pid: Int, backend: HookBackend?, statusText: String) = update {
         copy(
             statusText = statusText,
+            hookBackend = backend,
             hookedPackage = packageName,
             hookedPid = pid,
             hookCheckCompleted = true,
@@ -184,6 +189,7 @@ class MainActivityViewModel : ViewModel() {
         update {
             copy(
                 appliedConfigSnapshotText = snapshotText,
+                appliedConfigQueryPending = true,
                 shouldAutoScrollConfigResults = autoScrollToResults,
             )
         }
@@ -205,10 +211,26 @@ class MainActivityViewModel : ViewModel() {
         copy(
             appliedHideConfig = config,
             appliedConfigSnapshotText = snapshotText,
+            appliedConfigQueryPending = false,
             highlightConfigResults = config == null || draftDiffers,
             configResultsScrollToken = if (shouldScroll) configResultsScrollToken + 1 else configResultsScrollToken,
             shouldAutoScrollConfigResults = false,
         )
+    }
+
+    fun timeoutAppliedConfigQuery(token: String, snapshotText: String): Boolean {
+        if (token != pendingQueryToken) return false
+        pendingQueryToken = null
+        update {
+            copy(
+                appliedHideConfig = null,
+                appliedConfigSnapshotText = snapshotText,
+                appliedConfigQueryPending = false,
+                highlightConfigResults = true,
+                shouldAutoScrollConfigResults = false,
+            )
+        }
+        return true
     }
 
     fun recoverConfig(config: HideConfig) = update { copy(currentHideConfig = config) }

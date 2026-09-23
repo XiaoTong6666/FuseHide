@@ -210,7 +210,8 @@ public final class ZygiskEntry {
             if (app == null) {
                 return;
             }
-            StatusBroadcastReceiver receiver = new StatusBroadcastReceiver(new android.content.ContextWrapper(app), 0);
+            StatusBroadcastReceiver receiver =
+                    new StatusBroadcastReceiver(new android.content.ContextWrapper(app), 0, "zygisk");
             IntentFilter filter = new IntentFilter(ACTION_GET_STATUS);
             if (Build.VERSION.SDK_INT >= 33) {
                 app.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);

@@ -31,10 +31,16 @@ data class HookStatusUiState(
     val infoText: String,
     val statusText: String,
     val isHooked: Boolean,
+    val backend: HookBackend?,
     val hookedPackage: String?,
     val hookedPid: Int,
     val hookCheckCompleted: Boolean,
 )
+
+enum class HookBackend {
+    Xposed,
+    Zygisk,
+}
 
 @Immutable
 data class ConfigUiState(
@@ -44,6 +50,8 @@ data class ConfigUiState(
     val lastApplyTimeText: String,
     val draftVsAppliedDiff: HideConfigDiff,
     val appliedConfigSnapshotText: String,
+    val appliedConfigQueryPending: Boolean,
+    val hasAppliedConfig: Boolean,
     val highlightConfigResults: Boolean,
     val configResultsScrollToken: Int,
     val currentHideConfig: io.github.xiaotong6666.fusehide.config.HideConfig,
@@ -97,6 +105,7 @@ enum class MainDestination {
 @Immutable
 data class HomeCallbacks(
     val onStatusClick: () -> Unit,
+    val onConfigSyncClick: () -> Unit,
 )
 
 @Immutable

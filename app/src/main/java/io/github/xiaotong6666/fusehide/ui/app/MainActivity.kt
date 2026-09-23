@@ -67,6 +67,7 @@ import io.github.xiaotong6666.fusehide.ui.core.model.ConfigUiState
 import io.github.xiaotong6666.fusehide.ui.core.model.DebugCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.DebugUiState
 import io.github.xiaotong6666.fusehide.ui.core.model.HomeCallbacks
+import io.github.xiaotong6666.fusehide.ui.core.model.HookBackend
 import io.github.xiaotong6666.fusehide.ui.core.model.HookStatusUiState
 import io.github.xiaotong6666.fusehide.ui.core.model.SettingsCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.SettingsUiState
@@ -96,6 +97,7 @@ class MainActivity :
         private const val EXTRA_DEBUG_PATH = "debug_path"
         private const val EXTRA_DEBUG_PATH2 = "debug_path2"
         private const val EXTRA_DEBUG_ACTIONS = "debug_actions"
+        private const val APPLIED_CONFIG_QUERY_TIMEOUT_MS = 2000L
 
         @SuppressLint("PrivateApi")
         fun getBooleanSystemProperty(name: String): Boolean = try {
@@ -106,6 +108,16 @@ class MainActivity :
             Log.e("FuseHide", "getProp", th)
             false
         }
+
+        @SuppressLint("PrivateApi")
+        fun getSystemProperty(name: String): String = try {
+            Class.forName("android.os.SystemProperties")
+                .getDeclaredMethod("get", String::class.java, String::class.java)
+                .invoke(null, name, "") as String
+        } catch (th: Throwable) {
+            Log.e("FuseHide", "getProp", th)
+            ""
+        }
     }
 
     private val mainViewModel by viewModels<MainActivityViewModel>()
@@ -113,6 +125,7 @@ class MainActivity :
     private var statusBinderReference: WeakReference<Binder>? = null
     private var statusCheckInFlight: Boolean = false
     private var statusTimeoutRunnable: Runnable? = null
+    private var appliedConfigTimeoutRunnable: Runnable? = null
     private var activeStatusCheckToken: String? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var statusReceiver: StatusBroadcastReceiver
@@ -195,6 +208,8 @@ class MainActivity :
                 if (!mainViewModel.consumeAppliedConfigResult(token)) {
                     return
                 }
+                appliedConfigTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+                appliedConfigTimeoutRunnable = null
                 val config = HideConfigStore.fromBundle(statusIntent.extras)
                 val snapshotText = if (config == null) {
                     getString(R.string.config_snapshot_missing) + "\n"
@@ -245,6 +260,7 @@ class MainActivity :
                         val hookStatusState = remember(
                             uiState.infoText,
                             uiState.statusText,
+                            uiState.hookBackend,
                             uiState.hookedPackage,
                             uiState.hookedPid,
                             uiState.hookCheckCompleted,
@@ -267,6 +283,8 @@ class MainActivity :
                             uiState.lastAckResultText,
                             uiState.lastApplyTimeText,
                             uiState.appliedConfigSnapshotText,
+                            uiState.appliedConfigQueryPending,
+                            uiState.appliedHideConfig,
                             uiState.highlightConfigResults,
                             uiState.configResultsScrollToken,
                             uiState.currentHideConfig,
@@ -292,11 +310,15 @@ class MainActivity :
                                 enableMiuixFloatingBottomBar = uiState.enableMiuixFloatingBottomBar,
                             )
                         }
-                        val homeCallbacks = remember {
+                        val homeCallbacks = remember(navigator) {
                             HomeCallbacks(
                                 onStatusClick = {
                                     startStatusCheck()
                                     refreshAppliedConfig()
+                                },
+                                onConfigSyncClick = {
+                                    refreshAppliedConfig()
+                                    navigator.push(Route.AppliedConfig)
                                 },
                             )
                         }
@@ -373,6 +395,12 @@ class MainActivity :
                                         callbacks = configCallbacks,
                                         onBack = { navigator.pop() },
                                         onSave = ::applyHideConfig,
+                                    )
+                                }
+                                entry<Route.AppliedConfig>(swipeDismiss = swipeDismiss) {
+                                    io.github.xiaotong6666.fusehide.ui.feature.home.AppliedConfigPage(
+                                        snapshotText = configState.appliedConfigSnapshotText,
+                                        onBack = { navigator.pop() },
                                     )
                                 }
                                 entry<Route.AppConfig>(swipeDismiss = swipeDismiss) { key ->
@@ -466,7 +494,7 @@ class MainActivity :
         logUiText(mainViewModel.uiState.value.statusText)
     }
 
-    override fun onHookStatusReceived(packageName: String, pid: Int) {
+    override fun onHookStatusReceived(packageName: String, pid: Int, backend: String?) {
         statusTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         statusTimeoutRunnable = null
         activeStatusCheckToken = null
@@ -474,6 +502,11 @@ class MainActivity :
         mainViewModel.setHookedStatus(
             packageName = packageName,
             pid = pid,
+            backend = when (backend) {
+                "xposed" -> HookBackend.Xposed
+                "zygisk" -> HookBackend.Zygisk
+                else -> null
+            },
             statusText = getString(R.string.status_hooked, packageName, pid) + "\n",
         )
         logUiText(mainViewModel.uiState.value.statusText)
@@ -483,11 +516,18 @@ class MainActivity :
 
     private fun buildInfoText(): String {
         val utsname: StructUtsname = Os.uname()
+        val marketName = sequenceOf(
+            getSystemProperty("ro.product.marketname"),
+            getSystemProperty("ro.product.vendor.marketname"),
+            getSystemProperty("ro.product.odm.marketname"),
+        ).firstOrNull { it.isNotBlank() }
+            ?: "${Build.MANUFACTURER.replaceFirstChar { it.titlecase() }} ${Build.MODEL}"
+        val deviceText = "$marketName / ${Build.MODEL} (${Build.DEVICE})"
         return buildString {
             append("Version: ${BuildConfig.VERSION_NAME} (${BuildConfig.COMMIT_HASH})\n")
             append("Kernel: ${utsname.release}\n")
+            append("Device: $deviceText\n")
             append("System: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
-            append("Device: ${Build.DEVICE}\n")
             if (getBooleanSystemProperty("external_storage.sdcardfs.enabled")) {
                 append("sdcardfs: true\n")
             }
@@ -555,6 +595,7 @@ class MainActivity :
         infoText = state.infoText,
         statusText = state.statusText,
         isHooked = state.hookedPackage != null,
+        backend = state.hookBackend,
         hookedPackage = state.hookedPackage,
         hookedPid = state.hookedPid,
         hookCheckCompleted = state.hookCheckCompleted,
@@ -570,6 +611,8 @@ class MainActivity :
         lastApplyTimeText = state.lastApplyTimeText,
         draftVsAppliedDiff = diff,
         appliedConfigSnapshotText = state.appliedConfigSnapshotText,
+        appliedConfigQueryPending = state.appliedConfigQueryPending,
+        hasAppliedConfig = state.appliedHideConfig != null,
         highlightConfigResults = state.highlightConfigResults,
         configResultsScrollToken = state.configResultsScrollToken,
         currentHideConfig = state.currentHideConfig,
@@ -625,11 +668,23 @@ class MainActivity :
     }
 
     private fun refreshAppliedConfig(autoScrollToResults: Boolean = false) {
+        appliedConfigTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
         val queryToken = mainViewModel.beginAppliedConfigQuery(
             snapshotText = getString(R.string.config_snapshot_waiting) + "\n",
             autoScrollToResults = autoScrollToResults,
         )
         HideConfigStore.sendAppliedConfigQueryBroadcast(this, queryToken)
+        val timeoutRunnable = Runnable {
+            if (mainViewModel.timeoutAppliedConfigQuery(
+                    queryToken,
+                    getString(R.string.config_snapshot_missing) + "\n",
+                )
+            ) {
+                appliedConfigTimeoutRunnable = null
+            }
+        }
+        appliedConfigTimeoutRunnable = timeoutRunnable
+        mainHandler.postDelayed(timeoutRunnable, APPLIED_CONFIG_QUERY_TIMEOUT_MS)
     }
 
     private fun resetHideConfigToDefaults() {
@@ -666,5 +721,6 @@ class MainActivity :
         unregisterReceiver(configStatusReceiver)
         unregisterReceiver(appliedConfigReceiver)
         statusTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        appliedConfigTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
     }
 }
