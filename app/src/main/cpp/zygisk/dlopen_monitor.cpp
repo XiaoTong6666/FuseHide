@@ -78,7 +78,13 @@ struct NativeApiEntries {
 };
 
 int DobbyHookAdapter(void* target, void* replacement, void** backup) {
-    return DobbyHook(target, replacement, backup);
+    dobby_dummy_func_t original = nullptr;
+    const int result = DobbyHook(target, reinterpret_cast<dobby_dummy_func_t>(replacement),
+                                 backup != nullptr ? &original : nullptr);
+    if (backup != nullptr) {
+        *backup = result == RT_SUCCESS ? reinterpret_cast<void*>(original) : nullptr;
+    }
+    return result;
 }
 
 bool GetJniEnv(JNIEnv** env, bool* attached) {
@@ -225,9 +231,13 @@ void InstallDlopenMonitor() {
     }
 
     void* target = reinterpret_cast<void*>(linker->base + *offset);
-    const int result = DobbyHook(target, reinterpret_cast<void*>(HookedDoDlopen),
-                                 reinterpret_cast<void**>(&gOriginalDoDlopen));
-    if (result != 0 || gOriginalDoDlopen == nullptr) {
+    dobby_dummy_func_t original = nullptr;
+    const int result =
+        DobbyHook(target, reinterpret_cast<dobby_dummy_func_t>(HookedDoDlopen), &original);
+    if (result == RT_SUCCESS) {
+        gOriginalDoDlopen = reinterpret_cast<DoDlopen>(original);
+    }
+    if (result != RT_SUCCESS || gOriginalDoDlopen == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "failed to hook do_dlopen: %d", result);
         gOriginalDoDlopen = nullptr;
         return;

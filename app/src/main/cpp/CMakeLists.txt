@@ -84,6 +84,8 @@ target_link_libraries(fusehide ${log-lib} ${dl-lib} ${icu-lib})
 
 target_link_options(fusehide PRIVATE -Wl,-z,max-page-size=16384)
 
+# The fork exports a single "dobby" target; embed its static variant in libzygisk.so.
+set(DOBBY_GENERATE_SHARED OFF CACHE BOOL "Build Dobby statically for Zygisk" FORCE)
 add_subdirectory(third_party/Dobby)
 
 add_library(
@@ -120,5 +122,5 @@ target_include_directories(
     zygisk/include
 )
 
-target_link_libraries(zygisk dobby_static ${log-lib} ${dl-lib})
+target_link_libraries(zygisk dobby ${log-lib} ${dl-lib})
 target_link_options(zygisk PRIVATE -Wl,-z,max-page-size=16384)
