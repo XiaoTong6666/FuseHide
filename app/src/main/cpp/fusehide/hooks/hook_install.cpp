@@ -1196,23 +1196,79 @@ std::optional<FileElfContext> BuildFileElfContext(const ModuleInfo& module) {
 
 bool TryInstallInlineHookAt(void* target, void* replacement, void** backup,
                             const char* failureMessage) {
-    if (backup != nullptr && *backup != nullptr) {
+    // The strict ABI publishes via an atomic store before DobbyCommitHook.
+    // A failed Commit that was ever visible must keep its backup callable;
+    // such a slot must NOT be misreported as a successfully installed hook.
+    static std::mutex failedPublicationMutex;
+    static std::array<void**, 256> failedPublicationSlots{};
+    auto publicationFailed = [&]() {
+        std::lock_guard lock(failedPublicationMutex);
+        return std::find(failedPublicationSlots.begin(), failedPublicationSlots.end(), backup) !=
+               failedPublicationSlots.end();
+    };
+    auto retainFailedPublication = [&]() {
+        std::lock_guard lock(failedPublicationMutex);
+        for (auto& slot : failedPublicationSlots) {
+            if (slot == backup)
+                return;
+            if (slot == nullptr) {
+                slot = backup;
+                return;
+            }
+        }
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "failed publication table full: %s",
+                            failureMessage);
+    };
+    auto loadBackup = [&]() -> void* {
+        return backup ? __atomic_load_n(backup, __ATOMIC_ACQUIRE) : nullptr;
+    };
+    if (backup != nullptr && publicationFailed()) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                            "previous hook may have published: %s target=%p", failureMessage,
+                            target);
+        return false;
+    }
+    if (backup != nullptr && loadBackup() != nullptr) {
         __android_log_print(4, kLogTag,
                             "hook already installed %s target=%p replacement=%p backup=%p",
-                            failureMessage, target, replacement, *backup);
+                            failureMessage, target, replacement, loadBackup());
         return true;
     }
     if (gHookInstaller == nullptr) {
         __android_log_print(6, kLogTag, "hook installer is null for %s", failureMessage);
         return false;
     }
-    const int status = gHookInstaller(target, replacement, backup);
+    const int status = gStrictHookInstaller && backup
+                           ? gStrictHookInstaller(
+                                 target, replacement, backup,
+                                 +[](void* user_data, void* original) {
+                                     auto* location = static_cast<void**>(user_data);
+                                     __atomic_store_n(location, original, __ATOMIC_RELEASE);
+                                 })
+                           : [&]() {
+                                 // Legacy v2 has no publication callback. Never let it write to
+                                 // storage read by atomic HookOriginal::get() with a plain store.
+                                 void* candidate = nullptr;
+                                 const int legacy_status = gHookInstaller(
+                                     target, replacement, backup ? &candidate : nullptr);
+                                 if (backup && candidate)
+                                     __atomic_store_n(backup, candidate, __ATOMIC_RELEASE);
+                                 return legacy_status;
+                             }();
     if (status != 0) {
+        if (backup && loadBackup())
+            retainFailedPublication();
         __android_log_print(6, kLogTag, "%s: %d", failureMessage, status);
         return false;
     }
+    if (backup && !loadBackup()) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "successful hook returned no original: %s",
+                            failureMessage);
+        retainFailedPublication();
+        return false;
+    }
     __android_log_print(4, kLogTag, "hook installed %s target=%p replacement=%p backup=%p",
-                        failureMessage, target, replacement, backup != nullptr ? *backup : nullptr);
+                        failureMessage, target, replacement, loadBackup());
     return true;
 }
 
@@ -1917,6 +1973,26 @@ void InstallAdvancedDebugHooks(const ModuleInfo& module) {
 // Install all hooks after LSPosed reports that libfuse_jni.so has been loaded into MediaProvider.
 
 void InstallFuseHooks() {
+    // Multiple native hosts can report the same loaded image concurrently.
+    // Dobby serializes its own registry, but Process() contains caller-owned
+    // backup pointers and ABI metadata that must not be written concurrently.
+    // A blocking mutex is unsafe here: a loader callback may still hold the
+    // Android linker lock while another installer resolves more symbols.
+    // Skip duplicate/reentrant attempts; a later loader event can retry.
+    static std::atomic_flag installing = ATOMIC_FLAG_INIT;
+    if (installing.test_and_set(std::memory_order_acquire)) {
+        __android_log_print(
+            ANDROID_LOG_INFO, kLogTag,
+            "FUSE hook installation already in progress; skipping overlapping callback");
+        return;
+    }
+    struct InstallAttemptExit {
+        std::atomic_flag& flag;
+        ~InstallAttemptExit() {
+            flag.clear(std::memory_order_release);
+        }
+    } exit{installing};
+
     auto module = FindTargetModule();
     if (!module.has_value()) {
         __android_log_print(6, kLogTag, "no %s found", kTargetLibrary);
