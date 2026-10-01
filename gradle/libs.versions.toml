@@ -51,6 +51,7 @@ androidx-navigationevent-compose = { module = "androidx.navigationevent:navigati
 miuix-nav = { module = "top.yukonga.miuix.kmp:miuix-nav-android", version.ref = "miuix" }
 commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }
 appiconloader = { module = "me.zhanghai.android.appiconloader:appiconloader", version.ref = "appiconloader" }
+miuix-icons = { module = "top.yukonga.miuix.kmp:miuix-icons-android", version.ref = "miuix" }
 
 
 [plugins]
