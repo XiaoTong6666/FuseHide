@@ -143,11 +143,6 @@ inline constexpr bool kEnableDebugHooks = false;
 inline constexpr bool kEnableDebugHooks = true;
 #endif
 
-using UHasBinaryPropertyFn = int8_t (*)(uint32_t codePoint, int32_t which);
-extern "C" int8_t u_hasBinaryProperty(uint32_t codePoint, int32_t which);
-
-inline constexpr int32_t kUCHAR_DEFAULT_IGNORABLE_CODE_POINT = 5;
-
 // Platform libc++ may use std::__1 while the module is built against std::__ndk1. A const string
 // reference is one object pointer on every supported ABI, so keep the boundary untyped and decode
 // the stable libc++ object layout explicitly instead of invoking methods from the wrong namespace.
@@ -515,7 +510,6 @@ inline constexpr size_t kFuseEntryOutWireSize = 128;
 extern HookInstaller gHookInstaller;
 extern StrictHookInstaller gStrictHookInstaller;
 extern JavaVM* gJavaVm;
-extern UHasBinaryPropertyFn gUHasBinaryProperty;
 extern HookOriginal<IsAppAccessiblePathFn> gOriginalIsAppAccessiblePath;
 extern HookOriginal<IsPackageOwnedPathFn> gOriginalIsPackageOwnedPath;
 extern HookOriginal<IsBpfBackingPathFn> gOriginalIsBpfBackingPath;

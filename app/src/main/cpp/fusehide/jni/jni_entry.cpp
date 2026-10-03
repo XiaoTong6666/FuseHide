@@ -27,6 +27,7 @@ enum class NativeModuleInitState : uint8_t {
 };
 
 std::atomic<NativeModuleInitState> gNativeModuleInitState{NativeModuleInitState::kUninitialized};
+volatile bool gDisableFuseHooksForDiagnostic = false;
 int (*gNativeOwnerUnhook)(void*) = nullptr;
 fusehide::NativeCallbackGate gNativeCallbackGate;
 
@@ -56,6 +57,9 @@ extern "C" void PostNativeInit(const char* loadedLibrary, void*) {
     } exit;
     if (loadedLibrary == nullptr ||
         std::strstr(loadedLibrary, fusehide::kTargetLibrary) == nullptr) {
+        return;
+    }
+    if (gDisableFuseHooksForDiagnostic) {
         return;
     }
     fusehide::InstallFuseHooks();

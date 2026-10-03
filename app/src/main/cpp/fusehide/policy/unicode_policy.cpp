@@ -36,15 +36,21 @@ void UnicodePolicy::LogSuspiciousDirectPath(const char* hookName, std::string_vi
     }
     __android_log_print(5, kLogTag,
                         "%s direct path still contains interesting zero-width bytes, "
-                        "NeedsSanitization returned false path=%s icu=%p",
-                        hookName, DebugPreview(path).c_str(),
-                        reinterpret_cast<void*>(gUHasBinaryProperty));
+                        "NeedsSanitization returned false path=%s unicode=12.1.0",
+                        hookName, DebugPreview(path).c_str());
 }
 
-// IsDefaultIgnorableCodePoint via ICU
-
+// Keep this table aligned with the Unicode 12.1 data used by the Android kernel casefold path.
+// Source: DerivedCoreProperties.txt / Default_Ignorable_Code_Point and the original FuseFixer
+// implementation that mirrors fs/unicode/mkutf8data.c.
 bool IsDefaultIgnorableCodePoint(uint32_t cp) {
-    return u_hasBinaryProperty(cp, kUCHAR_DEFAULT_IGNORABLE_CODE_POINT) != 0;
+    return cp == 0x00AD || cp == 0x034F || cp == 0x061C || (0x115F <= cp && cp <= 0x1160) ||
+           (0x17B4 <= cp && cp <= 0x17B5) || (0x180B <= cp && cp <= 0x180E) ||
+           (0x200B <= cp && cp <= 0x200F) || (0x202A <= cp && cp <= 0x202E) ||
+           (0x2060 <= cp && cp <= 0x206F) || cp == 0x3164 || (0xFE00 <= cp && cp <= 0xFE0F) ||
+           cp == 0xFEFF || cp == 0xFFA0 || (0xFFF0 <= cp && cp <= 0xFFF8) ||
+           (0x1BCA0 <= cp && cp <= 0x1BCA3) || (0x1D173 <= cp && cp <= 0x1D17A) ||
+           (0xE0000 <= cp && cp <= 0xE0FFF);
 }
 
 // Logging helpers match the original log format closely enough to compare traces.
@@ -220,18 +226,16 @@ bool UnicodePolicy::NeedsSanitization(const std::string& input) {
     const size_t len = input.size();
 
     for (size_t i = 0; i < len;) {
+        if (data[i] < 0x80) {
+            ++i;
+            continue;
+        }
+
         uint32_t cp = 0;
         size_t width = 0;
-
-        if (data[i] < 0x80) {
-            // ASCII code points are never default-ignorable.
-            cp = data[i];
-            width = 1;
-        } else {
-            if (!DecodeUtf8CodePoint(data, len, i, &cp, &width)) {
-                // Invalid UTF-8 is treated as non-ignorable here, matching the device build.
-                return false;
-            }
+        if (!DecodeUtf8CodePoint(data, len, i, &cp, &width)) {
+            // Invalid UTF-8 is treated as non-ignorable here, matching the device build.
+            return false;
         }
 
         if (IsDefaultIgnorableCodePoint(cp)) {
@@ -252,20 +256,23 @@ void UnicodePolicy::RewriteString(std::string& input) {
     size_t writePos = 0;
 
     while (readPos < origLen) {
+        if (data[readPos] < 0x80) {
+            if (writePos != readPos) {
+                data[writePos] = data[readPos];
+            }
+            ++writePos;
+            ++readPos;
+            continue;
+        }
+
         uint32_t cp = 0;
         size_t width = 0;
-
-        if (data[readPos] < 0x80) {
-            cp = data[readPos];
-            width = 1;
-        } else {
-            if (!DecodeUtf8CodePoint(data, origLen, readPos, &cp, &width)) {
-                const size_t invalidEnd = InvalidUtf8SpanEnd(data, origLen, readPos);
-                LogInvalidUtf8(reinterpret_cast<const uint8_t*>(input.data()), origLen, readPos,
-                               invalidEnd);
-                readPos = invalidEnd;
-                continue;
-            }
+        if (!DecodeUtf8CodePoint(data, origLen, readPos, &cp, &width)) {
+            const size_t invalidEnd = InvalidUtf8SpanEnd(data, origLen, readPos);
+            LogInvalidUtf8(reinterpret_cast<const uint8_t*>(input.data()), origLen, readPos,
+                           invalidEnd);
+            readPos = invalidEnd;
+            continue;
         }
 
         if (IsDefaultIgnorableCodePoint(cp)) {
@@ -340,18 +347,18 @@ int UnicodePolicy::CompareCaseFoldIgnoringDefaultIgnorables(const uint8_t* lhsDa
             if (lhsIdx >= lhsLen)
                 goto tail_check;
 
+            if (lhsData[lhsIdx] < 0x80) {
+                lhsNextIdx = lhsIdx + 1;
+                break;
+            }
+
             uint32_t cp = 0;
             size_t width = 0;
-            if (lhsData[lhsIdx] < 0x80) {
-                cp = lhsData[lhsIdx];
-                width = 1;
-            } else {
-                if (!DecodeUtf8CodePoint(lhsData, lhsLen, lhsIdx, &cp, &width)) {
-                    // Invalid: log entire lhs, treat byte as non-ignorable
-                    LogInvalidUtf8(lhsData, lhsLen, lhsIdx, lhsIdx + 1);
-                    // lhsNextIdx stays == lhsIdx, so we fall through
-                    break;
-                }
+            if (!DecodeUtf8CodePoint(lhsData, lhsLen, lhsIdx, &cp, &width)) {
+                // Invalid: log entire lhs, treat byte as non-ignorable
+                LogInvalidUtf8(lhsData, lhsLen, lhsIdx, lhsIdx + 1);
+                // lhsNextIdx stays == lhsIdx, so we fall through
+                break;
             }
 
             if (!IsDefaultIgnorableCodePoint(cp)) {
@@ -368,16 +375,16 @@ int UnicodePolicy::CompareCaseFoldIgnoringDefaultIgnorables(const uint8_t* lhsDa
             if (rhsIdx >= rhsLen)
                 goto tail_check;
 
+            if (rhsData[rhsIdx] < 0x80) {
+                rhsNextIdx = rhsIdx + 1;
+                break;
+            }
+
             uint32_t cp = 0;
             size_t width = 0;
-            if (rhsData[rhsIdx] < 0x80) {
-                cp = rhsData[rhsIdx];
-                width = 1;
-            } else {
-                if (!DecodeUtf8CodePoint(rhsData, rhsLen, rhsIdx, &cp, &width)) {
-                    LogInvalidUtf8(rhsData, rhsLen, rhsIdx, rhsIdx + 1);
-                    break;
-                }
+            if (!DecodeUtf8CodePoint(rhsData, rhsLen, rhsIdx, &cp, &width)) {
+                LogInvalidUtf8(rhsData, rhsLen, rhsIdx, rhsIdx + 1);
+                break;
             }
 
             if (!IsDefaultIgnorableCodePoint(cp)) {
@@ -412,16 +419,15 @@ tail_check:
             if (lhsNextIdx >= lhsLen)
                 break;
 
+            if (lhsData[lhsNextIdx] < 0x80) {
+                goto final_compare;
+            }
+
             uint32_t cp = 0;
             size_t width = 0;
-            if (lhsData[lhsNextIdx] < 0x80) {
-                cp = lhsData[lhsNextIdx];
-                width = 1;
-            } else {
-                if (!DecodeUtf8CodePoint(lhsData, lhsLen, lhsNextIdx, &cp, &width)) {
-                    LogInvalidUtf8(lhsData, lhsLen, lhsNextIdx, lhsNextIdx + 1);
-                    goto final_compare;
-                }
+            if (!DecodeUtf8CodePoint(lhsData, lhsLen, lhsNextIdx, &cp, &width)) {
+                LogInvalidUtf8(lhsData, lhsLen, lhsNextIdx, lhsNextIdx + 1);
+                goto final_compare;
             }
 
             if (!IsDefaultIgnorableCodePoint(cp)) {
@@ -438,16 +444,15 @@ tail_check:
             if (rhsNextIdx >= rhsLen)
                 break;
 
+            if (rhsData[rhsNextIdx] < 0x80) {
+                goto final_compare;
+            }
+
             uint32_t cp = 0;
             size_t width = 0;
-            if (rhsData[rhsNextIdx] < 0x80) {
-                cp = rhsData[rhsNextIdx];
-                width = 1;
-            } else {
-                if (!DecodeUtf8CodePoint(rhsData, rhsLen, rhsNextIdx, &cp, &width)) {
-                    LogInvalidUtf8(rhsData, rhsLen, rhsNextIdx, rhsNextIdx + 1);
-                    goto final_compare;
-                }
+            if (!DecodeUtf8CodePoint(rhsData, rhsLen, rhsNextIdx, &cp, &width)) {
+                LogInvalidUtf8(rhsData, rhsLen, rhsNextIdx, rhsNextIdx + 1);
+                goto final_compare;
             }
 
             if (!IsDefaultIgnorableCodePoint(cp)) {

@@ -17,7 +17,6 @@
 
 namespace fusehide {
 
-UHasBinaryPropertyFn gUHasBinaryProperty = u_hasBinaryProperty;
 HookInstaller gHookInstaller = nullptr;
 StrictHookInstaller gStrictHookInstaller = nullptr;
 JavaVM* gJavaVm = nullptr;

@@ -130,8 +130,6 @@ std::unordered_map<uint64_t, std::vector<std::shared_ptr<const CompiledHideRule>
     gHiddenSubtreeInodeRules;
 std::mutex gInodePathCacheMutex;
 std::unordered_map<uint64_t, std::string> gInodePathCache;
-std::unordered_map<uint64_t, uint64_t> gInodePathCacheAccessOrder;
-uint64_t gInodePathCacheAccessGeneration = 0;
 std::mutex gPendingReaddirContextsMutex;
 std::unordered_map<uint64_t, PendingReaddirContext> gPendingReaddirContexts;
 std::mutex gRecentHiddenParentPathsMutex;
@@ -166,8 +164,6 @@ void ClearSessionScopedTracking() {
     {
         std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
         gInodePathCache.clear();
-        gInodePathCacheAccessOrder.clear();
-        gInodePathCacheAccessGeneration = 0;
     }
     {
         std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
@@ -200,6 +196,61 @@ bool PathEqualsForFuseLookup(std::string_view lhs, std::string_view rhs) {
                reinterpret_cast<const uint8_t*>(rhs.data()), rhs.size()) == 0;
 }
 
+bool IsVisibleStorageRootPath(std::string_view path) {
+    return std::any_of(std::begin(kVisibleStorageRoots), std::end(kVisibleStorageRoots),
+                       [&](std::string_view root) { return path == root; });
+}
+
+bool MatchesCanonicalCandidate(std::string_view name,
+                               const std::unordered_set<std::string>& canonicalNames) {
+    for (const auto& canonical : canonicalNames) {
+        if (PathEqualsForFuseLookup(name, canonical)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MayParticipateInHidePolicy(std::string_view path) {
+    if (path.empty()) {
+        return false;
+    }
+    if (IsVisibleStorageRootPath(path)) {
+        return true;
+    }
+
+    const auto rule = RuleForAnyPackage();
+    if (rule == nullptr) {
+        return false;
+    }
+
+    for (const auto& root : kVisibleStorageRoots) {
+        if (path.size() <= root.size() || path.compare(0, root.size(), root) != 0 ||
+            path[root.size()] != '/') {
+            continue;
+        }
+
+        if (rule->enableHideAllRootEntries) {
+            return true;
+        }
+
+        const size_t componentStart = root.size() + 1;
+        const size_t slash = path.find('/', componentStart);
+        const size_t componentEnd = slash == std::string_view::npos ? path.size() : slash;
+        if (componentEnd <= componentStart) {
+            return true;
+        }
+        const std::string_view firstComponent =
+            path.substr(componentStart, componentEnd - componentStart);
+        return MatchesCanonicalCandidate(firstComponent, rule->hiddenRootEntryNameSet) ||
+               MatchesCanonicalCandidate(firstComponent, rule->hiddenRelativePathFirstComponentSet);
+    }
+
+    // Unknown MediaProvider path forms stay on the conservative path. This filter is only a
+    // performance precheck and must never become an authorization boundary.
+    return true;
+}
+
 bool IsVisibleRootChildLookupPath(std::string_view path, std::string_view name) {
     if (path.empty() || name.empty()) {
         return false;
@@ -216,10 +267,6 @@ bool IsVisibleRootChildLookupPath(std::string_view path, std::string_view name) 
         }
     }
     return false;
-}
-
-void NoteTrackedPathAccessLocked(uint64_t ino) {
-    gInodePathCacheAccessOrder[ino] = ++gInodePathCacheAccessGeneration;
 }
 
 bool IsProtectedTrackedPath(std::string_view path) {
@@ -255,32 +302,6 @@ bool IsProtectedTrackedPath(std::string_view path) {
         }
     }
     return false;
-}
-
-bool EvictOldestTrackedPathLocked() {
-    if (gInodePathCacheAccessOrder.empty()) {
-        return false;
-    }
-    uint64_t victimIno = 0;
-    uint64_t victimAccess = 0;
-    bool foundVictim = false;
-    for (const auto& [ino, access] : gInodePathCacheAccessOrder) {
-        const auto pathIt = gInodePathCache.find(ino);
-        if (pathIt == gInodePathCache.end() || IsProtectedTrackedPath(pathIt->second)) {
-            continue;
-        }
-        if (!foundVictim || access < victimAccess) {
-            victimIno = ino;
-            victimAccess = access;
-            foundVictim = true;
-        }
-    }
-    if (!foundVictim) {
-        return false;
-    }
-    gInodePathCache.erase(victimIno);
-    gInodePathCacheAccessOrder.erase(victimIno);
-    return true;
 }
 
 }  // namespace
@@ -702,7 +723,6 @@ std::optional<std::string> LookupTrackedPathForInode(uint64_t ino) {
     if (it == gInodePathCache.end()) {
         return std::nullopt;
     }
-    NoteTrackedPathAccessLocked(ino);
     return it->second;
 }
 
@@ -717,7 +737,6 @@ std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path) {
     std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
     for (const auto& [ino, trackedPath] : gInodePathCache) {
         if (trackedPath == path) {
-            NoteTrackedPathAccessLocked(ino);
             return ino;
         }
     }
@@ -728,17 +747,21 @@ void RememberTrackedPathForInode(uint64_t ino, std::string_view path) {
     if (ino == 0 || path.empty()) {
         return;
     }
+
+    const bool visibleRoot = IsVisibleStorageRootPath(path);
+    if (!visibleRoot && (!MayParticipateInHidePolicy(path) || !IsProtectedTrackedPath(path))) {
+        return;
+    }
+
     std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
     const bool newEntry = gInodePathCache.find(ino) == gInodePathCache.end();
-    if (newEntry) {
-        while (gInodePathCache.size() >= kMaxTrackedPathEntries && EvictOldestTrackedPathLocked()) {
-        }
-        if (gInodePathCache.size() >= kMaxTrackedPathEntries && !IsProtectedTrackedPath(path)) {
-            return;
-        }
+    if (newEntry && gInodePathCache.size() >= kMaxTrackedPathEntries) {
+        // The table now contains only policy-relevant paths. Avoid the old O(N) full-table scan on
+        // every insert; reaching this guardrail is exceptional and refusing an additional entry is
+        // safer than spending a full core repeatedly searching for an evictable unrelated path.
+        return;
     }
     gInodePathCache[ino] = std::string(path);
-    NoteTrackedPathAccessLocked(ino);
 }
 
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path) {

@@ -2095,12 +2095,12 @@ void InstallFuseHooks() {
     __android_log_print(
         4, kLogTag,
         "hook summary app=%p package_ptr=%p package_compare=%d bpf=%p strcasecmp=%p equals=%p "
-        "icu=%p",
+        "unicode=12.1.0",
         reinterpret_cast<void*>(Process().originalIsAppAccessiblePath),
         reinterpret_cast<void*>(Process().originalIsPackageOwnedPath),
         coreStatus.packageCoveredByComparePath,
         reinterpret_cast<void*>(Process().originalIsBpfBackingPath), Process().originalStrcasecmp,
-        Process().originalEqualsIgnoreCase, reinterpret_cast<void*>(gUHasBinaryProperty));
+        Process().originalEqualsIgnoreCase);
 }
 
 }  // namespace fusehide

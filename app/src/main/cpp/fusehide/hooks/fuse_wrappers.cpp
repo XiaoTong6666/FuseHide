@@ -225,8 +225,7 @@ void RememberVisibleRootParentInode(uint64_t parent, const char* reason) {
 }
 
 HiddenPathClassification ComputeHiddenPathClassification(uint32_t uid, std::string_view path) {
-    if (uid == 0 || !HiddenPathPolicy::IsTestHiddenUid(uid) ||
-        HiddenPathPolicy::IsHiddenRootDirectoryPath(path)) {
+    if (uid == 0 || HiddenPathPolicy::IsHiddenRootDirectoryPath(path)) {
         return HiddenPathClassification::kNone;
     }
     if (HiddenPathPolicy::IsExactHiddenTargetPath(uid, path)) {
@@ -254,6 +253,10 @@ const char* HiddenPathClassificationName(HiddenPathClassification classification
 // request burst. Cache the final classification behind config + package-set generations.
 HiddenPathClassification ClassifyHiddenPath(uint32_t uid, std::string_view path) {
     if (uid == 0 || path.empty()) {
+        return HiddenPathClassification::kNone;
+    }
+
+    if (ResolveHideRuleForUid(uid) == nullptr) {
         return HiddenPathClassification::kNone;
     }
 
@@ -1897,15 +1900,53 @@ bool WrappedIsBpfBackingPath(AbiStringParam pathArg) {
 
 // Keep libc strcasecmp behavior aligned with the original case-folding compare.
 extern "C" int WrappedStrcasecmp(const char* lhs, const char* rhs) {
-    const size_t lhsLen = (lhs != nullptr) ? std::strlen(lhs) : 0;
-    const size_t rhsLen = (rhs != nullptr) ? std::strlen(rhs) : 0;
+    const char* lhsSafe = lhs != nullptr ? lhs : "";
+    const char* rhsSafe = rhs != nullptr ? rhs : "";
+    const auto finishAscii = [&](int result) {
+        if constexpr (kEnableDebugHooks) {
+            if (ShouldLogLimited(gStrcasecmpLogCount)) {
+                const size_t lhsLen = std::strlen(lhsSafe);
+                const size_t rhsLen = std::strlen(rhsSafe);
+                DebugLogPrint(3, "strcasecmp lhs=%s rhs=%s result=%d",
+                              DebugPreview(std::string_view(lhsSafe, lhsLen)).c_str(),
+                              DebugPreview(std::string_view(rhsSafe, rhsLen)).c_str(), result);
+            }
+        }
+        return result;
+    };
+
+    // Avoid the two strlen() passes and the Unicode machinery for the overwhelmingly common
+    // ASCII case. If either side contains UTF-8, restart in the full comparator so default-
+    // ignorable handling remains byte-for-byte compatible with the kernel casefold behavior.
+    size_t index = 0;
+    while (true) {
+        const uint8_t lhsByte = static_cast<uint8_t>(lhsSafe[index]);
+        const uint8_t rhsByte = static_cast<uint8_t>(rhsSafe[index]);
+        if ((lhsByte | rhsByte) >= 0x80) {
+            break;
+        }
+        const uint8_t lhsFolded = static_cast<uint8_t>(
+            lhsByte >= 'A' && lhsByte <= 'Z' ? lhsByte + ('a' - 'A') : lhsByte);
+        const uint8_t rhsFolded = static_cast<uint8_t>(
+            rhsByte >= 'A' && rhsByte <= 'Z' ? rhsByte + ('a' - 'A') : rhsByte);
+        if (lhsFolded != rhsFolded) {
+            return finishAscii(static_cast<int>(lhsFolded) - static_cast<int>(rhsFolded));
+        }
+        if (lhsByte == 0) {
+            return finishAscii(0);
+        }
+        ++index;
+    }
+
+    const size_t lhsLen = std::strlen(lhsSafe);
+    const size_t rhsLen = std::strlen(rhsSafe);
     const int result = UnicodePolicy::CompareCaseFoldIgnoringDefaultIgnorables(
-        reinterpret_cast<const uint8_t*>(lhs ? lhs : ""), lhsLen,
-        reinterpret_cast<const uint8_t*>(rhs ? rhs : ""), rhsLen);
+        reinterpret_cast<const uint8_t*>(lhsSafe), lhsLen,
+        reinterpret_cast<const uint8_t*>(rhsSafe), rhsLen);
     if (ShouldLogLimited(gStrcasecmpLogCount)) {
         DebugLogPrint(3, "strcasecmp lhs=%s rhs=%s result=%d",
-                      DebugPreview(std::string_view(lhs ? lhs : "", lhsLen)).c_str(),
-                      DebugPreview(std::string_view(rhs ? rhs : "", rhsLen)).c_str(), result);
+                      DebugPreview(std::string_view(lhsSafe, lhsLen)).c_str(),
+                      DebugPreview(std::string_view(rhsSafe, rhsLen)).c_str(), result);
     }
     return result;
 }

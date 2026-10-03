@@ -73,13 +73,7 @@ target_include_directories(
 
 find_library(log-lib log)
 find_library(dl-lib dl)
-find_library(icu-lib icu)
-
-if(NOT icu-lib)
-    message(FATAL_ERROR "libicu.so not found")
-endif()
-
-target_link_libraries(fusehide ${log-lib} ${dl-lib} ${icu-lib})
+target_link_libraries(fusehide ${log-lib} ${dl-lib})
 
 
 # Vector/LSPosed retains native_init's onModuleLoaded function pointer for

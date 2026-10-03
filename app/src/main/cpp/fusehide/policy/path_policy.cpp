@@ -30,6 +30,19 @@ void FoldAsciiForMatch(std::string* value) {
     }
 }
 
+std::optional<std::string_view> RelativePathViewForVisibleRoot(std::string_view path) {
+    for (const auto& root : kVisibleStorageRoots) {
+        if (path == root) {
+            return std::string_view();
+        }
+        if (path.size() > root.size() && path.compare(0, root.size(), root) == 0 &&
+            path[root.size()] == '/') {
+            return path.substr(root.size() + 1);
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace
 
 std::string NormalizeRelativeHiddenPath(std::string_view path) {
@@ -41,11 +54,24 @@ std::string NormalizeRelativeHiddenPath(std::string_view path) {
     while (end > begin && path[end - 1] == '/') {
         end--;
     }
-    std::string normalized;
-    normalized.reserve(end - begin);
+
+    bool needsCollapse = false;
+    for (size_t i = begin + 1; i < end; ++i) {
+        if (path[i] == '/' && path[i - 1] == '/') {
+            needsCollapse = true;
+            break;
+        }
+    }
+    if (!needsCollapse) {
+        return std::string(path.substr(begin, end - begin));
+    }
+
+    std::string normalized(path.substr(begin, end - begin));
+    char* data = normalized.data();
+    size_t writePos = 0;
     bool previousSlash = false;
-    for (size_t i = begin; i < end; ++i) {
-        const char ch = path[i];
+    for (size_t readPos = 0; readPos < normalized.size(); ++readPos) {
+        const char ch = data[readPos];
         if (ch == '/') {
             if (previousSlash) {
                 continue;
@@ -54,8 +80,9 @@ std::string NormalizeRelativeHiddenPath(std::string_view path) {
         } else {
             previousSlash = false;
         }
-        normalized.push_back(ch);
+        data[writePos++] = ch;
     }
+    normalized.resize(writePos);
     return normalized;
 }
 
@@ -78,16 +105,11 @@ std::string CanonicalizeRelativeHiddenPathForMatch(std::string_view path) {
 }
 
 std::optional<std::string> RelativePathForVisibleRoot(std::string_view path) {
-    for (const auto& root : kVisibleStorageRoots) {
-        if (path == root) {
-            return std::string();
-        }
-        if (path.size() > root.size() && path.compare(0, root.size(), root) == 0 &&
-            path[root.size()] == '/') {
-            return NormalizeRelativeHiddenPath(path.substr(root.size() + 1));
-        }
+    const auto relativePath = RelativePathViewForVisibleRoot(path);
+    if (!relativePath.has_value()) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return NormalizeRelativeHiddenPath(*relativePath);
 }
 
 // Subtree checks are hot enough that the compiled rule keeps both exact and prefix forms ready,
@@ -156,7 +178,7 @@ bool IsHiddenRootEntryNameForRule(const CompiledHideRule& rule, std::string_view
 }
 
 bool IsAnyHiddenSubtreePathForRule(const CompiledHideRule& rule, std::string_view path) {
-    if (const auto relativePath = RelativePathForVisibleRoot(path);
+    if (const auto relativePath = RelativePathViewForVisibleRoot(path);
         relativePath.has_value() && MatchesRelativeHiddenPathList(rule, *relativePath, false)) {
         return true;
     }
@@ -183,7 +205,7 @@ bool IsAnyHiddenSubtreePathForRule(const CompiledHideRule& rule, std::string_vie
 }
 
 bool IsExactHiddenTargetPathForRule(const CompiledHideRule& rule, std::string_view path) {
-    if (const auto relativePath = RelativePathForVisibleRoot(path);
+    if (const auto relativePath = RelativePathViewForVisibleRoot(path);
         relativePath.has_value() && MatchesRelativeHiddenPathList(rule, *relativePath, true)) {
         return true;
     }
@@ -217,7 +239,7 @@ bool IsParentOfExactHiddenTargetPathForRule(const CompiledHideRule& rule, std::s
         }
     }
 
-    const auto relativePath = RelativePathForVisibleRoot(path);
+    const auto relativePath = RelativePathViewForVisibleRoot(path);
     if (!relativePath.has_value()) {
         return false;
     }
