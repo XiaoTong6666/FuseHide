@@ -67,7 +67,7 @@ thread_local uint32_t gCurrentLookupUid = 0;
 thread_local uint64_t gPfGetattrIno = 0;
 thread_local uint64_t gPfReaddirIno = 0;
 thread_local uint64_t gCurrentLookupParentInode = 0;
-thread_local std::string gCurrentLookupName;
+thread_local std::string_view gCurrentLookupName;
 thread_local bool gTrackRootHiddenLookup = false;
 thread_local bool gTrackHiddenSubtreeLookup = false;
 thread_local bool gZeroAttrCacheForCurrentGetattr = false;
@@ -211,15 +211,13 @@ bool MatchesCanonicalCandidate(std::string_view name,
     return false;
 }
 
-bool MayParticipateInHidePolicy(std::string_view path) {
+bool MayParticipateInHidePolicy(std::string_view path, const CompiledHideRule* rule) {
     if (path.empty()) {
         return false;
     }
     if (IsVisibleStorageRootPath(path)) {
         return true;
     }
-
-    const auto rule = RuleForAnyPackage();
     if (rule == nullptr) {
         return false;
     }
@@ -249,6 +247,11 @@ bool MayParticipateInHidePolicy(std::string_view path) {
     // Unknown MediaProvider path forms stay on the conservative path. This filter is only a
     // performance precheck and must never become an authorization boundary.
     return true;
+}
+
+bool MayParticipateInHidePolicy(std::string_view path) {
+    const auto rule = RuleForAnyPackage();
+    return MayParticipateInHidePolicy(path, rule.get());
 }
 
 bool IsVisibleRootChildLookupPath(std::string_view path, std::string_view name) {
@@ -320,6 +323,13 @@ uint32_t RuntimeState::ReqUid(fuse_req_t req) {
 void RuntimeState::RememberFuseSession(fuse_req_t req) {
     if (req == nullptr || req->se == nullptr) {
         gActiveFuseRequestSession = nullptr;
+        return;
+    }
+    if (gActiveFuseRequestSession == req->se) {
+        return;
+    }
+    if (gLastFuseSession.load(std::memory_order_acquire) == req->se) {
+        gActiveFuseRequestSession = req->se;
         return;
     }
     {
@@ -481,10 +491,6 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     if (parent != 0 && parent != rootParent && IsTrackedHiddenSubtreeInode(uid, parent)) {
         return HiddenNamedTargetKind::Descendant;
     }
-    const auto rule = ResolveHideRuleForUid(uid);
-    if (rule == nullptr) {
-        return HiddenNamedTargetKind::None;
-    }
     if (rootParent != 0 && parent == rootParent &&
         HiddenPathPolicy::IsHiddenRootEntryName(uid, name)) {
         return HiddenNamedTargetKind::Root;
@@ -645,7 +651,9 @@ extern "C" bool WrappedShouldNotCache(void* fuse, AbiStringParam pathArg) {
         }
         gTrackRootHiddenLookup = true;
     }
-    if (HiddenPathPolicy::IsAnyHiddenSubtreePath(path)) {
+    const auto anyPackageRule = RuleForAnyPackage();
+    if (anyPackageRule != nullptr && MayParticipateInHidePolicy(path, anyPackageRule.get()) &&
+        HiddenPathPolicy::IsAnyHiddenSubtreePath(*anyPackageRule, path)) {
         DebugLogPrint(4, "force uncached subtree path=%s", DebugPreview(path).c_str());
         return true;
     }
@@ -654,7 +662,7 @@ extern "C" bool WrappedShouldNotCache(void* fuse, AbiStringParam pathArg) {
 }
 
 bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     if (rule == nullptr || ino == 0) {
         return false;
     }
@@ -669,7 +677,7 @@ bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
 }
 
 bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     if (rule == nullptr || ino == 0) {
         return false;
     }
@@ -687,7 +695,7 @@ bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
 }
 
 bool RemoveTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     if (rule == nullptr || ino == 0) {
         return false;
     }

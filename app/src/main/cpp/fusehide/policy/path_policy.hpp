@@ -28,6 +28,7 @@ class HiddenPathPolicy final {
     static bool IsHiddenRootEntryName(uint32_t uid, std::string_view name);
     static bool IsAnyHiddenSubtreePath(std::string_view path);
     static bool IsAnyHiddenSubtreePath(uint32_t uid, std::string_view path);
+    static bool IsAnyHiddenSubtreePath(const CompiledHideRule& rule, std::string_view path);
     static bool IsExactHiddenTargetPath(std::string_view path);
     static bool IsExactHiddenTargetPath(uint32_t uid, std::string_view path);
     static bool IsHiddenRootDirectoryPath(std::string_view path);

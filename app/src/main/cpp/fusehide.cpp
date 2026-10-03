@@ -43,6 +43,16 @@ std::shared_ptr<const CompiledHideConfig> gCompiledHideConfig;
 
 namespace {
 
+struct ThreadLocalUidHideRuleCacheEntry {
+    bool valid = false;
+    uint32_t uid = 0;
+    uint64_t configGeneration = 0;
+    uint64_t packageSetGeneration = 0;
+    std::shared_ptr<const CompiledHideRule> rule;
+};
+
+thread_local ThreadLocalUidHideRuleCacheEntry gThreadLocalUidHideRuleCache;
+
 struct CompiledHideRuleBuilder {
     bool enableHideAllRootEntries = false;
     std::vector<std::string> hideAllRootEntriesExemptions;
@@ -374,12 +384,19 @@ JNIEnv* GetJniEnv(bool* didAttach) {
 std::shared_ptr<const CompiledHideRule> ResolveHideRuleForUid(uint32_t uid) {
     const uint64_t configGeneration = gHideConfigGeneration.load(std::memory_order_acquire);
     const uint64_t packageSetGeneration = gUidPackageSetGeneration.load(std::memory_order_acquire);
+    if (gThreadLocalUidHideRuleCache.valid && gThreadLocalUidHideRuleCache.uid == uid &&
+        gThreadLocalUidHideRuleCache.configGeneration == configGeneration &&
+        gThreadLocalUidHideRuleCache.packageSetGeneration == packageSetGeneration) {
+        return gThreadLocalUidHideRuleCache.rule;
+    }
     {
         std::lock_guard<std::mutex> lock(gUidHideCacheMutex);
         const auto it = gUidHideRuleCache.find(uid);
         if (it != gUidHideRuleCache.end()) {
             if (it->second.configGeneration == configGeneration &&
                 it->second.packageSetGeneration == packageSetGeneration) {
+                gThreadLocalUidHideRuleCache = ThreadLocalUidHideRuleCacheEntry{
+                    true, uid, configGeneration, packageSetGeneration, it->second.rule};
                 return it->second.rule;
             }
             gUidHideRuleCache.erase(it);
@@ -398,7 +415,40 @@ std::shared_ptr<const CompiledHideRule> ResolveHideRuleForUid(uint32_t uid) {
                 UidHideRuleCacheEntry{configGeneration, packageSetGeneration, *resolved};
         }
     }
+    gThreadLocalUidHideRuleCache = ThreadLocalUidHideRuleCacheEntry{
+        true, uid, configGeneration, packageSetGeneration, *resolved};
     return *resolved;
+}
+
+const std::shared_ptr<const CompiledHideRule>& BorrowHideRuleForUid(uint32_t uid) {
+    while (true) {
+        const uint64_t configGeneration = gHideConfigGeneration.load(std::memory_order_acquire);
+        const uint64_t packageSetGeneration =
+            gUidPackageSetGeneration.load(std::memory_order_acquire);
+        if (gThreadLocalUidHideRuleCache.valid && gThreadLocalUidHideRuleCache.uid == uid &&
+            gThreadLocalUidHideRuleCache.configGeneration == configGeneration &&
+            gThreadLocalUidHideRuleCache.packageSetGeneration == packageSetGeneration) {
+            return gThreadLocalUidHideRuleCache.rule;
+        }
+
+        (void)ResolveHideRuleForUid(uid);
+        if (!gThreadLocalUidHideRuleCache.valid || gThreadLocalUidHideRuleCache.uid != uid) {
+            break;
+        }
+
+        const uint64_t currentConfigGeneration =
+            gHideConfigGeneration.load(std::memory_order_acquire);
+        const uint64_t currentPackageSetGeneration =
+            gUidPackageSetGeneration.load(std::memory_order_acquire);
+        if (gThreadLocalUidHideRuleCache.configGeneration == currentConfigGeneration &&
+            gThreadLocalUidHideRuleCache.packageSetGeneration == currentPackageSetGeneration) {
+            return gThreadLocalUidHideRuleCache.rule;
+        }
+        // Configuration changed while PackageManager resolution was in flight. Retry against the
+        // new generation rather than exposing an empty or stale borrowed rule for one request.
+    }
+    static thread_local const std::shared_ptr<const CompiledHideRule> kEmptyRule;
+    return kEmptyRule;
 }
 
 // Query PackageManager once per uid and cache the merged package rule for hot FUSE paths.

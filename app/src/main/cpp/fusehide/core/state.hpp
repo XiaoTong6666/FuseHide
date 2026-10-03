@@ -544,6 +544,7 @@ inline void DebugLogPrint(int priority, const char* fmt, Args... args) {
 }
 
 std::shared_ptr<const CompiledHideRule> ResolveHideRuleForUid(uint32_t uid);
+const std::shared_ptr<const CompiledHideRule>& BorrowHideRuleForUid(uint32_t uid);
 std::optional<std::shared_ptr<const CompiledHideRule>> ResolveHideRuleForUidWithPackageManager(
     uint32_t uid);
 HideConfig DefaultHideConfig();
@@ -567,7 +568,7 @@ class UnicodePolicy final {
     static bool DecodeUtf8CodePoint(const uint8_t* data, size_t len, size_t index, uint32_t* cp,
                                     size_t* width);
     static size_t InvalidUtf8SpanEnd(const uint8_t* data, size_t len, size_t index);
-    static bool NeedsSanitization(const std::string& input);
+    static bool NeedsSanitization(std::string_view input);
     static void RewriteString(std::string& input);
     static int CompareCaseFoldIgnoringDefaultIgnorables(const uint8_t* lhsData, size_t lhsLen,
                                                         const uint8_t* rhsData, size_t rhsLen);
@@ -591,7 +592,7 @@ void LogSuspiciousDirectPath(const char* hookName, std::string_view path);
 bool DecodeUtf8CodePoint(const uint8_t* data, size_t len, size_t index, uint32_t* cp,
                          size_t* width);
 size_t InvalidUtf8SpanEnd(const uint8_t* data, size_t len, size_t index);
-bool NeedsSanitization(const std::string& input);
+bool NeedsSanitization(std::string_view input);
 void RewriteString(std::string& input);
 int CompareCaseFoldIgnoringDefaultIgnorables(const uint8_t* lhsData, size_t lhsLen,
                                              const uint8_t* rhsData, size_t rhsLen);
@@ -646,7 +647,7 @@ extern thread_local uint32_t gCurrentLookupUid;
 extern thread_local uint64_t gPfGetattrIno;
 extern thread_local uint64_t gPfReaddirIno;
 extern thread_local uint64_t gCurrentLookupParentInode;
-extern thread_local std::string gCurrentLookupName;
+extern thread_local std::string_view gCurrentLookupName;
 extern thread_local bool gTrackRootHiddenLookup;
 extern thread_local bool gTrackHiddenSubtreeLookup;
 extern thread_local bool gZeroAttrCacheForCurrentGetattr;

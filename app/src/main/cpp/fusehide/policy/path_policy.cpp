@@ -255,7 +255,7 @@ bool HiddenPathPolicy::IsConfiguredHiddenRootEntryName(std::string_view name) {
 }
 
 bool HiddenPathPolicy::IsConfiguredHiddenRootEntryName(uint32_t uid, std::string_view name) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     return rule != nullptr && IsConfiguredHiddenRootEntryNameForRule(*rule, name);
 }
 
@@ -265,7 +265,7 @@ bool HiddenPathPolicy::IsHiddenRootEntryName(std::string_view name) {
 }
 
 bool HiddenPathPolicy::IsHiddenRootEntryName(uint32_t uid, std::string_view name) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     return rule != nullptr && IsHiddenRootEntryNameForRule(*rule, name);
 }
 
@@ -275,8 +275,12 @@ bool HiddenPathPolicy::IsAnyHiddenSubtreePath(std::string_view path) {
 }
 
 bool HiddenPathPolicy::IsAnyHiddenSubtreePath(uint32_t uid, std::string_view path) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     return rule != nullptr && IsAnyHiddenSubtreePathForRule(*rule, path);
+}
+
+bool HiddenPathPolicy::IsAnyHiddenSubtreePath(const CompiledHideRule& rule, std::string_view path) {
+    return IsAnyHiddenSubtreePathForRule(rule, path);
 }
 
 bool HiddenPathPolicy::IsExactHiddenTargetPath(std::string_view path) {
@@ -285,7 +289,7 @@ bool HiddenPathPolicy::IsExactHiddenTargetPath(std::string_view path) {
 }
 
 bool HiddenPathPolicy::IsExactHiddenTargetPath(uint32_t uid, std::string_view path) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     return rule != nullptr && IsExactHiddenTargetPathForRule(*rule, path);
 }
 
@@ -299,7 +303,7 @@ bool HiddenPathPolicy::IsHiddenRootDirectoryPath(std::string_view path) {
 }
 
 bool IsParentOfExactHiddenTargetPath(uint32_t uid, std::string_view path) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     return rule != nullptr && IsParentOfExactHiddenTargetPathForRule(*rule, path);
 }
 
@@ -320,7 +324,7 @@ std::string HiddenPathPolicy::JoinPathComponent(std::string_view parent, std::st
 bool HiddenPathPolicy::ShouldFilterHiddenRootDirent(uint32_t uid, uint64_t ino,
                                                     std::string_view name,
                                                     bool requireParentMatch) {
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     if (rule == nullptr) {
         return false;
     }

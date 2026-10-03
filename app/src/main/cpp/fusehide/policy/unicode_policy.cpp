@@ -221,7 +221,7 @@ size_t UnicodePolicy::InvalidUtf8SpanEnd(const uint8_t* data, size_t len, size_t
 // Checks whether the path contains any default-ignorable code point that the original
 // binary strips before comparing package-owned and app-accessible paths.
 
-bool UnicodePolicy::NeedsSanitization(const std::string& input) {
+bool UnicodePolicy::NeedsSanitization(std::string_view input) {
     const auto* data = reinterpret_cast<const uint8_t*>(input.data());
     const size_t len = input.size();
 
@@ -499,7 +499,7 @@ size_t InvalidUtf8SpanEnd(const uint8_t* data, size_t len, size_t index) {
     return UnicodePolicy::InvalidUtf8SpanEnd(data, len, index);
 }
 
-bool NeedsSanitization(const std::string& input) {
+bool NeedsSanitization(std::string_view input) {
     return UnicodePolicy::NeedsSanitization(input);
 }
 

@@ -25,7 +25,20 @@ namespace {
 thread_local uint32_t gActiveCreateUid = 0;
 thread_local uint32_t gActiveCreateScopeDepth = 0;
 thread_local uint32_t gActivePathPolicyUid = 0;
-thread_local std::string gActivePathPolicyPath;
+thread_local std::string_view gActivePathPolicyPath;
+thread_local uint32_t gFuseRequestSessionScopeDepth = 0;
+
+bool IsVisibleRootPath(std::string_view path);
+void RememberVisibleRootParentInode(uint64_t parent, const char* reason);
+
+struct ActiveReaddirContext {
+    uint64_t reqUnique = 0;
+    uint32_t depth = 0;
+    bool globalBacked = false;
+    PendingReaddirContext pending;
+};
+
+thread_local ActiveReaddirContext gActiveReaddirContext;
 
 enum class HiddenPathClassification : uint8_t {
     kNone,
@@ -124,29 +137,150 @@ class ScopedPathPolicyContext final {
     ScopedPathPolicyContext(uint32_t uid, std::string_view path)
         : previousUid_(gActivePathPolicyUid), previousPath_(gActivePathPolicyPath) {
         gActivePathPolicyUid = uid;
-        gActivePathPolicyPath.assign(path.data(), path.size());
+        gActivePathPolicyPath = path;
     }
 
     ~ScopedPathPolicyContext() {
         gActivePathPolicyUid = previousUid_;
-        gActivePathPolicyPath = std::move(previousPath_);
+        gActivePathPolicyPath = previousPath_;
     }
 
    private:
     uint32_t previousUid_;
-    std::string previousPath_;
+    std::string_view previousPath_;
 };
 
 class ScopedFuseRequestSession final {
    public:
     explicit ScopedFuseRequestSession(fuse_req_t req) {
-        RuntimeState::RememberFuseSession(req);
+        if (gFuseRequestSessionScopeDepth++ == 0) {
+            RuntimeState::RememberFuseSession(req);
+            ownsSessionScope_ = true;
+        }
     }
 
     ~ScopedFuseRequestSession() {
-        ClearActiveFuseRequestSession();
+        if (gFuseRequestSessionScopeDepth != 0) {
+            --gFuseRequestSessionScopeDepth;
+        }
+        if (ownsSessionScope_) {
+            ClearActiveFuseRequestSession();
+        }
     }
+
+   private:
+    bool ownsSessionScope_ = false;
 };
+
+class ScopedReaddirContext final {
+   public:
+    ScopedReaddirContext(fuse_req_t req, uint32_t uid, uint64_t ino) {
+        if (req == nullptr || req->unique == 0) {
+            return;
+        }
+        reqUnique_ = req->unique;
+        if (gActiveReaddirContext.depth != 0 && gActiveReaddirContext.reqUnique == reqUnique_) {
+            ++gActiveReaddirContext.depth;
+            nestedSameRequest_ = true;
+            return;
+        }
+
+        if (gActiveReaddirContext.depth != 0) {
+            previousContext_ = gActiveReaddirContext;
+        }
+
+        gActiveReaddirContext = ActiveReaddirContext{
+            .reqUnique = reqUnique_,
+            .depth = 1,
+            .globalBacked = uid != 0 && BorrowHideRuleForUid(uid) != nullptr,
+            .pending = PendingReaddirContext{uid, ino, {}},
+        };
+        ownsContext_ = true;
+        if (gActiveReaddirContext.globalBacked) {
+            std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
+            gPendingReaddirContexts[reqUnique_] = gActiveReaddirContext.pending;
+        }
+    }
+
+    ~ScopedReaddirContext() {
+        if (reqUnique_ == 0) {
+            return;
+        }
+        if (nestedSameRequest_) {
+            if (gActiveReaddirContext.reqUnique == reqUnique_ && gActiveReaddirContext.depth != 0) {
+                --gActiveReaddirContext.depth;
+            }
+            return;
+        }
+        if (!ownsContext_ || gActiveReaddirContext.reqUnique != reqUnique_) {
+            return;
+        }
+        gActiveReaddirContext =
+            previousContext_.has_value() ? std::move(*previousContext_) : ActiveReaddirContext{};
+    }
+
+   private:
+    uint64_t reqUnique_ = 0;
+    bool ownsContext_ = false;
+    bool nestedSameRequest_ = false;
+    std::optional<ActiveReaddirContext> previousContext_;
+};
+
+bool SnapshotActiveReaddirContext(fuse_req_t req, PendingReaddirContext* out) {
+    if (req == nullptr || out == nullptr || gActiveReaddirContext.depth == 0 ||
+        gActiveReaddirContext.reqUnique != req->unique) {
+        return false;
+    }
+    *out = gActiveReaddirContext.pending;
+    return true;
+}
+
+void UpdateActiveReaddirPath(uint64_t reqUnique, std::string_view path) {
+    if (reqUnique == 0 || gActiveReaddirContext.depth == 0 ||
+        gActiveReaddirContext.reqUnique != reqUnique) {
+        return;
+    }
+
+    const uint64_t ino = gActiveReaddirContext.pending.ino;
+    if (ino != 0) {
+        RememberTrackedPathForInode(ino, path);
+        if (IsVisibleRootPath(path)) {
+            RememberVisibleRootParentInode(ino, "readdir_path");
+        }
+    }
+
+    if (!gActiveReaddirContext.globalBacked) {
+        return;
+    }
+    gActiveReaddirContext.pending.path.assign(path.data(), path.size());
+    std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
+    const auto it = gPendingReaddirContexts.find(reqUnique);
+    if (it != gPendingReaddirContexts.end()) {
+        it->second.path = gActiveReaddirContext.pending.path;
+    }
+}
+
+void CompletePendingReaddirContext(fuse_req_t req, uint32_t reqUid) {
+    if (req == nullptr) {
+        return;
+    }
+    if (gActiveReaddirContext.depth != 0 && gActiveReaddirContext.reqUnique == req->unique) {
+        if (gActiveReaddirContext.globalBacked) {
+            std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
+            gPendingReaddirContexts.erase(req->unique);
+            gActiveReaddirContext.globalBacked = false;
+        }
+        return;
+    }
+
+    // A global context exists only for target UIDs. Keep uid==0 as a conservative fallback for
+    // device paths that lose the request uid before reply_buf/reply_err.
+    if (reqUid != 0 && BorrowHideRuleForUid(reqUid) == nullptr) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
+    gPendingReaddirContexts.erase(req->unique);
+}
 
 std::string_view TrimTrailingSlashes(std::string_view path) {
     while (path.size() > 1 && path.back() == '/') {
@@ -256,7 +390,7 @@ HiddenPathClassification ClassifyHiddenPath(uint32_t uid, std::string_view path)
         return HiddenPathClassification::kNone;
     }
 
-    if (ResolveHideRuleForUid(uid) == nullptr) {
+    if (BorrowHideRuleForUid(uid) == nullptr) {
         return HiddenPathClassification::kNone;
     }
 
@@ -561,7 +695,7 @@ bool IsFirstComponentOfHiddenRelativePath(uint32_t uid, std::string_view name) {
     if (name.empty() || name.find('/') != std::string_view::npos) {
         return false;
     }
-    const auto rule = ResolveHideRuleForUid(uid);
+    const auto& rule = BorrowHideRuleForUid(uid);
     if (rule == nullptr) {
         return false;
     }
@@ -621,7 +755,7 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
     gInPfLookup = true;
     gCurrentLookupUid = uid;
     gCurrentLookupParentInode = parent;
-    gCurrentLookupName = name != nullptr ? std::string(name) : std::string();
+    gCurrentLookupName = name != nullptr ? std::string_view(name) : std::string_view();
     gTrackRootHiddenLookup = IsHiddenLookupCacheTarget(uid, parent, name);
     gTrackHiddenSubtreeLookup = IsTrackedHiddenSubtreeInode(uid, parent);
     DebugLogPrint(3, "lookup: req=%lu parent=%s name=%s", (unsigned long)req->unique,
@@ -632,7 +766,7 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
         fn(req, parent, name);
     gCurrentLookupUid = 0;
     gCurrentLookupParentInode = 0;
-    gCurrentLookupName.clear();
+    gCurrentLookupName = {};
     gInPfLookup = false;
     gTrackHiddenSubtreeLookup = false;
     gTrackRootHiddenLookup = false;
@@ -721,25 +855,19 @@ ValueDirectoryEntries FilterHiddenDirectoryEntries(uint32_t uid, std::string_vie
 template <typename Entries, typename OriginalFn>
 Entries WrappedGetDirectoryEntriesForAbi(OriginalFn fn, void* wrapper, uint32_t uid,
                                          AbiStringParam pathArg, DIR* dirp) {
-    const std::string path(AbiStringView(pathArg));
+    const std::string_view path = AbiStringView(pathArg);
     // Cache only the already-filtered visible root listing. Nested directories still rely on the
     // normal tracked-path invalidation path because their visibility is not just a root child set.
     const std::shared_ptr<const CompiledHideRule> rule =
         IsVisibleRootPath(path) ? ResolveHideRuleForUid(uid) : nullptr;
     if (gCurrentReaddirReqUnique != 0) {
-        std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-        auto it = gPendingReaddirContexts.find(gCurrentReaddirReqUnique);
-        if (it != gPendingReaddirContexts.end()) {
-            it->second.path = path;
-            if (it->second.ino != 0) {
-                RememberTrackedPathForInode(it->second.ino, path);
-                if (IsVisibleRootPath(path)) {
-                    RememberVisibleRootParentInode(it->second.ino, "readdir_path");
-                }
-            }
+        UpdateActiveReaddirPath(gCurrentReaddirReqUnique, path);
+        if (gActiveReaddirContext.depth != 0 &&
+            gActiveReaddirContext.reqUnique == gCurrentReaddirReqUnique) {
             DebugLogPrint(4, "record readdir path req=%lu ino=%s path=%s",
                           (unsigned long)gCurrentReaddirReqUnique,
-                          InodePath(it->second.ino).c_str(), DebugPreview(path).c_str());
+                          InodePath(gActiveReaddirContext.pending.ino).c_str(),
+                          DebugPreview(path).c_str());
         }
     }
 
@@ -835,6 +963,7 @@ extern "C" void WrappedPfReaddirPostfilter(fuse_req_t req, uint64_t ino, uint32_
     if (fn == nullptr) {
         return;
     }
+    const ScopedReaddirContext scopedReaddir(req, uid, ino);
     DebugLogPrint(3, "pf_readdir_postfilter uid=%u ino=%s err=%u off_in=%lld off_out=%lld size=%zu",
                   static_cast<unsigned>(uid), InodePath(ino).c_str(), error_in,
                   static_cast<long long>(off_in), static_cast<long long>(off_out), size_out);
@@ -1086,12 +1215,9 @@ extern "C" void WrappedPfReaddir(fuse_req_t req, uint64_t ino, size_t size, off_
     if (fn == nullptr) {
         return;
     }
+    const ScopedReaddirContext scopedReaddir(req, uid, ino);
     DebugLogPrint(3, "pf_readdir uid=%u ino=%s size=%zu off=%lld", static_cast<unsigned>(uid),
                   InodePath(ino).c_str(), size, static_cast<long long>(off));
-    if (req != nullptr) {
-        std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-        gPendingReaddirContexts[req->unique] = PendingReaddirContext{uid, ino, {}};
-    }
     gInPfReaddir = true;
     gPfReaddirUid = uid;
     gPfReaddirIno = ino;
@@ -1111,13 +1237,10 @@ extern "C" void WrappedDoReaddirCommon(fuse_req_t req, uint64_t ino, size_t size
     if (fn == nullptr) {
         return;
     }
+    const ScopedReaddirContext scopedReaddir(req, uid, ino);
     DebugLogPrint(3, "do_readdir_common uid=%u ino=%s size=%zu off=%lld plus=%d",
                   static_cast<unsigned>(uid), InodePath(ino).c_str(), size,
                   static_cast<long long>(off), plus ? 1 : 0);
-    if (req != nullptr) {
-        std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-        gPendingReaddirContexts[req->unique] = PendingReaddirContext{uid, ino, {}};
-    }
     gCurrentReaddirReqUnique = req != nullptr ? req->unique : 0;
     fn(req, ino, size, off, fi, plus);
     gCurrentReaddirReqUnique = 0;
@@ -1136,12 +1259,9 @@ extern "C" void WrappedPfReaddirplus(fuse_req_t req, uint64_t ino, size_t size, 
     if (fn == nullptr) {
         return;
     }
+    const ScopedReaddirContext scopedReaddir(req, uid, ino);
     DebugLogPrint(3, "pf_readdirplus uid=%u ino=%s size=%zu off=%lld", static_cast<unsigned>(uid),
                   InodePath(ino).c_str(), size, static_cast<long long>(off));
-    if (req != nullptr) {
-        std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-        gPendingReaddirContexts[req->unique] = PendingReaddirContext{uid, ino, {}};
-    }
     gInPfReaddirplus = true;
     gPfReaddirUid = uid;
     gPfReaddirIno = ino;
@@ -1354,8 +1474,10 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
     size_t removedCount = 0;
     std::vector<FilteredDirentMatch> removedEntries;
     PendingReaddirContext pendingContext{};
-    bool hasPendingContext = false;
-    if (req != nullptr) {
+    const uint32_t reqUid = RuntimeState::ReqUid(req);
+    bool hasPendingContext = SnapshotActiveReaddirContext(req, &pendingContext);
+    if (!hasPendingContext && req != nullptr &&
+        (reqUid == 0 || BorrowHideRuleForUid(reqUid) != nullptr)) {
         std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
         const auto it = gPendingReaddirContexts.find(req->unique);
         if (it != gPendingReaddirContexts.end()) {
@@ -1363,7 +1485,6 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
             hasPendingContext = true;
         }
     }
-    const uint32_t reqUid = RuntimeState::ReqUid(req);
     const uint32_t requestFilterUid =
         gPfReaddirUid != 0
             ? gPfReaddirUid
@@ -1492,9 +1613,8 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
     }
 
     int ret = fn ? fn(req, replyBuf, replySize) : -1;
-    if (hasPendingContext && req != nullptr) {
-        std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-        gPendingReaddirContexts.erase(req->unique);
+    if (hasPendingContext) {
+        CompletePendingReaddirContext(req, reqUid);
     }
     if (removedCount != 0) {
         DebugLogPrint(4, "filtered readdir reply mode=%s uid=%u ino=%s removed=%zu size=%zu->%zu",
@@ -1515,10 +1635,7 @@ extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
     // Root mutations are tracked when the request is issued, but the snapshot must only be bumped
     // after the kernel-visible reply succeeds.
     const auto pendingRootMutation = TakePendingRootSnapshotMutation(req);
-    if (req != nullptr) {
-        std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-        gPendingReaddirContexts.erase(req->unique);
-    }
+    CompletePendingReaddirContext(req, RuntimeState::ReqUid(req));
     err = MaybeRewriteHiddenLeakErrno(req, err, "fuse_reply_err");
     if (pendingRootMutation.has_value() && err == 0) {
         BumpRootSnapshotParentGeneration(*pendingRootMutation);
@@ -1789,7 +1906,7 @@ extern "C" int WrappedOpen2(const char* path, int flags) {
 // Path hook wrappers
 
 bool HiddenPathPolicy::IsTestHiddenUid(uint32_t uid) {
-    return ResolveHideRuleForUid(uid) != nullptr;
+    return BorrowHideRuleForUid(uid) != nullptr;
 }
 
 bool HiddenPathPolicy::ShouldHideTestPath(uint32_t uid, std::string_view path) {
@@ -1813,14 +1930,17 @@ bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid
         return false;
     }
     const std::string_view path = AbiStringView(pathArg);
-    const std::string pathString(path);
-    if (!UnicodePolicy::NeedsSanitization(pathString)) {
-        const ScopedPathPolicyContext scopedPath(uid, path);
+    const bool hasHideRule = BorrowHideRuleForUid(uid) != nullptr;
+    if (!UnicodePolicy::NeedsSanitization(path)) {
         UnicodePolicy::LogSuspiciousDirectPath("app_accessible", path);
         if (ShouldLogLimited(gAppAccessibleLogCount)) {
             DebugLogPrint(3, "app_accessible direct uid=%u path=%s", uid,
                           DebugPreview(path).c_str());
         }
+        if (!hasHideRule) {
+            return original(fuse, pathArg, uid);
+        }
+        const ScopedPathPolicyContext scopedPath(uid, path);
         NoteHiddenSubtreePathForCache(uid, path);
         if (HiddenPathPolicy::ShouldHideTestPath(uid, path)) {
             DebugLogPrint(4, "hide test path uid=%u path=%s", static_cast<unsigned>(uid),
@@ -1831,18 +1951,21 @@ bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid
     }
     std::string sanitized(path);
     UnicodePolicy::RewriteString(sanitized);
-    const ScopedPathPolicyContext scopedPath(uid, sanitized);
     if (ShouldLogLimited(gAppAccessibleLogCount)) {
         DebugLogPrint(3, "app_accessible rewrite uid=%u old=%s new=%s", uid,
                       DebugPreview(path).c_str(), DebugPreview(sanitized).c_str());
     }
+    const ScopedAbiStringParam sanitizedArg(sanitized);
+    if (!hasHideRule) {
+        return original(fuse, sanitizedArg.get(), uid);
+    }
+    const ScopedPathPolicyContext scopedPath(uid, sanitized);
     NoteHiddenSubtreePathForCache(uid, sanitized);
     if (HiddenPathPolicy::ShouldHideTestPath(uid, sanitized)) {
         DebugLogPrint(4, "hide test path uid=%u path=%s src=%s", static_cast<unsigned>(uid),
                       DebugPreview(sanitized).c_str(), DebugPreview(path).c_str());
         return false;
     }
-    const ScopedAbiStringParam sanitizedArg(sanitized);
     return original(fuse, sanitizedArg.get(), uid);
 }
 
@@ -1854,8 +1977,7 @@ bool WrappedIsPackageOwnedPath(AbiStringParam lhsArg, AbiStringParam rhsArg) {
     }
     const std::string_view lhs = AbiStringView(lhsArg);
     const std::string_view rhs = AbiStringView(rhsArg);
-    const std::string lhsString(lhs);
-    if (!UnicodePolicy::NeedsSanitization(lhsString)) {
+    if (!UnicodePolicy::NeedsSanitization(lhs)) {
         UnicodePolicy::LogSuspiciousDirectPath("package_owned", lhs);
         if (ShouldLogLimited(gPackageOwnedLogCount)) {
             DebugLogPrint(3, "package_owned direct lhs=%s rhs=%s", DebugPreview(lhs).c_str(),
@@ -1880,8 +2002,7 @@ bool WrappedIsBpfBackingPath(AbiStringParam pathArg) {
         return false;
     }
     const std::string_view path = AbiStringView(pathArg);
-    const std::string pathString(path);
-    if (!UnicodePolicy::NeedsSanitization(pathString)) {
+    if (!UnicodePolicy::NeedsSanitization(path)) {
         UnicodePolicy::LogSuspiciousDirectPath("bpf_backing", path);
         if (ShouldLogLimited(gBpfBackingLogCount)) {
             DebugLogPrint(3, "bpf_backing direct path=%s", DebugPreview(path).c_str());
