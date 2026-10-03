@@ -140,8 +140,8 @@ private fun SimpleAppItemMiuix(
                     if (app.packageName in hiddenPackages) {
                         StatusTag(
                             label = enabledLabel,
-                            backgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.8f),
-                            contentColor = colorScheme.onSecondaryContainer,
+                            backgroundColor = colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+                            contentColor = colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
                         )
                     }
                 },
@@ -210,8 +210,8 @@ private fun GroupItemMiuix(
                 if (group.primary.packageName in hiddenPackages) {
                     StatusTag(
                         label = enabledLabel,
-                        backgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.8f),
-                        contentColor = colorScheme.onSecondaryContainer,
+                        backgroundColor = colorScheme.tertiaryContainer.copy(alpha = 0.6f),
+                        contentColor = colorScheme.onTertiaryContainer.copy(alpha = 0.8f),
                     )
                 }
                 if (userId != 0) {
