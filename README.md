@@ -1,28 +1,18 @@
-# FuseHide 1.176
+# FuseHide 1.177
 
-- **Version:** `1.176`
-- **VersionCode:** `176`
-- **Commit:** [`e80b8ec`](https://github.com/XiaoTong6666/FuseHide/commit/e80b8ec3929e56d7ccc3f3081dbe941ae9ea1595)
-- **Build time:** `8m 47s`
-- **SHA256:** `b0b80b28214dc25fb42feec732d05ff109c6be0fd0a71a08af4fde6e03d5cb16`
+- **Version:** `1.177`
+- **VersionCode:** `177`
+- **Commit:** [`fa4ac56`](https://github.com/XiaoTong6666/FuseHide/commit/fa4ac568a0048c519a1dd299efa3b010a6f32c41)
+- **Build time:** `5m 58s`
+- **SHA256:** `e06d06f748bd59b9536080521d615193ea54a4c650bc32a318e56ee97b4c0a94`
 
 ## Message
 
 ```text
-build(deps): bump gradle-wrapper from 9.7.1 to 9.8.0 (#98)
+feat(native): harden hook ownership and callback lifetime
 
-Bumps [gradle-wrapper](https://github.com/gradle/gradle) from 9.7.1 to 9.8.0.
-- [Release notes](https://github.com/gradle/gradle/releases)
-- [Commits](https://github.com/gradle/gradle/compare/v9.7.1...v9.8.0)
+将 Zygisk linker 与 Native Hook 接入 Dobby Prepare/Commit/Recover 事务，并为受控模块加入 strict v3 backup publication。
+补齐 retained ticket、重复宿主绑定、callback admission/drain、NODELETE 驻留和安装重入边界，x86_64 无可信 quiescence 时保持 fail-closed。
+增加 linker rollback、native ownership、callback lifetime、MediaProvider 与 UID isolation 验收脚本，并同步 Dobby/uihelper 子模块及调试导航适配。
 
----
-updated-dependencies:
-- dependency-name: gradle-wrapper
-  dependency-version: 9.8.0
-  dependency-type: direct:production
-  update-type: version-update:semver-minor
-...
-
-Signed-off-by: dependabot[bot] <support@github.com>
-Co-authored-by: dependabot[bot] <xiaotong6666@users.noreply.github.com>
 ```
