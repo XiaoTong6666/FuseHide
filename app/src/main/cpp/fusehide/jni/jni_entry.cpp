@@ -13,13 +13,64 @@
 // limitations under the License.
 
 #include "fusehide/hooks/wrappers.hpp"
+#include "fusehide/native_callback_gate.hpp"
+
+#include <atomic>
+
+namespace {
+enum class NativeModuleInitState : uint8_t {
+    kUninitialized,
+    kInitializingV2,
+    kInitializingV3,
+    kReadyV2,
+    kReadyV3,
+};
+
+std::atomic<NativeModuleInitState> gNativeModuleInitState{NativeModuleInitState::kUninitialized};
+int (*gNativeOwnerUnhook)(void*) = nullptr;
+fusehide::NativeCallbackGate gNativeCallbackGate;
+
+bool BeginNativeModuleInit(NativeModuleInitState initializing, NativeModuleInitState ready) {
+    auto expected = NativeModuleInitState::kUninitialized;
+    if (gNativeModuleInitState.compare_exchange_strong(expected, initializing,
+                                                       std::memory_order_acq_rel)) {
+        return true;
+    }
+    if (expected != ready) {
+        // Do not let another native framework overwrite a live host's hook
+        // pointers or downgrade the strict v3 publisher to legacy v2.
+        __android_log_print(ANDROID_LOG_ERROR, fusehide::kLogTag,
+                            "native_init rejected conflicting or unfinished API binding");
+    }
+    return false;
+}
+}  // namespace
 
 extern "C" void PostNativeInit(const char* loadedLibrary, void*) {
+    if (!gNativeCallbackGate.TryEnter())
+        return;
+    struct CallbackExit {
+        ~CallbackExit() {
+            gNativeCallbackGate.Exit();
+        }
+    } exit;
     if (loadedLibrary == nullptr ||
         std::strstr(loadedLibrary, fusehide::kTargetLibrary) == nullptr) {
         return;
     }
     fusehide::InstallFuseHooks();
+}
+
+extern "C" void fusehide_close_loader_callback_admission() {
+    gNativeCallbackGate.CloseAdmission();
+}
+
+extern "C" bool fusehide_finish_loader_callback_drain() {
+    return gNativeCallbackGate.FinishDrain();
+}
+
+extern "C" uint32_t fusehide_loader_callback_in_flight() {
+    return gNativeCallbackGate.InFlight();
 }
 
 std::vector<std::string> JStringArrayToVector(JNIEnv* env, jobjectArray values) {
@@ -341,10 +392,77 @@ JNIEXPORT jint JNICALL Java_io_github_xiaotong6666_fusehide_debug_Utils_create(J
 }  // extern "C"
 
 extern "C" __attribute__((visibility("default"))) void* native_init(void* api) {
-    __android_log_print(4, fusehide::kLogTag, "Loaded");
-    if (api != nullptr) {
-        fusehide::gHookInstaller =
-            reinterpret_cast<const fusehide::NativeApiEntries*>(api)->hookFunc;
+    const auto* entries = static_cast<const fusehide::NativeApiEntries*>(api);
+    // Legacy Native API v2 has historically allowed hosts without Unhook.
+    // Preserve that compatibility; process residency is mandatory either way.
+    if (entries == nullptr || entries->version != 2 || entries->hookFunc == nullptr) {
+        return nullptr;
     }
+    if (!gNativeCallbackGate.TryEnter())
+        return nullptr;
+    struct InitExit {
+        ~InitExit() {
+            gNativeCallbackGate.Exit();
+        }
+    } init_exit;
+    if (!BeginNativeModuleInit(NativeModuleInitState::kInitializingV2,
+                               NativeModuleInitState::kReadyV2)) {
+        const bool sameHost = gNativeModuleInitState.load(std::memory_order_acquire) ==
+                                  NativeModuleInitState::kReadyV2 &&
+                              fusehide::gHookInstaller == entries->hookFunc &&
+                              gNativeOwnerUnhook == entries->unhookFunc;
+        if (!sameHost)
+            return nullptr;
+        __android_log_print(
+            ANDROID_LOG_INFO, fusehide::kLogTag,
+            "native_init repeated for same v2 host; suppress duplicate callback registration");
+        // Vector pushes any non-null returned callback into a process-lifetime
+        // list. Returning the same address again would add a duplicate entry.
+        return nullptr;
+    }
+    fusehide::gHookInstaller = entries->hookFunc;
+    gNativeOwnerUnhook = entries->unhookFunc;
+    fusehide::gStrictHookInstaller = nullptr;
+    gNativeModuleInitState.store(NativeModuleInitState::kReadyV2, std::memory_order_release);
+    __android_log_print(ANDROID_LOG_INFO, fusehide::kLogTag, "Native API v2 bound");
+    return reinterpret_cast<void*>(+PostNativeInit);
+}
+
+// Only the owned FuseHide Zygisk loader calls this versioned entry. Vector or
+// LSPosed continue using native_init(v2) without reading an unknown tail.
+extern "C" __attribute__((visibility("default"))) void* native_init_v3(
+    const fusehide::NativeApiEntriesV3* api) {
+    if (!api || api->base.version != 3 || api->struct_size < sizeof(fusehide::NativeApiEntriesV3) ||
+        api->reserved != 0 || !api->base.hookFunc || !api->base.unhookFunc ||
+        !api->hookWithPublication) {
+        return nullptr;
+    }
+    if (!gNativeCallbackGate.TryEnter())
+        return nullptr;
+    struct InitExit {
+        ~InitExit() {
+            gNativeCallbackGate.Exit();
+        }
+    } init_exit;
+    if (!BeginNativeModuleInit(NativeModuleInitState::kInitializingV3,
+                               NativeModuleInitState::kReadyV3)) {
+        const bool sameHost = gNativeModuleInitState.load(std::memory_order_acquire) ==
+                                  NativeModuleInitState::kReadyV3 &&
+                              fusehide::gHookInstaller == api->base.hookFunc &&
+                              gNativeOwnerUnhook == api->base.unhookFunc &&
+                              fusehide::gStrictHookInstaller == api->hookWithPublication;
+        if (!sameHost)
+            return nullptr;
+        __android_log_print(
+            ANDROID_LOG_INFO, fusehide::kLogTag,
+            "native_init repeated for same v3 host; suppress duplicate callback registration");
+        return nullptr;
+    }
+    fusehide::gHookInstaller = api->base.hookFunc;
+    gNativeOwnerUnhook = api->base.unhookFunc;
+    fusehide::gStrictHookInstaller = api->hookWithPublication;
+    gNativeModuleInitState.store(NativeModuleInitState::kReadyV3, std::memory_order_release);
+    __android_log_print(ANDROID_LOG_INFO, fusehide::kLogTag,
+                        "Native API v3 strict publication enabled");
     return reinterpret_cast<void*>(+PostNativeInit);
 }

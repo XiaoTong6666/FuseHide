@@ -82,10 +82,17 @@ endif()
 target_link_libraries(fusehide ${log-lib} ${dl-lib} ${icu-lib})
 
 
-target_link_options(fusehide PRIVATE -Wl,-z,max-page-size=16384)
+# Vector/LSPosed retains native_init's onModuleLoaded function pointer for
+# the process lifetime and provides no callback unregistration. Physical
+# Unhook alone cannot prove that a racing loader thread has stopped holding
+# this module's callback PC. Keep its text/data mapped even after dlclose.
+target_link_options(fusehide PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,nodelete)
 
 # The fork exports a single "dobby" target; embed its static variant in libzygisk.so.
 set(DOBBY_GENERATE_SHARED OFF CACHE BOOL "Build Dobby statically for Zygisk" FORCE)
+if(ANDROID_ABI STREQUAL "arm64-v8a")
+    set(NearBranch ON CACHE BOOL "Require available ARM64 near trampoline backend" FORCE)
+endif()
 add_subdirectory(third_party/Dobby)
 
 add_library(
@@ -94,6 +101,7 @@ add_library(
     zygisk/module.cpp
     zygisk/dex_loader.cpp
     zygisk/dlopen_monitor.cpp
+    zygisk/native_hook_adapter.cpp
     fusehide/elf/elf_utils.cpp
     third_party/xz-embedded/xz_dec_stream.c
     third_party/xz-embedded/xz_dec_lzma2.c
@@ -124,3 +132,64 @@ target_include_directories(
 
 target_link_libraries(zygisk dobby ${log-lib} ${dl-lib})
 target_link_options(zygisk PRIVATE -Wl,-z,max-page-size=16384)
+
+option(FUSEHIDE_NATIVE_HOOK_REVIEW_TEST "Build standalone native v2 ownership regression" OFF)
+if(FUSEHIDE_NATIVE_HOOK_REVIEW_TEST)
+    add_executable(fusehide_native_hook_review
+        tests/native_hook_adapter_test.cpp
+        zygisk/native_hook_adapter.cpp
+    )
+    target_compile_features(fusehide_native_hook_review PRIVATE cxx_std_20)
+    target_include_directories(fusehide_native_hook_review PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        third_party/Dobby/include
+    )
+    target_link_libraries(fusehide_native_hook_review PRIVATE dobby dl)
+    if(ANDROID)
+        target_link_libraries(fusehide_native_hook_review PRIVATE log)
+    endif()
+    target_link_options(fusehide_native_hook_review PRIVATE -Wl,--wrap=DobbyCodePatch)
+endif()
+
+option(FUSEHIDE_LINKER_REVIEW_TEST "Build isolated Android do_dlopen smoke test" OFF)
+if(FUSEHIDE_LINKER_REVIEW_TEST AND ANDROID)
+    add_executable(fusehide_linker_review
+        tests/linker_monitor_test.cpp
+        zygisk/dlopen_monitor.cpp
+        zygisk/native_hook_adapter.cpp
+        fusehide/elf/elf_utils.cpp
+        third_party/xz-embedded/xz_dec_stream.c
+        third_party/xz-embedded/xz_dec_lzma2.c
+        third_party/xz-embedded/xz_crc32.c
+    )
+    target_compile_features(fusehide_linker_review PRIVATE cxx_std_20)
+    target_compile_definitions(fusehide_linker_review PRIVATE FUSEHIDE_LINKER_REVIEW_TEST=1)
+    target_include_directories(fusehide_linker_review PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        third_party/Dobby/include
+        third_party/xz-embedded
+        zygisk/include
+    )
+    target_link_libraries(fusehide_linker_review PRIVATE dobby log dl)
+    target_link_options(fusehide_linker_review PRIVATE -Wl,--wrap=DobbyCodePatch)
+endif()
+
+option(FUSEHIDE_CALLBACK_LIFETIME_TEST "Build native module callback lifetime review" OFF)
+if(FUSEHIDE_CALLBACK_LIFETIME_TEST AND ANDROID)
+    add_executable(fusehide_callback_lifetime_review
+        tests/native_callback_lifetime_test.cpp
+        zygisk/native_hook_adapter.cpp
+    )
+    target_compile_features(fusehide_callback_lifetime_review PRIVATE cxx_std_20)
+    target_include_directories(fusehide_callback_lifetime_review PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    target_link_libraries(fusehide_callback_lifetime_review PRIVATE dobby dl log)
+    add_executable(fusehide_callback_gate_review
+        tests/native_callback_gate_test.cpp
+    )
+    target_compile_features(fusehide_callback_gate_review PRIVATE cxx_std_20)
+    target_include_directories(fusehide_callback_gate_review PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+endif()

@@ -46,6 +46,7 @@
 #include <vector>
 
 #include "fusehide/hooks/hook_abi.hpp"
+#include "fusehide/native_hook_api.hpp"
 
 struct fuse_session {};
 struct fuse_req {
@@ -147,7 +148,6 @@ extern "C" int8_t u_hasBinaryProperty(uint32_t codePoint, int32_t which);
 
 inline constexpr int32_t kUCHAR_DEFAULT_IGNORABLE_CODE_POINT = 5;
 
-using HookInstaller = int (*)(void* target, void* replacement, void** backup);
 // Platform libc++ may use std::__1 while the module is built against std::__ndk1. A const string
 // reference is one object pointer on every supported ABI, so keep the boundary untyped and decode
 // the stable libc++ object layout explicitly instead of invoking methods from the wrong namespace.
@@ -512,13 +512,8 @@ inline constexpr DeviceHookProfile kKnownDeviceHookProfiles[] = {
 };
 inline constexpr size_t kFuseEntryOutWireSize = 128;
 
-struct NativeApiEntries {
-    uint32_t version;
-    HookInstaller hookFunc;
-    void* unhookFunc;
-};
-
 extern HookInstaller gHookInstaller;
+extern StrictHookInstaller gStrictHookInstaller;
 extern JavaVM* gJavaVm;
 extern UHasBinaryPropertyFn gUHasBinaryProperty;
 extern HookOriginal<IsAppAccessiblePathFn> gOriginalIsAppAccessiblePath;

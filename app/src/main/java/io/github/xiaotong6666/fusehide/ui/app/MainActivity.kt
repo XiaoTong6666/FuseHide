@@ -45,7 +45,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -80,13 +79,13 @@ import io.github.xiaotong6666.uihelper.miuix.effect.LocalMiuixBlurEnabled
 import io.github.xiaotong6666.uihelper.mode.LocalUiMode
 import io.github.xiaotong6666.uihelper.mode.UiMode
 import io.github.xiaotong6666.uihelper.navigation3.LocalNavigator
+import io.github.xiaotong6666.uihelper.navigation3.logicalBackSwipeDirection
 import io.github.xiaotong6666.uihelper.navigation3.rememberNavigator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
-import top.yukonga.miuix.kmp.nav.transition.NavSwipeDirection
 import java.lang.ref.WeakReference
 import java.util.UUID
 
@@ -372,13 +371,7 @@ class MainActivity :
                         }
 
                         val navDisplay: @Composable () -> Unit = {
-                            val swipeDismiss = if (
-                                LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-                            ) {
-                                NavSwipeDirection.RightToLeft
-                            } else {
-                                NavSwipeDirection.LeftToRight
-                            }
+                            val swipeDismiss = logicalBackSwipeDirection()
                             NavDisplay(
                                 backStack = navigator.backStack,
                                 effects = NavDisplayEffects(
@@ -449,6 +442,7 @@ class MainActivity :
             return
         }
         val debugPath2 = intent.getStringExtra(EXTRA_DEBUG_PATH2).orEmpty()
+        mainViewModel.setSelectedTab(2)
         mainViewModel.setDebugPaths(debugPath, debugPath2)
         val debugActions = intent.getStringExtra(EXTRA_DEBUG_ACTIONS)
         Log.d("FuseHide", "handleDebugIntent path=$debugPath path2=$debugPath2 actions=$debugActions")

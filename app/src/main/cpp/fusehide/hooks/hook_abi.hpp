@@ -30,7 +30,7 @@ class HookOriginal final {
 
    public:
     Function get() const noexcept {
-        return reinterpret_cast<Function>(address_);
+        return reinterpret_cast<Function>(__atomic_load_n(&address_, __ATOMIC_ACQUIRE));
     }
 
     void*& rawStorage() noexcept {
@@ -38,7 +38,7 @@ class HookOriginal final {
     }
 
    private:
-    void* address_ = nullptr;
+    mutable void* address_ = nullptr;
 };
 
 }  // namespace fusehide
