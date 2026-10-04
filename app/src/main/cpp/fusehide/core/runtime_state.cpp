@@ -151,6 +151,29 @@ namespace {
 
 constexpr size_t kMaxTrackedPathEntries = 16384;
 
+struct TransparentStringHash {
+    using is_transparent = void;
+
+    size_t operator()(std::string_view value) const noexcept {
+        return std::hash<std::string_view>{}(value);
+    }
+
+    size_t operator()(const std::string& value) const noexcept {
+        return (*this)(std::string_view(value));
+    }
+};
+
+struct TransparentStringEqual {
+    using is_transparent = void;
+
+    bool operator()(std::string_view lhs, std::string_view rhs) const noexcept {
+        return lhs == rhs;
+    }
+};
+
+std::unordered_map<std::string, uint64_t, TransparentStringHash, TransparentStringEqual>
+    gPathInodeCache;
+
 std::mutex gFuseSessionStateMutex;
 thread_local void* gActiveFuseRequestSession = nullptr;
 
@@ -164,6 +187,7 @@ void ClearSessionScopedTracking() {
     {
         std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
         gInodePathCache.clear();
+        gPathInodeCache.clear();
     }
     {
         std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
@@ -743,12 +767,11 @@ std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path) {
         return rootParent;
     }
     std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
-    for (const auto& [ino, trackedPath] : gInodePathCache) {
-        if (trackedPath == path) {
-            return ino;
-        }
+    const auto it = gPathInodeCache.find(path);
+    if (it == gPathInodeCache.end()) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    return it->second;
 }
 
 void RememberTrackedPathForInode(uint64_t ino, std::string_view path) {
@@ -762,14 +785,33 @@ void RememberTrackedPathForInode(uint64_t ino, std::string_view path) {
     }
 
     std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
-    const bool newEntry = gInodePathCache.find(ino) == gInodePathCache.end();
+    const auto existing = gInodePathCache.find(ino);
+    const bool newEntry = existing == gInodePathCache.end();
     if (newEntry && gInodePathCache.size() >= kMaxTrackedPathEntries) {
         // The table now contains only policy-relevant paths. Avoid the old O(N) full-table scan on
         // every insert; reaching this guardrail is exceptional and refusing an additional entry is
         // safer than spending a full core repeatedly searching for an evictable unrelated path.
         return;
     }
-    gInodePathCache[ino] = std::string(path);
+
+    if (!newEntry && existing->second != path) {
+        const auto oldReverse = gPathInodeCache.find(existing->second);
+        if (oldReverse != gPathInodeCache.end() && oldReverse->second == ino) {
+            gPathInodeCache.erase(oldReverse);
+        }
+    }
+
+    if (newEntry) {
+        gInodePathCache.emplace(ino, std::string(path));
+    } else if (existing->second != path) {
+        existing->second.assign(path.data(), path.size());
+    }
+    const auto reverse = gPathInodeCache.find(path);
+    if (reverse == gPathInodeCache.end()) {
+        gPathInodeCache.emplace(std::string(path), ino);
+    } else {
+        reverse->second = ino;
+    }
 }
 
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path) {
