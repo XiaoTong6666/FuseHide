@@ -435,12 +435,25 @@ HiddenPathClassification ClassifyHiddenPath(uint32_t uid, std::string_view path)
         std::lock_guard<std::mutex> lock(gHiddenPathClassificationCacheMutex);
         if (gHideConfigGeneration.load(std::memory_order_acquire) == generation &&
             gUidPackageSetGeneration.load(std::memory_order_acquire) == packageSetGeneration) {
-            if (gHiddenPathClassificationCache.size() >= kMaxHiddenPathClassificationCacheEntries) {
-                gHiddenPathClassificationCache.clear();
+            HiddenPathClassificationCacheEntry entry{generation, packageSetGeneration,
+                                                     classification};
+            const auto existing = gHiddenPathClassificationCache.find(key);
+            if (existing != gHiddenPathClassificationCache.end()) {
+                existing->second = entry;
+            } else if (gHiddenPathClassificationCache.size() >=
+                       kMaxHiddenPathClassificationCacheEntries) {
+                // The cache is deliberately approximate. Recycle one existing unordered-map node
+                // instead of clearing all 4096 entries at once: this keeps capacity bounded while
+                // avoiding the allocator/free burst caused by a whole-table clear during a large
+                // target-app scan.
+                auto recycled = gHiddenPathClassificationCache.extract(
+                    gHiddenPathClassificationCache.begin());
+                recycled.key() = std::move(key);
+                recycled.mapped() = entry;
+                gHiddenPathClassificationCache.insert(std::move(recycled));
+            } else {
+                gHiddenPathClassificationCache.emplace(std::move(key), entry);
             }
-            gHiddenPathClassificationCache.insert_or_assign(
-                std::move(key), HiddenPathClassificationCacheEntry{generation, packageSetGeneration,
-                                                                   classification});
             if (IsPathUnderVisibleRoot(path)) {
                 DebugLogPrint(4,
                               "cache hidden_path store uid=%u path=%s class=%s generation=%llu "
