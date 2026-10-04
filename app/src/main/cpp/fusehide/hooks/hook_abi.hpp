@@ -41,4 +41,25 @@ class HookOriginal final {
     mutable void* address_ = nullptr;
 };
 
+// Some platform symbols keep the same mangled name while their C++ return ABI changes between
+// MediaProvider builds. Store those originals as an untyped code address and recover the exact
+// function type only after the runtime ABI discriminator has selected the matching wrapper.
+class DynamicAbiHookOriginal final {
+   public:
+    template <typename Function>
+    Function getAs() const noexcept {
+        static_assert(std::is_pointer_v<Function>);
+        static_assert(std::is_function_v<std::remove_pointer_t<Function>>);
+        static_assert(sizeof(Function) == sizeof(void*));
+        return reinterpret_cast<Function>(__atomic_load_n(&address_, __ATOMIC_ACQUIRE));
+    }
+
+    void*& rawStorage() noexcept {
+        return address_;
+    }
+
+   private:
+    mutable void* address_ = nullptr;
+};
+
 }  // namespace fusehide

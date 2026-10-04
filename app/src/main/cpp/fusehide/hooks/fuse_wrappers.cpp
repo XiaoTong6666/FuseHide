@@ -892,14 +892,13 @@ Entries WrappedGetDirectoryEntriesForAbi(OriginalFn fn, void* wrapper, uint32_t 
 
 DirectoryEntries WrappedGetDirectoryEntriesShared(void* wrapper, uint32_t uid,
                                                   AbiStringParam pathArg, DIR* dirp) {
-    return WrappedGetDirectoryEntriesForAbi<DirectoryEntries>(gOriginalGetDirectoryEntries.get(),
-                                                              wrapper, uid, pathArg, dirp);
+    const auto fn = gOriginalGetDirectoryEntries.getAs<GetDirectoryEntriesFn>();
+    return WrappedGetDirectoryEntriesForAbi<DirectoryEntries>(fn, wrapper, uid, pathArg, dirp);
 }
 
 ValueDirectoryEntries WrappedGetDirectoryEntriesValue(void* wrapper, uint32_t uid,
                                                       AbiStringParam pathArg, DIR* dirp) {
-    const auto fn =
-        reinterpret_cast<GetValueDirectoryEntriesFn>(gOriginalGetDirectoryEntries.get());
+    const auto fn = gOriginalGetDirectoryEntries.getAs<GetValueDirectoryEntriesFn>();
     return WrappedGetDirectoryEntriesForAbi<ValueDirectoryEntries>(fn, wrapper, uid, pathArg, dirp);
 }
 
@@ -938,14 +937,15 @@ void WrappedAddDirectoryEntriesFromLowerFsForAbi(OriginalFn fn, DIR* dirp,
 
 void WrappedAddDirectoryEntriesFromLowerFsShared(DIR* dirp, LowerFsDirentFilterFn filter,
                                                  DirectoryEntries* entries) {
-    WrappedAddDirectoryEntriesFromLowerFsForAbi(gOriginalAddDirectoryEntriesFromLowerFs.get(), dirp,
-                                                filter, entries);
+    const auto fn =
+        gOriginalAddDirectoryEntriesFromLowerFs.getAs<AddDirectoryEntriesFromLowerFsFn>();
+    WrappedAddDirectoryEntriesFromLowerFsForAbi(fn, dirp, filter, entries);
 }
 
 void WrappedAddDirectoryEntriesFromLowerFsValue(DIR* dirp, LowerFsDirentFilterFn filter,
                                                 ValueDirectoryEntries* entries) {
-    const auto fn = reinterpret_cast<AddValueDirectoryEntriesFromLowerFsFn>(
-        gOriginalAddDirectoryEntriesFromLowerFs.get());
+    const auto fn =
+        gOriginalAddDirectoryEntriesFromLowerFs.getAs<AddValueDirectoryEntriesFromLowerFsFn>();
     WrappedAddDirectoryEntriesFromLowerFsForAbi(fn, dirp, filter, entries);
 }
 
