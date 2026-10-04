@@ -1,18 +1,18 @@
-# FuseHide 1.182
+# FuseHide 1.183
 
-- **Version:** `1.182`
-- **VersionCode:** `182`
-- **Commit:** [`c407f1c`](https://github.com/XiaoTong6666/FuseHide/commit/c407f1cbc11c3399eec8e0faae40bcfa299717e0)
-- **Build time:** `5m 19s`
-- **SHA256:** `b0dde73676d74a41c56ddc41d96822e080c8f778d987c3929a797dde4838010d`
+- **Version:** `1.183`
+- **VersionCode:** `183`
+- **Commit:** [`751765c`](https://github.com/XiaoTong6666/FuseHide/commit/751765cc4b0c696dc11fe909390b5c0aba2af3d2)
+- **Build time:** `5m 24s`
+- **SHA256:** `f922c1ecd720fccf4e64b50d4e85bf53c2446841a2506f9433e930af2535016b`
 
 ## Message
 
 ```text
-fix(native): model dynamic directory entry ABI
+perf(native): smooth path cache hot paths
 
-将 MediaProvider GetDirectoryEntries 与 addDirectoryEntriesFromLowerFs 的 original slot 改为动态 ABI 地址存储，仅在运行时 ABI 判定完成后恢复为 shared_ptr 或 value-vector 的准确函数类型。
+将 HiddenPathClassification cache 的 4096 项满表 clear 改为复用 unordered_map node 的单项增量替换，避免 target app 大量 unique path 扫描时集中释放并重建整张缓存。
 
-保留现有 DirectoryEntries ABI 探测、strict hook publication 与 acquire/release 时序，移除 Clang 21 下不兼容函数指针之间的 reinterpret_cast，同时不扩大其他 HookOriginal 的类型擦除范围。
+为 tracked inode path cache 增加同锁保护的 path->inode 反向索引与 string_view 透明查找，将 LookupTrackedInodeForPath 从 O(N) 扫描降为平均 O(1)，并在 inode 路径更新与 session clear 时保持双向索引一致。
 
 ```
