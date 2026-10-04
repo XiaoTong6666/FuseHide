@@ -39,7 +39,13 @@ int StrictB(void*, void*, void*, fusehide::HookBackupPublisher) {
 }
 
 std::atomic_uint32_t gSyntheticOriginalCalls{0};
-extern "C" __attribute__((noinline)) void SyntheticTarget(const char*, void*) {
+extern "C" __attribute__((noinline)) void SyntheticTarget(const char* name, void* handle) {
+    // These arguments are part of the hook ABI even though the synthetic
+    // original does not otherwise need them.  Keep them observable so LTO/
+    // IPA cannot legally omit x0/x1 setup at direct call sites.  An inline
+    // replacement must receive exactly the arguments the public function
+    // signature promises, not whatever scratch values happened to be live.
+    asm volatile("" : : "r"(name), "r"(handle) : "memory");
     gSyntheticOriginalCalls.fetch_add(1, std::memory_order_relaxed);
 }
 void PublishSyntheticBackup(void* user, void* original) {

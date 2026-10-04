@@ -88,7 +88,15 @@ int InstallNativeHookInternal(void* target, void* replacement, void** backup, vo
         sizeof(options),
 #if defined(__aarch64__)
         DOBBY_BRANCH_REQUIRE_NEAR,
-        DOBBY_HOOK_REQUIRE_CONCURRENT_SAFE,
+        // This adapter is the generic Native API backend and may legally be
+        // asked to hook anonymous/JIT executable memory.  File-backed
+        // pristine-entry validation therefore belongs to callers that know
+        // their target is a system ELF (for example the loader monitor), not
+        // to the adapter itself.  Backup validation remains mandatory so a
+        // callable original can never be published with a proven control-flow
+        // cycle into the replacement/patched entry.
+        DOBBY_HOOK_REQUIRE_CONCURRENT_SAFE | DOBBY_HOOK_VALIDATE_BACKUP |
+            DOBBY_HOOK_PRESERVE_LANDING_PAD,
 #elif defined(__x86_64__)
         // A live MediaProvider is not a cooperative quiescent host. Its x64
         // long entry patch must fail closed until all execution can be parked.

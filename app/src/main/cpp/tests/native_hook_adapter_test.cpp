@@ -101,6 +101,34 @@ int main(int argc, char** argv) {
     const auto fn = reinterpret_cast<TargetFn>(target);
     bool ok = Check(fn() == 7, "original executable target");
 
+#if defined(__x86_64__)
+    // The production MediaProvider cannot provide the trusted process-wide
+    // quiescence lease required for an x64 multi-byte entry patch.  The
+    // generic Zygisk adapter must therefore fail closed without publishing a
+    // backup or modifying the target.  Dobby's opt-in x64 quiescence fixture
+    // separately verifies the managed-host path where such a lease exists.
+    void* x64_backup = reinterpret_cast<void*>(1);
+    const int x64_installed =
+        api.hookFunc(target, reinterpret_cast<void*>(Replacement), &x64_backup);
+    ok &= Check(x64_installed != RT_SUCCESS && x64_backup == nullptr && fn() == 7,
+                "x64 unmanaged hook fails closed without modifying target");
+
+    const auto& strict_x64 = fusehide::zygisk::GetStrictNativeHookApi();
+    gStrictOriginal.store(nullptr, std::memory_order_release);
+    const int x64_strict = strict_x64.hookWithPublication(
+        target, reinterpret_cast<void*>(StrictReplacement), nullptr, PublishStrictOriginal);
+    ok &= Check(x64_strict != RT_SUCCESS &&
+                    gStrictOriginal.load(std::memory_order_acquire) == nullptr && fn() == 7,
+                "x64 strict hook with no quiescence lease fails closed");
+    ok &= Check(api.unhookFunc(target) != RT_SUCCESS,
+                "x64 rejected hook does not leave an owned ticket");
+
+    munmap(target, page_size);
+    munmap(foreign_target, page_size);
+    std::printf("native-adapter x64-unmanaged result=%s\n", ok ? "PASS" : "FAIL");
+    return ok ? 0 : 1;
+#endif
+
     void* original = nullptr;
     const int installed = api.hookFunc(target, reinterpret_cast<void*>(Replacement), &original);
     gOriginal = reinterpret_cast<TargetFn>(original);

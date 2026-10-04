@@ -37,10 +37,19 @@ bash app/src/main/cpp/tests/run_android_native_review.sh \
 
 - Native v2: callable original, replacement, duplicate/concurrent ownership,
   foreign-hook Unhook refusal, and retained partial-commit recovery.
-- Linker: actual Android `do_dlopen` patch and `dlopen(libz.so)`, idempotent
-  installation. The rollback mode reports a failure **after** a successful
-  physical patch, checks retained metadata and the still-callable backup,
-  then retries through explicit Recover before reinstallation.
+- Linker monitor: starts the `dl_iterate_phdr` observer first, then on ARM64
+  only attempts strict file-backed hooks of public `android_dlopen_ext` /
+  `dlopen`. A pristine public entry may be hooked with a four-byte near
+  branch. A leading ARM64 BTI landing pad is preserved in place and the
+  physical patch moves to `target+4`; foreign/prepatched, unverifiable, or
+  unvalidated control-flow entries are rejected and remain observer-only.
+  The smoke test verifies that ordinary `dlopen(libz.so)` remains usable in
+  either mode.
+- On x86_64 MediaProvider there is no trusted stop-the-world lease, so the
+  production loader monitor and generic Native API intentionally do not
+  publish multi-byte inline patches. The observer path is the expected
+  production behavior. Dobby's separate `dobby_android_x64_quiescence_review`
+  covers the managed-host case where a valid quiescence lease exists.
 - Each program exits nonzero on a failed assertion and prints `result=PASS`
   only on success.
 

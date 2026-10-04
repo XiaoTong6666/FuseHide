@@ -14,20 +14,22 @@
 
 #include "dlopen_monitor.hpp"
 
+#include <android/dlext.h>
 #include <android/log.h>
 #include <dlfcn.h>
 #include <jni.h>
+#include <link.h>
 
 #include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <string_view>
 #include <thread>
 
 #include "dex_loader.hpp"
 #include "dobby.h"
-#include "fusehide/elf/elf_utils.hpp"
 #include "native_hook_adapter.hpp"
 #include "zygisk_log.hpp"
 
@@ -40,24 +42,27 @@ namespace {
 constexpr char kLogTag[] = "FuseHide";
 constexpr char kFuseJniMarker[] = "libfuse_jni.so";
 constexpr char kFuseHideMarker[] = "libfusehide.so";
-constexpr char kDoDlopenSymbol[] = "__dl__Z9do_dlopenPKciPK17android_dlextinfoPKv";
 
-using DoDlopen = void* (*)(const char*, int, const void*, const void*);
+using AndroidDlopenExt = void* (*)(const char*, int, const android_dlextinfo*);
+using PublicDlopen = void* (*)(const char*, int);
 using JniOnLoad = jint (*)(JavaVM*, void*);
 using NativeInit = void* (*)(void*);
 using PostNativeInit = void (*)(const char*, void*);
 
-// The original must be published BEFORE committing the entry patch. The
-// replacement runs on unrelated loader threads and reads this concurrently.
-std::atomic<DoDlopen> gOriginalDoDlopen{nullptr};
+struct LoaderHookState {
+    std::atomic<void*> original{nullptr};
+    DobbyHookHandle handle = 0;
+    bool recoveryRequired = false;
+    bool needsAbort = false;
+    bool everPublished = false;
+};
+
+LoaderHookState gAndroidDlopenExtHook;
+LoaderHookState gPublicDlopenHook;
 std::atomic_bool gDlopenMonitorActive{false};
 std::atomic_bool gDlopenMonitorInstalling{false};
-// Only the thread that holds gDlopenMonitorInstalling accesses these two
-// tickets. Never retry Prepare while a failed Commit still owns its target.
-DobbyHookHandle gDlopenMonitorHandle = 0;
-bool gDlopenMonitorRecoveryRequired = false;
-bool gDlopenMonitorNeedsAbort = false;
-std::atomic_bool gDlopenMonitorEverPublished{false};
+std::atomic_bool gObserverStarted{false};
+std::atomic_bool gPublicHookAttempted{false};
 #if defined(FUSEHIDE_LINKER_REVIEW_TEST)
 std::atomic<void*> gDlopenReviewTarget{nullptr};
 #endif
@@ -90,6 +95,32 @@ bool MapsContains(const char* needle) {
 
 bool IsFuseJni(const char* name) {
     return name != nullptr && std::string_view(name).ends_with(kFuseJniMarker);
+}
+
+bool FindLoadedFuseJni(std::string* path) {
+    if (path == nullptr) {
+        return false;
+    }
+    struct SearchState {
+        std::string* path;
+        bool found;
+    } state{path, false};
+    dl_iterate_phdr(
+        [](dl_phdr_info* info, size_t, void* opaque) -> int {
+            auto* search = static_cast<SearchState*>(opaque);
+            if (info == nullptr || info->dlpi_name == nullptr) {
+                return 0;
+            }
+            const std::string_view name(info->dlpi_name);
+            if (name.find(kFuseJniMarker) == std::string_view::npos) {
+                return 0;
+            }
+            search->path->assign(name.data(), name.size());
+            search->found = true;
+            return 1;
+        },
+        &state);
+    return state.found;
 }
 
 bool GetJniEnv(JNIEnv** env, bool* attached) {
@@ -223,25 +254,204 @@ void InitFuseHideOnFuseLoaded(const char* loadedLibrary, void* loadedHandle) {
     }
 }
 
-void* HookedDoDlopen(const char* name, int flags, const void* extinfo, const void* callerAddress) {
-    const DoDlopen original = gOriginalDoDlopen.load(std::memory_order_acquire);
-    // The publication order makes this unreachable during normal installation;
-    // fail closed if a foreign patch ever reaches this callback without backup.
-    if (original == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "do_dlopen callback without backup");
-        return nullptr;
-    }
-    void* handle = original(name, flags, extinfo, callerAddress);
+void MaybeInitAfterLoad(const char* name, void* handle) {
     if (handle != nullptr && IsFuseJni(name)) {
         InitFuseHideOnFuseLoaded(name, handle);
     }
+}
+
+void* HookedAndroidDlopenExt(const char* name, int flags, const android_dlextinfo* extinfo) {
+    const auto original = reinterpret_cast<AndroidDlopenExt>(
+        gAndroidDlopenExtHook.original.load(std::memory_order_acquire));
+    if (original == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                            "android_dlopen_ext callback without backup");
+        return nullptr;
+    }
+    void* handle = original(name, flags, extinfo);
+    MaybeInitAfterLoad(name, handle);
     return handle;
+}
+
+void* HookedPublicDlopen(const char* name, int flags) {
+    const auto original =
+        reinterpret_cast<PublicDlopen>(gPublicDlopenHook.original.load(std::memory_order_acquire));
+    if (original == nullptr) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "dlopen callback without backup");
+        return nullptr;
+    }
+    void* handle = original(name, flags);
+    MaybeInitAfterLoad(name, handle);
+    return handle;
+}
+
+void StartFuseJniObserver() {
+    bool expected = false;
+    if (!gObserverStarted.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        return;
+    }
+    gDlopenMonitorActive.store(true, std::memory_order_release);
+
+    std::string loadedPath;
+    if (FindLoadedFuseJni(&loadedPath)) {
+        InitFuseHideOnFuseLoaded(loadedPath.c_str(), nullptr);
+        return;
+    }
+
+    std::thread([]() {
+        constexpr int kFastAttempts = 1000;
+        constexpr int kMediumAttempts = 2200;
+        bool slowObserverLogged = false;
+        for (int attempt = 0;; ++attempt) {
+            const auto state = gFuseHideInitState.load(std::memory_order_acquire);
+            if (state == FuseHideInitState::kReady || state == FuseHideInitState::kFailedAfterJni) {
+                return;
+            }
+            std::string path;
+            if (FindLoadedFuseJni(&path)) {
+                InitFuseHideOnFuseLoaded(path.c_str(), nullptr);
+                const auto after = gFuseHideInitState.load(std::memory_order_acquire);
+                if (after == FuseHideInitState::kReady ||
+                    after == FuseHideInitState::kFailedAfterJni) {
+                    return;
+                }
+            }
+            if (attempt < kFastAttempts) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            } else if (attempt < kMediumAttempts) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            } else {
+                if (!slowObserverLogged) {
+                    __android_log_print(
+                        ANDROID_LOG_INFO, kLogTag,
+                        "libfuse_jni.so not loaded yet; continuing low-frequency phdr observer");
+                    slowObserverLogged = true;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            }
+        }
+    }).detach();
+}
+
+void RecoverLoaderHookIfNeeded(const char* label, LoaderHookState* state) {
+    if (state == nullptr || !state->recoveryRequired || state->handle == 0) {
+        return;
+    }
+    DobbyHookResult recovered{};
+    recovered.struct_size = sizeof(recovered);
+    const int status = state->needsAbort ? DobbyAbortHook(state->handle, &recovered)
+                                         : DobbyRecoverHook(state->handle, &recovered);
+    if (status != RT_SUCCESS) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                            "%s monitor recovery deferred: status=%u cause=%u", label,
+                            recovered.status, recovered.cause);
+        return;
+    }
+    __android_log_print(ANDROID_LOG_INFO, kLogTag, "%s monitor recovery completed", label);
+    state->handle = 0;
+    state->recoveryRequired = false;
+    state->needsAbort = false;
+}
+
+bool InstallPublicLoaderHook(const char* label, void* target, dobby_dummy_func_t replacement,
+                             LoaderHookState* state) {
+    if (target == nullptr || state == nullptr || state->handle != 0 || state->recoveryRequired) {
+        return false;
+    }
+#if defined(FUSEHIDE_LINKER_REVIEW_TEST)
+    void* noTarget = nullptr;
+    gDlopenReviewTarget.compare_exchange_strong(noTarget, target, std::memory_order_acq_rel);
+#endif
+
+    DobbyHookOptions options = {
+        sizeof(DobbyHookOptions),
+#if defined(__aarch64__)
+        DOBBY_BRANCH_REQUIRE_NEAR,
+        DOBBY_HOOK_REQUIRE_CONCURRENT_SAFE | DOBBY_HOOK_REQUIRE_PRISTINE_ENTRY |
+            DOBBY_HOOK_VALIDATE_BACKUP | DOBBY_HOOK_PRESERVE_LANDING_PAD,
+#elif defined(__x86_64__)
+        DOBBY_BRANCH_FORCE_LONG,
+        DOBBY_HOOK_REQUIRE_CONCURRENT_SAFE | DOBBY_HOOK_REQUIRE_PRISTINE_ENTRY,
+#else
+        DOBBY_BRANCH_LEGACY,
+        DOBBY_HOOK_REQUIRE_PRISTINE_ENTRY,
+#endif
+        0,
+        target,
+        replacement,
+    };
+    DobbyHookResult transaction{};
+    transaction.struct_size = sizeof(transaction);
+    if (DobbyPrepareHook(&options, &transaction) != RT_SUCCESS || transaction.original == nullptr) {
+        __android_log_print(
+            ANDROID_LOG_WARN, kLogTag,
+            "%s monitor not hooked: prepare status=%u cause=%u; phdr observer remains active",
+            label, transaction.status, transaction.cause);
+        if (transaction.handle != 0) {
+            DobbyHookResult aborted{};
+            aborted.struct_size = sizeof(aborted);
+            if (DobbyAbortHook(transaction.handle, &aborted) != RT_SUCCESS) {
+                state->handle = transaction.handle;
+                state->recoveryRequired = true;
+                state->needsAbort = true;
+            }
+        }
+        return false;
+    }
+
+    const DobbyHookHandle ticket = transaction.handle;
+    state->handle = ticket;
+    state->original.store(reinterpret_cast<void*>(transaction.original), std::memory_order_release);
+    if (DobbyCommitHook(ticket, &transaction) != RT_SUCCESS) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                            "%s monitor commit failed: status=%u cause=%u retained=%u; phdr "
+                            "observer remains active",
+                            label, transaction.status, transaction.cause, transaction.handle != 0);
+        state->everPublished = transaction.ever_published;
+        if (transaction.handle == ticket && !transaction.ever_published &&
+            !transaction.target_may_be_patched &&
+            transaction.status != DOBBY_HOOK_RECOVERY_REQUIRED) {
+            DobbyHookResult aborted{};
+            aborted.struct_size = sizeof(aborted);
+            if (DobbyAbortHook(ticket, &aborted) == RT_SUCCESS) {
+                transaction.handle = 0;
+            } else {
+                state->needsAbort = true;
+            }
+        }
+        state->handle = transaction.handle;
+        state->recoveryRequired = transaction.handle != 0;
+        if (transaction.status == DOBBY_HOOK_RECOVERY_REQUIRED) {
+            state->needsAbort = false;
+        }
+        if (!transaction.ever_published && transaction.handle == 0) {
+            state->original.store(nullptr, std::memory_order_release);
+        }
+        return false;
+    }
+
+    state->everPublished = true;
+    __android_log_print(ANDROID_LOG_INFO, kLogTag, "hooked public %s at %p", label, target);
+    return true;
 }
 
 }  // namespace
 
 void InstallDlopenMonitor() {
-    if (gDlopenMonitorActive.load(std::memory_order_acquire)) {
+    StartFuseJniObserver();
+#if !defined(__aarch64__)
+    // A live MediaProvider cannot provide the trusted process-wide quiescence
+    // lease required for a multi-byte x86/x64 loader patch.  Other ABIs also
+    // remain observer-only until they have an equally strong atomic-publication
+    // proof.  The phdr observer is sufficient because PostNativeInit only
+    // requires the mapped libfuse_jni path, not its dlopen handle.
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                        "loader inline hooks disabled on this ABI; using phdr observer");
+    return;
+#endif
+    RecoverLoaderHookIfNeeded("android_dlopen_ext", &gAndroidDlopenExtHook);
+    RecoverLoaderHookIfNeeded("dlopen", &gPublicDlopenHook);
+    if (gFuseHideInitState.load(std::memory_order_acquire) == FuseHideInitState::kReady) {
         return;
     }
     bool expected = false;
@@ -254,149 +464,35 @@ void InstallDlopenMonitor() {
             gDlopenMonitorInstalling.store(false, std::memory_order_release);
         }
     } guard;
-    if (gDlopenMonitorActive.load(std::memory_order_acquire))
-        return;
-
-    // Recovery is not equivalent to re-running Prepare. A failed sync-core
-    // may have made this replacement visible before Commit returned. Retain
-    // the backup, restore the exact old ticket, and only then try another
-    // installation. A failed recovery leaves ownership intact.
-    if (gDlopenMonitorRecoveryRequired) {
-        DobbyHookResult recovered{};
-        recovered.struct_size = sizeof(recovered);
-        const int recovery_status = gDlopenMonitorNeedsAbort
-                                        ? DobbyAbortHook(gDlopenMonitorHandle, &recovered)
-                                        : DobbyRecoverHook(gDlopenMonitorHandle, &recovered);
-        if (recovery_status != RT_SUCCESS) {
-            __android_log_print(ANDROID_LOG_ERROR, kLogTag,
-                                "cannot recover do_dlopen: status=%u cause=%u", recovered.status,
-                                recovered.cause);
-            return;
-        }
-        gDlopenMonitorHandle = 0;
-        gDlopenMonitorRecoveryRequired = false;
-        gDlopenMonitorNeedsAbort = false;
-    }
-
-    auto linker = fusehide::FindModuleFromMaps("/linker64");
-    if (!linker.has_value()) {
-        linker = fusehide::FindModuleFromMaps("/linker");
-    }
-    if (!linker.has_value()) {
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "dynamic linker mapping not found");
+    if (gPublicHookAttempted.exchange(true, std::memory_order_acq_rel)) {
         return;
     }
 
-    auto mapped = fusehide::MapReadOnlyFile(linker->path, linker->fileOffset);
-    if (!mapped.has_value()) {
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "failed to map %s", linker->path.c_str());
-        return;
+    void* androidDlopenExt = dlsym(RTLD_DEFAULT, "android_dlopen_ext");
+    void* publicDlopen = dlsym(RTLD_DEFAULT, "dlopen");
+    const bool extHooked = InstallPublicLoaderHook(
+        "android_dlopen_ext", androidDlopenExt,
+        reinterpret_cast<dobby_dummy_func_t>(HookedAndroidDlopenExt), &gAndroidDlopenExtHook);
+    const bool dlopenHooked = InstallPublicLoaderHook(
+        "dlopen", publicDlopen, reinterpret_cast<dobby_dummy_func_t>(HookedPublicDlopen),
+        &gPublicDlopenHook);
+    if (!extHooked && !dlopenHooked) {
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                            "public loader hooks unavailable; using dl_iterate_phdr observer only");
     }
-    auto offset = fusehide::FindSymbolOffset(*mapped, kDoDlopenSymbol);
-    if (!offset.has_value()) {
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "linker symbol not found: %s",
-                            kDoDlopenSymbol);
-        return;
-    }
-
-    void* target = reinterpret_cast<void*>(linker->base + *offset);
-#if defined(FUSEHIDE_LINKER_REVIEW_TEST)
-    gDlopenReviewTarget.store(target, std::memory_order_release);
-#endif
-    DobbyHookOptions options = {
-        sizeof(DobbyHookOptions),
-#if defined(__aarch64__)
-        DOBBY_BRANCH_REQUIRE_NEAR,
-        DOBBY_HOOK_REQUIRE_CONCURRENT_SAFE,
-#elif defined(__x86_64__)
-        // The legacy x64 multi-byte patch is not safe against concurrent
-        // linker callers. Require an exclusive host lease rather than
-        // silently publishing a torn do_dlopen entry.
-        DOBBY_BRANCH_FORCE_LONG,
-        DOBBY_HOOK_REQUIRE_CONCURRENT_SAFE,
-#else
-        DOBBY_BRANCH_LEGACY,
-        0,
-#endif
-        0,
-        target,
-        reinterpret_cast<dobby_dummy_func_t>(HookedDoDlopen),
-    };
-    DobbyHookResult transaction{};
-    transaction.struct_size = sizeof(transaction);
-    if (DobbyPrepareHook(&options, &transaction) != RT_SUCCESS || transaction.original == nullptr) {
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
-                            "failed to prepare do_dlopen: status=%u cause=%u", transaction.status,
-                            transaction.cause);
-        // Prepare must never publish an entry. If it unexpectedly returned an
-        // owned ticket, do not allow a subsequent install to alias that owner.
-        if (transaction.handle) {
-            DobbyHookResult aborted{};
-            aborted.struct_size = sizeof(aborted);
-            if (DobbyAbortHook(transaction.handle, &aborted) != RT_SUCCESS) {
-                gDlopenMonitorHandle = transaction.handle;
-                gDlopenMonitorRecoveryRequired = true;
-                gDlopenMonitorNeedsAbort = true;
-            }
-        }
-        return;
-    }
-    const DobbyHookHandle hook_handle = transaction.handle;
-    gDlopenMonitorHandle = hook_handle;
-    gOriginalDoDlopen.store(reinterpret_cast<DoDlopen>(transaction.original),
-                            std::memory_order_release);
-    if (DobbyCommitHook(hook_handle, &transaction) != RT_SUCCESS) {
-        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
-                            "failed to commit do_dlopen: status=%u cause=%u retained=%u",
-                            transaction.status, transaction.cause, transaction.handle != 0);
-        if (transaction.ever_published) {
-            gDlopenMonitorEverPublished.store(true, std::memory_order_release);
-        }
-        // A TARGET_CHANGED failure remains Prepared. Abort it without
-        // touching the foreign writer's bytes, rather than leaking the slot
-        // or trying to Recover a transaction that never entered Commit.
-        if (transaction.handle == hook_handle && !transaction.ever_published &&
-            !transaction.target_may_be_patched &&
-            transaction.status != DOBBY_HOOK_RECOVERY_REQUIRED) {
-            DobbyHookResult aborted{};
-            aborted.struct_size = sizeof(aborted);
-            if (DobbyAbortHook(hook_handle, &aborted) == RT_SUCCESS)
-                transaction.handle = 0;
-            else
-                gDlopenMonitorNeedsAbort = true;
-        }
-        gDlopenMonitorHandle = transaction.handle;
-        gDlopenMonitorRecoveryRequired = transaction.handle != 0;
-        if (!gDlopenMonitorRecoveryRequired)
-            gDlopenMonitorNeedsAbort = false;
-        // Never clear a backup that a previous or current failed install
-        // could still need. Restoring bytes does not drain running callbacks.
-        if (!gDlopenMonitorEverPublished.load(std::memory_order_acquire) &&
-            !transaction.ever_published && !transaction.handle) {
-            gOriginalDoDlopen.store(nullptr, std::memory_order_release);
-        }
-        return;
-    }
-    gDlopenMonitorEverPublished.store(true, std::memory_order_release);
-    gDlopenMonitorActive.store(true, std::memory_order_release);
-
-    __android_log_print(ANDROID_LOG_INFO, kLogTag, "hooked do_dlopen at %p from %s", target,
-                        linker->path.c_str());
 }
 
 #if defined(FUSEHIDE_LINKER_REVIEW_TEST)
 extern "C" int FuseHideDlopenMonitorReviewState() {
-    return gDlopenMonitorActive.load(std::memory_order_acquire) &&
-                   gOriginalDoDlopen.load(std::memory_order_acquire) != nullptr &&
-                   gDlopenMonitorHandle != 0
-               ? 1
-               : 0;
+    return gDlopenMonitorActive.load(std::memory_order_acquire) ? 1 : 0;
 }
 extern "C" int FuseHideDlopenMonitorReviewRecoveryState() {
-    return gDlopenMonitorRecoveryRequired && gDlopenMonitorHandle != 0 &&
-                   gOriginalDoDlopen.load(std::memory_order_acquire) != nullptr
-               ? 1
-               : 0;
+    const bool androidExt =
+        gAndroidDlopenExtHook.recoveryRequired && gAndroidDlopenExtHook.handle != 0 &&
+        gAndroidDlopenExtHook.original.load(std::memory_order_acquire) != nullptr;
+    const bool dlopen = gPublicDlopenHook.recoveryRequired && gPublicDlopenHook.handle != 0 &&
+                        gPublicDlopenHook.original.load(std::memory_order_acquire) != nullptr;
+    return androidExt || dlopen ? 1 : 0;
 }
 extern "C" void* FuseHideDlopenMonitorReviewTarget() {
     return gDlopenReviewTarget.load(std::memory_order_acquire);
