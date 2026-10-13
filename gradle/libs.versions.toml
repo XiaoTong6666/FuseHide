@@ -17,7 +17,7 @@ baselineprofile = "1.5.0"
 profileinstaller = "1.4.1"
 benchmarkMacroJunit4 = "1.5.0"
 uiautomator = "2.4.0"
-navigationevent = "1.1.2"
+navigationevent = "1.2.0"
 commonmark = "0.30.0"
 appiconloader = "1.5.0"
 
