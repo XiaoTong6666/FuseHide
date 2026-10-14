@@ -1,14 +1,14 @@
-# FuseHide 1.185
+# FuseHide 1.186
 
-- **Version:** `1.185`
-- **VersionCode:** `185`
-- **Commit:** [`a7e81d7`](https://github.com/XiaoTong6666/FuseHide/commit/a7e81d7a7da420ce477eeb31ba30c446fc5b8c3c)
-- **Build time:** `9m 01s`
-- **SHA256:** `8a89a6c105cde0ef8189251859442af6a5d7d49f82082fa405533d4359ae3792`
+- **Version:** `1.186`
+- **VersionCode:** `186`
+- **Commit:** [`d9aa650`](https://github.com/XiaoTong6666/FuseHide/commit/d9aa6506e2f57326b99e729d6a5119d44f27aa73)
+- **Build time:** `5m 34s`
+- **SHA256:** `7e22373f6fb1f580be279b17349ef3dbb50fe0b280ae883aba021160ec8a6c84`
 
 ## Message
 
 ```text
-build(deps): sync Gradle dependencies and uihelper
+ci: publish immutable APK and Zygisk releases, Meow
 
 ```
