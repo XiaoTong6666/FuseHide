@@ -33,6 +33,12 @@ on:
       release_sha256:
         required: true
         type: string
+      zygisk_release_zip_name:
+        required: true
+        type: string
+      zygisk_release_sha256:
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -59,7 +65,56 @@ jobs:
           name: build-metadata
           path: dist/metadata
 
+      - name: Download Zygisk ZIP
+        uses: actions/download-artifact@main
+        with:
+          name: zygisk-zips
+          path: dist/zygisk
+
+      - name: Check existing immutable release
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.XPOSED_REPO_TOKEN }}
+          TARGET_REPO: ${{ inputs.target_repo }}
+          COMMUNITY_TAG: ${{ inputs.community_tag }}
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}"
+
+          if gh release view "$COMMUNITY_TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            test "$(gh api "repos/${TARGET_REPO}/releases/tags/${COMMUNITY_TAG}" --jq '.immutable')" = true
+            echo "Immutable release ${COMMUNITY_TAG} already exists, skip publishing."
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read module manifest from distribution repository
+        if: steps.existing.outputs.exists != 'true'
+        uses: actions/checkout@main
+        with:
+          repository: ${{ inputs.target_repo }}
+          token: ${{ secrets.XPOSED_REPO_TOKEN }}
+          path: module-repo
+          persist-credentials: false
+
+      - name: Prepare manifest for precheck
+        if: steps.existing.outputs.exists != 'true'
+        run: cp module-repo/module.yaml module-repo/README.md ./
+
+      - name: Precheck Zygisk module
+        if: steps.existing.outputs.exists != 'true'
+        uses: KernelSU-Modules/tools/actions/module-release@ca1187c92135b3c31e48d37e008d61153120a08b
+        with:
+          zip: dist/zygisk/${{ inputs.zygisk_release_zip_name }}
+          repository: ${{ inputs.target_repo }}
+          token: ${{ secrets.XPOSED_REPO_TOKEN }}
+          tag: ${{ inputs.community_tag }}
+          dry-run: true
+          sync-files: false
+
       - name: Sync community release
+        if: steps.existing.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ secrets.XPOSED_REPO_TOKEN }}
           TARGET_REPO: ${{ inputs.target_repo }}
@@ -72,6 +127,8 @@ jobs:
           BUILD_DURATION: ${{ inputs.build_duration }}
           RELEASE_APK_NAME: ${{ inputs.release_apk_name }}
           RELEASE_SHA256: ${{ inputs.release_sha256 }}
+          ZYGISK_RELEASE_ZIP_NAME: ${{ inputs.zygisk_release_zip_name }}
+          ZYGISK_RELEASE_SHA256: ${{ inputs.zygisk_release_sha256 }}
         run: |
           set -euo pipefail
           test -n "${GH_TOKEN:-}"
@@ -79,8 +136,10 @@ jobs:
           MAIN_REPO_URL="https://github.com/${MAIN_REPO}"
           COMMIT_URL="${MAIN_REPO_URL}/commit/${COMMIT_FULL_SHA}"
           RELEASE_APK="dist/apks/release/${RELEASE_APK_NAME}"
+          ZYGISK_ZIP="dist/zygisk/${ZYGISK_RELEASE_ZIP_NAME}"
 
           test -f "$RELEASE_APK"
+          test -f "$ZYGISK_ZIP"
 
           TARGET_BRANCH="$(gh repo view "$TARGET_REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')"
           test -n "$TARGET_BRANCH"
@@ -93,7 +152,7 @@ jobs:
 
           pushd community-repo >/dev/null
           if git ls-remote --exit-code --tags origin "refs/tags/${COMMUNITY_TAG}" >/dev/null 2>&1; then
-            echo "Community tag ${COMMUNITY_TAG} already exists, keep existing target."
+            echo "Community tag ${COMMUNITY_TAG} already exists, reuse existing target."
           else
             git commit --allow-empty -m "release: ${VERSION_NAME}"
             git push origin "HEAD:${TARGET_BRANCH}"
@@ -110,6 +169,8 @@ jobs:
             echo "- **Commit:** [\`${COMMIT_SHA}\`](${COMMIT_URL})"
             echo "- **Build time:** \`${BUILD_DURATION}\`"
             echo "- **SHA256:** \`${RELEASE_SHA256}\`"
+            echo "- **Zygisk ZIP:** \`${ZYGISK_RELEASE_ZIP_NAME}\`"
+            echo "- **Zygisk SHA256:** \`${ZYGISK_RELEASE_SHA256}\`"
             echo
             echo "## Message"
             echo
@@ -118,18 +179,10 @@ jobs:
             echo '```'
           } > community-release-note.md
 
-          if gh release view "$COMMUNITY_TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
-            gh release edit "$COMMUNITY_TAG" \
-              --repo "$TARGET_REPO" \
-              --title "$VERSION_NAME" \
-              --notes-file community-release-note.md
-          else
-            gh release create "$COMMUNITY_TAG" \
-              --repo "$TARGET_REPO" \
-              --title "$VERSION_NAME" \
-              --notes-file community-release-note.md
-          fi
-
-          gh release upload "$COMMUNITY_TAG" "$RELEASE_APK" \
+          gh release create "$COMMUNITY_TAG" "$RELEASE_APK" "$ZYGISK_ZIP" \
             --repo "$TARGET_REPO" \
-            --clobber
+            --verify-tag \
+            --title "$VERSION_NAME" \
+            --notes-file community-release-note.md
+
+          test "$(gh api "repos/${TARGET_REPO}/releases/tags/${COMMUNITY_TAG}" --jq '.immutable')" = true

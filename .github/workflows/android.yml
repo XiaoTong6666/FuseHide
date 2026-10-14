@@ -95,4 +95,6 @@ jobs:
       build_duration: ${{ needs.build.outputs.build_duration }}
       release_apk_name: ${{ needs.build.outputs.release_apk_name }}
       release_sha256: ${{ needs.build.outputs.release_sha256 }}
+      zygisk_release_zip_name: ${{ needs.build.outputs.zygisk_release_zip_name }}
+      zygisk_release_sha256: ${{ needs.build.outputs.zygisk_release_sha256 }}
     secrets: inherit

@@ -1,0 +1,51 @@
+name: Module README Sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'README*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: module-readme-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync module repository documentation
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout source repository
+        uses: actions/checkout@main
+        with:
+          persist-credentials: false
+
+      - name: Checkout module repository
+        uses: actions/checkout@main
+        with:
+          repository: Xposed-Modules-Repo/io.github.xiaotong6666.fusehide
+          token: ${{ secrets.XPOSED_REPO_TOKEN }}
+          path: module-repo
+          persist-credentials: true
+
+      - name: Sync files only when content differs
+        run: |
+          set -euo pipefail
+
+          cp README*.md module-repo/
+          cd module-repo
+          git add -A -- 'README*.md'
+
+          if git diff --cached --quiet; then
+            echo 'README files are unchanged, skip push.'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: sync FuseHide module documentation'
+          git push origin HEAD:main
