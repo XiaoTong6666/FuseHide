@@ -1,0 +1,240 @@
+name: FuseHide Zygisk Release
+
+on:
+  workflow_call:
+    inputs:
+      main_repo:
+        required: true
+        type: string
+      ksu_target_repo:
+        required: true
+        type: string
+      version_name:
+        required: true
+        type: string
+      version_code:
+        required: true
+        type: string
+      commit_sha:
+        required: true
+        type: string
+      commit_full_sha:
+        required: true
+        type: string
+      build_duration:
+        required: true
+        type: string
+      release_zip_name:
+        required: true
+        type: string
+      release_sha256:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ksu-release:
+    name: Sync KernelSU community release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Download module zips
+        uses: actions/download-artifact@v8
+        with:
+          name: zygisk-zips
+          path: dist/zygisk
+
+      - name: Download build metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: build-metadata
+          path: dist/metadata
+
+      - name: Create immutable KernelSU release
+        env:
+          GH_TOKEN: ${{ secrets.XPOSED_REPO_TOKEN }}
+          TARGET_REPO: ${{ inputs.ksu_target_repo }}
+          MAIN_REPO: ${{ inputs.main_repo }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          COMMIT_FULL_SHA: ${{ inputs.commit_full_sha }}
+          BUILD_DURATION: ${{ inputs.build_duration }}
+          RELEASE_ZIP_NAME: ${{ inputs.release_zip_name }}
+          RELEASE_SHA256: ${{ inputs.release_sha256 }}
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN:-}"
+
+          tag_ref_exists() {
+            local tag="$1"
+            gh api "repos/${TARGET_REPO}/git/ref/tags/${tag}" >/dev/null 2>&1
+          }
+
+          wait_for_release_cleanup() {
+            local tag="$1"
+            local attempt
+
+            for attempt in {1..15}; do
+              local release_exists=false
+              local tag_exists=false
+
+              if gh release view "$tag" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+                release_exists=true
+              fi
+
+              if tag_ref_exists "$tag"; then
+                tag_exists=true
+              fi
+
+              if [ "$release_exists" = false ] && [ "$tag_exists" = false ]; then
+                return 0
+              fi
+
+              echo "Wait for ${tag} cleanup (${attempt}/15)"
+              sleep 2
+            done
+
+            echo "Timed out waiting for ${tag} cleanup" >&2
+            return 1
+          }
+
+          MAIN_REPO_URL="https://github.com/${MAIN_REPO}"
+          COMMIT_URL="${MAIN_REPO_URL}/commit/${COMMIT_FULL_SHA}"
+          RELEASE_ZIP="dist/zygisk/${RELEASE_ZIP_NAME}"
+          COMMUNITY_TAG_PREFIX="v${VERSION_CODE}-"
+          COMMUNITY_TAG="v${VERSION_CODE}-${COMMIT_SHA}"
+
+          test -f "$RELEASE_ZIP"
+
+          mapfile -t EXISTING_RELEASES < <(
+            gh api --paginate "repos/${TARGET_REPO}/releases" |
+            jq -r --arg prefix "$COMMUNITY_TAG_PREFIX" '.[] | select(.tag_name != null and (.tag_name | startswith($prefix))) | "\(.id)\t\(.tag_name)"'
+          )
+
+          mapfile -t EXISTING_TAGS < <(
+            gh api "repos/${TARGET_REPO}/git/matching-refs/tags/${COMMUNITY_TAG_PREFIX}" --jq '.[].ref' 2>/dev/null |
+            sed 's#refs/tags/##' |
+            sort -u
+          )
+
+          CURRENT_RELEASE_EXISTS=false
+          for EXISTING_RELEASE in "${EXISTING_RELEASES[@]}"; do
+            [ -n "$EXISTING_RELEASE" ] || continue
+            RELEASE_TAG="${EXISTING_RELEASE#*$'\t'}"
+            if [ "$RELEASE_TAG" = "$COMMUNITY_TAG" ]; then
+              CURRENT_RELEASE_EXISTS=true
+              break
+            fi
+          done
+
+          CURRENT_TAG_EXISTS=false
+          for EXISTING_TAG in "${EXISTING_TAGS[@]}"; do
+            [ -n "$EXISTING_TAG" ] || continue
+            if [ "$EXISTING_TAG" = "$COMMUNITY_TAG" ]; then
+              CURRENT_TAG_EXISTS=true
+              break
+            fi
+          done
+
+          if [ "${#EXISTING_RELEASES[@]}" -gt 0 ]; then
+            echo "Remove existing ${TARGET_REPO} releases for ${COMMUNITY_TAG_PREFIX}*"
+            for EXISTING_RELEASE in "${EXISTING_RELEASES[@]}"; do
+              [ -n "$EXISTING_RELEASE" ] || continue
+
+              RELEASE_ID="${EXISTING_RELEASE%%$'\t'*}"
+              RELEASE_TAG="${EXISTING_RELEASE#*$'\t'}"
+
+              if [ "$RELEASE_TAG" = "$COMMUNITY_TAG" ]; then
+                echo "Keep current release ${RELEASE_TAG}"
+                continue
+              fi
+
+              echo "Delete release ${RELEASE_TAG} (${RELEASE_ID})"
+              gh api -X DELETE "repos/${TARGET_REPO}/releases/${RELEASE_ID}"
+
+              if tag_ref_exists "$RELEASE_TAG"; then
+                echo "Delete tag ${RELEASE_TAG}"
+                gh api -X DELETE "repos/${TARGET_REPO}/git/refs/tags/${RELEASE_TAG}"
+              fi
+
+              wait_for_release_cleanup "$RELEASE_TAG"
+            done
+          fi
+
+          mapfile -t EXISTING_TAGS < <(
+            gh api "repos/${TARGET_REPO}/git/matching-refs/tags/${COMMUNITY_TAG_PREFIX}" --jq '.[].ref' 2>/dev/null |
+            sed 's#refs/tags/##' |
+            sort -u
+          )
+
+          if [ "${#EXISTING_TAGS[@]}" -gt 0 ]; then
+            echo "Remove existing ${TARGET_REPO} tags for ${COMMUNITY_TAG_PREFIX}*"
+            for EXISTING_TAG in "${EXISTING_TAGS[@]}"; do
+              [ -n "$EXISTING_TAG" ] || continue
+
+              if [ "$EXISTING_TAG" = "$COMMUNITY_TAG" ]; then
+                echo "Keep current tag ${EXISTING_TAG}"
+                continue
+              fi
+
+              if tag_ref_exists "$EXISTING_TAG"; then
+                echo "Delete tag ${EXISTING_TAG}"
+                gh api -X DELETE "repos/${TARGET_REPO}/git/refs/tags/${EXISTING_TAG}"
+              fi
+
+              wait_for_release_cleanup "$EXISTING_TAG"
+            done
+          fi
+
+          if [ "$CURRENT_RELEASE_EXISTS" = true ]; then
+            echo "Current immutable release ${COMMUNITY_TAG} already exists, skip recreate."
+            exit 0
+          fi
+
+          if [ "$CURRENT_TAG_EXISTS" = true ]; then
+            echo "Current tag ${COMMUNITY_TAG} already exists, reuse existing target."
+          else
+            TARGET_BRANCH="$(gh repo view "$TARGET_REPO" --json defaultBranchRef --jq '.defaultBranchRef.name')"
+            test -n "$TARGET_BRANCH"
+
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git config --global url."https://x-access-token:${GH_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+            git clone --depth 1 --branch "$TARGET_BRANCH" "https://github.com/${TARGET_REPO}.git" community-repo
+
+            pushd community-repo >/dev/null
+            git commit --allow-empty -m "release: ${VERSION_NAME}"
+            git push origin "HEAD:${TARGET_BRANCH}"
+            git tag "$COMMUNITY_TAG"
+            git push origin "refs/tags/${COMMUNITY_TAG}"
+            popd >/dev/null
+          fi
+
+          {
+            echo "同步自 [主仓库](${MAIN_REPO_URL}) 构建产物喵"
+            echo
+            echo "- **Version:** \`${VERSION_NAME}\`"
+            echo "- **VersionCode:** \`${VERSION_CODE}\`"
+            echo "- **Commit:** [\`${COMMIT_SHA}\`](${COMMIT_URL})"
+            echo "- **Build time:** \`${BUILD_DURATION}\`"
+            echo "- **SHA256:** \`${RELEASE_SHA256}\`"
+            echo
+            echo "## Message"
+            echo
+            echo '```text'
+            cat dist/metadata/commit-message.txt
+            echo '```'
+          } > community-release-note.md
+
+          gh release create "$COMMUNITY_TAG" "$RELEASE_ZIP" \
+            --repo "$TARGET_REPO" \
+            --title "$VERSION_NAME" \
+            --notes-file community-release-note.md

@@ -119,17 +119,19 @@ jobs:
           } > community-release-note.md
 
           if gh release view "$COMMUNITY_TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            if ! gh release view "$COMMUNITY_TAG" --repo "$TARGET_REPO" \
+              --json assets --jq '.assets[].name' | grep -Fxq "$RELEASE_APK_NAME"; then
+              echo "Release ${COMMUNITY_TAG} already exists without ${RELEASE_APK_NAME}; publish a new version instead." >&2
+              exit 1
+            fi
+
             gh release edit "$COMMUNITY_TAG" \
               --repo "$TARGET_REPO" \
               --title "$VERSION_NAME" \
               --notes-file community-release-note.md
           else
-            gh release create "$COMMUNITY_TAG" \
+            gh release create "$COMMUNITY_TAG" "$RELEASE_APK" \
               --repo "$TARGET_REPO" \
               --title "$VERSION_NAME" \
               --notes-file community-release-note.md
           fi
-
-          gh release upload "$COMMUNITY_TAG" "$RELEASE_APK" \
-            --repo "$TARGET_REPO" \
-            --clobber
