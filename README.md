@@ -1,25 +1,25 @@
-# FuseHide 1.187
+# FuseHide 1.188
 
-- **Version:** `1.187`
-- **VersionCode:** `187`
-- **Commit:** [`18e93ff`](https://github.com/XiaoTong6666/FuseHide/commit/18e93ff7f74a54fc65d598e4f729b4fab3f90953)
-- **Build time:** `5m 43s`
-- **SHA256:** `e3a91e4d2d65238f468c035c78cd57deaa5bb4544e12b4f3e1c8cde98f347e91`
+- **Version:** `1.188`
+- **VersionCode:** `188`
+- **Commit:** [`9d0104f`](https://github.com/XiaoTong6666/FuseHide/commit/9d0104f9a3fcda47f8b4c68741be8f1903278a61)
+- **Build time:** `8m 10s`
+- **SHA256:** `57890587318bf08d0bff43a6932704b5d34af7fbaf559f21506f514525dd9fea`
 
 ## Message
 
 ```text
-build(deps): bump com.diffplug.spotless from 8.10.3 to 8.10.4 (#109)
+build(deps): bump org.commonmark:commonmark from 0.30.0 to 0.30.1 (#108)
 
-Bumps [com.diffplug.spotless](https://github.com/diffplug/spotless) from 8.10.3 to 8.10.4.
-- [Release notes](https://github.com/diffplug/spotless/releases)
-- [Changelog](https://github.com/diffplug/spotless/blob/main/CHANGES.md)
-- [Commits](https://github.com/diffplug/spotless/compare/gradle/8.10.3...gradle/8.10.4)
+Bumps [org.commonmark:commonmark](https://github.com/commonmark/commonmark-java) from 0.30.0 to 0.30.1.
+- [Release notes](https://github.com/commonmark/commonmark-java/releases)
+- [Changelog](https://github.com/commonmark/commonmark-java/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/commonmark/commonmark-java/compare/commonmark-parent-0.30.0...commonmark-parent-0.30.1)
 
 ---
 updated-dependencies:
-- dependency-name: com.diffplug.spotless
-  dependency-version: 8.10.4
+- dependency-name: org.commonmark:commonmark
+  dependency-version: 0.30.1
   dependency-type: direct:production
   update-type: version-update:semver-patch
 ...
