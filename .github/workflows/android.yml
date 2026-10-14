@@ -17,8 +17,12 @@ name: Android CI
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - 'README*.md'
   pull_request:
     branches: [ "main" ]
+    paths-ignore:
+      - 'README*.md'
   workflow_dispatch:
 
 permissions:
@@ -95,4 +99,23 @@ jobs:
       build_duration: ${{ needs.build.outputs.build_duration }}
       release_apk_name: ${{ needs.build.outputs.release_apk_name }}
       release_sha256: ${{ needs.build.outputs.release_sha256 }}
+    secrets: inherit
+
+  ksu-release:
+    name: Sync KernelSU Zygisk release
+    needs:
+      - build
+      - release
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    uses: ./.github/workflows/ksu-release.yml
+    with:
+      main_repo: XiaoTong6666/FuseHide
+      ksu_target_repo: XiaoTong6666/zygisk_fusehide
+      version_name: ${{ needs.build.outputs.version_name }}
+      version_code: ${{ needs.build.outputs.version_code }}
+      commit_sha: ${{ needs.build.outputs.commit_sha }}
+      commit_full_sha: ${{ needs.build.outputs.commit_full_sha }}
+      build_duration: ${{ needs.build.outputs.build_duration }}
+      release_zip_name: ${{ needs.build.outputs.zygisk_release_zip_name }}
+      release_sha256: ${{ needs.build.outputs.zygisk_release_sha256 }}
     secrets: inherit
