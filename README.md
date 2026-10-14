@@ -1,14 +1,29 @@
-# FuseHide 1.186
+# FuseHide 1.187
 
-- **Version:** `1.186`
-- **VersionCode:** `186`
-- **Commit:** [`435f98e`](https://github.com/XiaoTong6666/FuseHide/commit/435f98eff9cde1b3e5d6add418c73ba5f83445f7)
-- **Build time:** `5m 40s`
-- **SHA256:** `b5d4684192f2b72cb9954103d12f29dd43fbf7b8eb119e59f82a80d59a50deb2`
+- **Version:** `1.187`
+- **VersionCode:** `187`
+- **Commit:** [`77623c2`](https://github.com/XiaoTong6666/FuseHide/commit/77623c2c41b6050f2910d943a449ea4b62d09426)
+- **Build time:** `5m 15s`
+- **SHA256:** `2ba3acab023c3dd89d91dfc531b92c65cc8fe240104609d0d72f5a4a589d230d`
 
 ## Message
 
 ```text
-ci: Add Zygisk releases Meow
+build(deps): bump com.diffplug.spotless from 8.10.3 to 8.10.4 (#104)
 
+Bumps [com.diffplug.spotless](https://github.com/diffplug/spotless) from 8.10.3 to 8.10.4.
+- [Release notes](https://github.com/diffplug/spotless/releases)
+- [Changelog](https://github.com/diffplug/spotless/blob/main/CHANGES.md)
+- [Commits](https://github.com/diffplug/spotless/compare/gradle/8.10.3...gradle/8.10.4)
+
+---
+updated-dependencies:
+- dependency-name: com.diffplug.spotless
+  dependency-version: 8.10.4
+  dependency-type: direct:production
+  update-type: version-update:semver-patch
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>
+Co-authored-by: dependabot[bot] <xiaotong6666@users.noreply.github.com>
 ```
