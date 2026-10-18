@@ -42,6 +42,7 @@ static_assert(std::is_same_v<decltype(&WrappedPfReaddirPostfilter), PfReaddirPos
 static_assert(std::is_same_v<decltype(&WrappedDoReaddirCommon), DoReaddirCommonFn>);
 static_assert(std::is_same_v<decltype(&WrappedNotifyInvalEntry), NotifyInvalEntryFn>);
 static_assert(std::is_same_v<decltype(&WrappedNotifyInvalInode), NotifyInvalInodeFn>);
+static_assert(std::is_same_v<decltype(&WrappedFuseSessionDestroy), FuseSessionDestroyFn>);
 static_assert(std::is_same_v<decltype(&WrappedReplyEntry), FuseReplyEntryFn>);
 static_assert(std::is_same_v<decltype(&WrappedReplyAttr), FuseReplyAttrFn>);
 static_assert(std::is_same_v<decltype(&WrappedReplyBuf), FuseReplyBufFn>);
@@ -95,6 +96,7 @@ struct HookInstallProcessState {
     void*& originalShouldNotCache = gOriginalShouldNotCache.rawStorage();
     void*& originalNotifyInvalEntry = gOriginalNotifyInvalEntry.rawStorage();
     void*& originalNotifyInvalInode = gOriginalNotifyInvalInode.rawStorage();
+    void*& originalFuseSessionDestroy = gOriginalFuseSessionDestroy.rawStorage();
     void*& originalReplyAttr = gOriginalReplyAttr.rawStorage();
     void*& originalReplyEntry = gOriginalReplyEntry.rawStorage();
     void*& originalReplyBuf = gOriginalReplyBuf.rawStorage();
@@ -1462,6 +1464,9 @@ void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fi
         canInstallDirectoryEntries ? GetDirectoryEntriesReplacement() : nullptr;
     void* addDirectoryEntriesReplacement =
         canInstallDirectoryEntries ? AddDirectoryEntriesFromLowerFsReplacement() : nullptr;
+    InstallFileCompareHookIfNeeded(fileContext.elfInfo, "fuse_session_destroy",
+                                   "fuse_session_destroy", (void*)WrappedFuseSessionDestroy,
+                                   &process.originalFuseSessionDestroy, "fuse_session_destroy");
     InstallFileCompareHookIfNeeded(
         fileContext.elfInfo, "fuse_lowlevel_notify_inval_entry", "fuse_lowlevel_notify_inval_entry",
         (void*)WrappedNotifyInvalEntry, &process.originalNotifyInvalEntry, "notify_inval_entry");
@@ -1761,6 +1766,10 @@ void InstallAdvancedDebugHooks(const ModuleInfo& module) {
     if (useRuntimeElf) {
         auto runtimeDyn = ParseRuntimeDynamicInfo(module);
         if (runtimeDyn) {
+            PatchRuntimeRelocationSlots(
+                *runtimeDyn, module.base, getpagesize(), "fuse_session_destroy",
+                "fuse_session_destroy", (void*)WrappedFuseSessionDestroy,
+                &process.originalFuseSessionDestroy, "fuse_session_destroy");
             PatchRuntimeRelocationSlots(
                 *runtimeDyn, module.base, getpagesize(), "fuse_lowlevel_notify_inval_entry",
                 "fuse_lowlevel_notify_inval_entry", (void*)WrappedNotifyInvalEntry,

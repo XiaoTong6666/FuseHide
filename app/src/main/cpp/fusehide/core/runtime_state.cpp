@@ -14,6 +14,9 @@
 
 #include "fusehide/policy/path_policy.hpp"
 
+#include <condition_variable>
+#include <deque>
+
 namespace fusehide {
 
 // Hook state for libfuse_jni.so running inside the MediaProvider process.
@@ -45,6 +48,7 @@ HookOriginal<LibcXattrFn> gOriginalLgetxattr;
 HookOriginal<ShouldNotCacheFn> gOriginalShouldNotCache;
 HookOriginal<NotifyInvalEntryFn> gOriginalNotifyInvalEntry;
 HookOriginal<NotifyInvalInodeFn> gOriginalNotifyInvalInode;
+HookOriginal<FuseSessionDestroyFn> gOriginalFuseSessionDestroy;
 HookOriginal<FuseReplyAttrFn> gOriginalReplyAttr;
 HookOriginal<FuseReplyEntryFn> gOriginalReplyEntry;
 HookOriginal<FuseReplyBufFn> gOriginalReplyBuf;
@@ -176,6 +180,153 @@ std::unordered_map<std::string, uint64_t, TransparentStringHash, TransparentStri
 
 std::mutex gFuseSessionStateMutex;
 thread_local void* gActiveFuseRequestSession = nullptr;
+
+enum class InvalidationKind { Root, Entry, Inode };
+
+struct InvalidationTask {
+    InvalidationKind kind;
+    void* session;
+    uint64_t generation;
+    uint64_t ino;
+    std::string name;
+    std::chrono::steady_clock::time_point due;
+};
+
+// Process-resident like the native hooks. Never destroy the mutex while the worker is alive.
+struct InvalidationQueue {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::deque<InvalidationTask> pending;
+    void* session = nullptr;
+    void* runningSession = nullptr;
+    uint64_t generation = 0;
+    bool retiring = false;
+    bool workerStarted = false;
+};
+
+InvalidationQueue& Invalidations() {
+    static auto* queue = new InvalidationQueue();
+    return *queue;
+}
+
+void RunInvalidation(const InvalidationTask& task) {
+    if (task.kind == InvalidationKind::Inode) {
+        const auto notify = gOriginalNotifyInvalInode.get();
+        if (notify != nullptr) {
+            const int ret = notify(task.session, task.ino, 0, 0);
+            DebugLogPrint(4, "scheduled hidden inode invalidation ino=0x%lx ret=%d",
+                          (unsigned long)task.ino, ret);
+        }
+        return;
+    }
+
+    const auto notify = gOriginalNotifyInvalEntry.get();
+    if (notify == nullptr) {
+        return;
+    }
+    if (task.kind == InvalidationKind::Entry) {
+        const int ret = notify(task.session, task.ino, task.name.c_str(), task.name.size());
+        DebugLogPrint(4, "scheduled specific entry invalidation parent=%s name=%s ret=%d",
+                      InodePath(task.ino).c_str(), DebugPreview(task.name).c_str(), ret);
+        return;
+    }
+
+    const auto rule = RuleForAnyPackage();
+    std::unordered_set<std::string> names;
+    if (rule != nullptr) {
+        names.insert(rule->hiddenRootEntryNames.begin(), rule->hiddenRootEntryNames.end());
+        if (rule->enableHideAllRootEntries) {
+            for (const auto& root : kVisibleStorageRoots) {
+                DIR* dir = opendir(std::string(root).c_str());
+                if (dir == nullptr) {
+                    continue;
+                }
+                while (dirent* entry = readdir(dir)) {
+                    if (IsWildcardRootEntryCandidate(entry->d_name)) {
+                        names.emplace(entry->d_name);
+                    }
+                }
+                closedir(dir);
+            }
+        }
+    }
+    for (const auto& name : names) {
+        const int ret = notify(task.session, task.ino, name.c_str(), name.size());
+        DebugLogPrint(4, "scheduled hidden entry invalidation parent=0x%lx name=%s ret=%d",
+                      (unsigned long)task.ino, DebugPreview(name).c_str(), ret);
+    }
+}
+
+void InvalidationWorker() {
+    auto& queue = Invalidations();
+    std::unique_lock<std::mutex> lock(queue.mutex);
+    for (;;) {
+        if (queue.pending.empty()) {
+            queue.cv.wait(lock, [&] { return !queue.pending.empty(); });
+        }
+        auto next = std::min_element(queue.pending.begin(), queue.pending.end(),
+                                     [](const auto& a, const auto& b) { return a.due < b.due; });
+        const auto due = next->due;
+        if (queue.cv.wait_until(lock, due) == std::cv_status::no_timeout) {
+            continue;
+        }
+        next = std::min_element(queue.pending.begin(), queue.pending.end(),
+                                [](const auto& a, const auto& b) { return a.due < b.due; });
+        if (next == queue.pending.end() || next->due > std::chrono::steady_clock::now()) {
+            continue;
+        }
+        InvalidationTask task = std::move(*next);
+        queue.pending.erase(next);
+        if (queue.retiring || task.session != queue.session ||
+            task.generation != queue.generation) {
+            continue;
+        }
+        queue.runningSession = task.session;
+        lock.unlock();
+        RunInvalidation(task);
+        lock.lock();
+        queue.runningSession = nullptr;
+        if (task.kind == InvalidationKind::Root && task.generation == queue.generation) {
+            gHiddenEntryInvalidationPending.store(false, std::memory_order_release);
+        }
+        queue.cv.notify_all();
+    }
+}
+
+bool QueueInvalidation(InvalidationKind kind, void* session, uint64_t ino, std::string_view name,
+                       std::chrono::milliseconds delay) {
+    if (session == nullptr || gOriginalFuseSessionDestroy.get() == nullptr) {
+        return false;
+    }
+    auto& queue = Invalidations();
+    std::lock_guard<std::mutex> lock(queue.mutex);
+    if (queue.retiring || queue.session != session) {
+        return false;
+    }
+    for (const auto& task : queue.pending) {
+        if (task.kind == kind && task.ino == ino && task.name == name) {
+            return true;
+        }
+    }
+    constexpr size_t kMaxPendingInvalidations = 4096;
+    if (queue.pending.size() >= kMaxPendingInvalidations) {
+        static std::atomic<uint64_t> rejected{0};
+        const uint64_t count = rejected.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (count <= 4 || count % 1024 == 0) {
+            __android_log_print(ANDROID_LOG_WARN, kLogTag, "invalidation queue full; rejected=%llu",
+                                static_cast<unsigned long long>(count));
+        }
+        return false;
+    }
+    queue.pending.push_back({kind, session, queue.generation, ino, std::string(name),
+                             std::chrono::steady_clock::now() + delay});
+    if (!queue.workerStarted) {
+        queue.workerStarted = true;
+        std::thread(InvalidationWorker).detach();
+    }
+    queue.cv.notify_one();
+    return true;
+}
 
 void ClearSessionScopedTracking() {
     gHiddenRootParentInode.store(0, std::memory_order_release);
@@ -361,18 +512,54 @@ void RuntimeState::RememberFuseSession(fuse_req_t req) {
         void* previous = gLastFuseSession.load(std::memory_order_relaxed);
         if (previous != req->se) {
             ClearSessionScopedTracking();
+            auto& queue = Invalidations();
+            {
+                std::lock_guard<std::mutex> lock(queue.mutex);
+                queue.pending.clear();
+                queue.session = req->se;
+                ++queue.generation;
+                queue.retiring = false;
+            }
+            queue.cv.notify_all();
             gLastFuseSession.store(req->se, std::memory_order_release);
         }
     }
     gActiveFuseRequestSession = req->se;
 }
 
+void RuntimeState::RetireFuseSession(void* session) {
+    if (session == nullptr) {
+        return;
+    }
+    auto& queue = Invalidations();
+    {
+        std::unique_lock<std::mutex> lock(queue.mutex);
+        if (queue.session == session) {
+            queue.retiring = true;
+            queue.pending.clear();
+            queue.cv.notify_all();
+        }
+        queue.cv.wait(lock, [&] { return queue.runningSession != session; });
+    }
+    std::lock_guard<std::mutex> lock(gFuseSessionStateMutex);
+    if (gLastFuseSession.load(std::memory_order_relaxed) == session) {
+        gLastFuseSession.store(nullptr, std::memory_order_release);
+        ClearSessionScopedTracking();
+    }
+}
+
+extern "C" void WrappedFuseSessionDestroy(void* session) {
+    RuntimeState::RetireFuseSession(session);
+    if (const auto original = gOriginalFuseSessionDestroy.get(); original != nullptr) {
+        original(session);
+    }
+}
+
 // Shared dentry cache is not scoped per uid. Once another app resolves the hidden entry, the
 // target uid can reuse that positive cache unless we actively invalidate the root dentry.
 void RuntimeState::ScheduleHiddenEntryInvalidation() {
-    const auto notifyEntry = gOriginalNotifyInvalEntry.get();
     void* session = CurrentSchedulingFuseSession();
-    if (notifyEntry == nullptr || session == nullptr) {
+    if (gOriginalNotifyInvalEntry.get() == nullptr || session == nullptr) {
         return;
     }
     if (gHiddenEntryInvalidationPending.exchange(true, std::memory_order_acq_rel)) {
@@ -383,70 +570,29 @@ void RuntimeState::ScheduleHiddenEntryInvalidation() {
         gHiddenEntryInvalidationPending.store(false, std::memory_order_release);
         return;
     }
-    std::thread([notifyEntry, session]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
-        const auto rule = RuleForAnyPackage();
-        std::unordered_set<std::string> namesToInvalidate;
-        if (rule != nullptr) {
-            for (const auto& rootEntryName : rule->hiddenRootEntryNames) {
-                namesToInvalidate.emplace(rootEntryName);
-            }
-        }
-
-        if (rule != nullptr && rule->enableHideAllRootEntries) {
-            for (const auto& rootPath : kVisibleStorageRoots) {
-                DIR* dir = opendir(std::string(rootPath).c_str());
-                if (dir == nullptr) {
-                    continue;
-                }
-                while (dirent* entry = readdir(dir)) {
-                    const std::string_view name(entry->d_name);
-                    if (IsWildcardRootEntryCandidate(name)) {
-                        namesToInvalidate.emplace(name);
-                    }
-                }
-                closedir(dir);
-            }
-        }
-
-        for (const auto& name : namesToInvalidate) {
-            const int ret = notifyEntry(session, rootParent, name.c_str(), name.size());
-            DebugLogPrint(4, "scheduled hidden entry invalidation parent=0x%lx name=%s ret=%d",
-                          (unsigned long)rootParent, DebugPreview(name).c_str(), ret);
-        }
+    if (!QueueInvalidation(InvalidationKind::Root, session, parent, {},
+                           std::chrono::milliseconds(50))) {
         gHiddenEntryInvalidationPending.store(false, std::memory_order_release);
-    }).detach();
+    }
 }
 
 void RuntimeState::ScheduleSpecificEntryInvalidation(uint64_t parent, std::string_view name) {
-    const auto notifyEntry = gOriginalNotifyInvalEntry.get();
     void* session = CurrentSchedulingFuseSession();
-    if (notifyEntry == nullptr || session == nullptr || parent == 0 || name.empty()) {
+    if (gOriginalNotifyInvalEntry.get() == nullptr || session == nullptr || parent == 0 ||
+        name.empty()) {
         return;
     }
-    const std::string ownedName(name);
-    std::thread([notifyEntry, session, parent, ownedName]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(25));
-        const int ret = notifyEntry(session, parent, ownedName.c_str(), ownedName.size());
-        DebugLogPrint(4, "scheduled specific entry invalidation parent=%s name=%s ret=%d",
-                      InodePath(parent).c_str(), DebugPreview(ownedName).c_str(), ret);
-    }).detach();
+    QueueInvalidation(InvalidationKind::Entry, session, parent, name,
+                      std::chrono::milliseconds(25));
 }
 
 // Track subtree inodes so later getattr/readdir replies can also be forced uncached.
 void RuntimeState::ScheduleHiddenInodeInvalidation(uint64_t ino) {
-    const auto notifyInode = gOriginalNotifyInvalInode.get();
     void* session = CurrentSchedulingFuseSession();
-    if (notifyInode == nullptr || session == nullptr || ino == 0) {
+    if (gOriginalNotifyInvalInode.get() == nullptr || session == nullptr || ino == 0) {
         return;
     }
-    std::thread([notifyInode, session, ino]() {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        const int ret = notifyInode(session, ino, 0, 0);
-        DebugLogPrint(4, "scheduled hidden inode invalidation ino=0x%lx ret=%d", (unsigned long)ino,
-                      ret);
-    }).detach();
+    QueueInvalidation(InvalidationKind::Inode, session, ino, {}, std::chrono::milliseconds(50));
 }
 
 std::string InodePath(uint64_t ino) {

@@ -578,6 +578,7 @@ class RuntimeState final {
    public:
     static uint32_t ReqUid(fuse_req_t req);
     static void RememberFuseSession(fuse_req_t req);
+    static void RetireFuseSession(void* session);
     static void ScheduleHiddenEntryInvalidation();
     static void ScheduleSpecificEntryInvalidation(uint64_t parent, std::string_view name);
     static void ScheduleHiddenInodeInvalidation(uint64_t ino);
@@ -625,6 +626,9 @@ extern HookOriginal<LibcXattrFn> gOriginalLgetxattr;
 extern HookOriginal<ShouldNotCacheFn> gOriginalShouldNotCache;
 extern HookOriginal<NotifyInvalEntryFn> gOriginalNotifyInvalEntry;
 extern HookOriginal<NotifyInvalInodeFn> gOriginalNotifyInvalInode;
+using FuseSessionDestroyFn = void (*)(void*);
+extern HookOriginal<FuseSessionDestroyFn> gOriginalFuseSessionDestroy;
+extern "C" void WrappedFuseSessionDestroy(void* session);
 extern HookOriginal<FuseReplyAttrFn> gOriginalReplyAttr;
 extern HookOriginal<FuseReplyEntryFn> gOriginalReplyEntry;
 extern HookOriginal<FuseReplyBufFn> gOriginalReplyBuf;
