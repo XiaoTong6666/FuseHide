@@ -36,9 +36,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -410,12 +410,11 @@ class MainActivity :
                         }
 
                         when (uiState.uiMode) {
-                            UiMode.Material -> androidx.compose.material3.Scaffold(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                            ) { _ ->
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    navDisplay()
-                                }
+                            UiMode.Material -> Surface(
+                                modifier = Modifier.fillMaxSize(),
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                            ) {
+                                navDisplay()
                             }
 
                             UiMode.Miuix -> top.yukonga.miuix.kmp.basic.Scaffold { navDisplay() }

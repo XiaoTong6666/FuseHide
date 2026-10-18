@@ -1,6 +1,10 @@
 <resources>
     <string name="app_name">FuseHide</string>
     <string name="app_description">面向 Android 12+ 的 Xposed 模組，用於依據執行時設定在 MediaProvider 中隱藏一般儲存路徑，並提供 Android/data Unicode 情境的除錯與修復能力。</string>
+    <string name="settings_miuix_blur">模糊效果</string>
+    <string name="settings_miuix_blur_desc">啟用頂部與底部欄位的模糊效果。</string>
+    <string name="settings_miuix_floating_bottom_bar">懸浮底部欄</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">使用 Apple 風格的懸浮底部欄。</string>
     <string name="section_editable_draft">編輯設定</string>
     <string name="section_editable_draft_desc">這些欄位是可編輯設定。點擊「套用」會儲存到本機並同步到 MediaProvider。</string>
     <string name="section_apply_feedback">套用結果</string>

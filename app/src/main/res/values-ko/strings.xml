@@ -10,6 +10,10 @@
     <string name="section_device_status">기기 상태</string>
     <string name="section_ui_family">UI 패밀리</string>
     <string name="section_ui_family_desc">앱이 MIUIX 표면 스타일을 사용할지 Material 3 표면 스타일을 사용할지 선택합니다.</string>
+    <string name="settings_miuix_blur">블러 효과</string>
+    <string name="settings_miuix_blur_desc">상단 및 하단 바에 블러 효과를 적용합니다.</string>
+    <string name="settings_miuix_floating_bottom_bar">플로팅 하단 바</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">Apple 스타일의 플로팅 하단 바를 사용합니다.</string>
     <string name="section_about">정보</string>
     <string name="section_editable_draft">설정 편집</string>
     <string name="section_editable_draft_desc">여기에 표시되는 항목은 편집 가능한 설정입니다. ‘적용’을 누르면 로컬에 저장하고 MediaProvider와 동기화합니다.</string>

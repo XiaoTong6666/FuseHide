@@ -10,6 +10,10 @@
     <string name="section_device_status">デバイス状態</string>
     <string name="section_ui_family">UI ファミリー</string>
     <string name="section_ui_family_desc">アプリで MIUIX の外観スタイルを使うか、Material 3 の外観スタイルを使うかを選択します。</string>
+    <string name="settings_miuix_blur">ぼかし</string>
+    <string name="settings_miuix_blur_desc">上部と下部のバーにぼかし効果を適用します。</string>
+    <string name="settings_miuix_floating_bottom_bar">フローティングボトムバー</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">Apple 風のフローティングボトムバーを使用します。</string>
     <string name="section_about">このアプリについて</string>
     <string name="section_editable_draft">編集設定</string>
     <string name="section_editable_draft_desc">ここに表示される項目は編集可能な設定です。「適用」を押すとローカルに保存し、MediaProvider に同期します。</string>

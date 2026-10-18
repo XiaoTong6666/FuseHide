@@ -10,6 +10,10 @@
     <string name="section_device_status">Estado del dispositivo</string>
     <string name="section_ui_family">Familia de UI</string>
     <string name="section_ui_family_desc">Elige si la aplicación usa el estilo visual de MIUIX o el de Material 3.</string>
+    <string name="settings_miuix_blur">Desenfoque</string>
+    <string name="settings_miuix_blur_desc">Activar el efecto de desenfoque en las barras superior e inferior.</string>
+    <string name="settings_miuix_floating_bottom_bar">Barra inferior flotante</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">Usar una barra inferior flotante al estilo de Apple.</string>
     <string name="section_about">Acerca de</string>
     <string name="section_editable_draft">Editar configuración</string>
     <string name="section_editable_draft_desc">Estos campos contienen tu configuración editable. «Aplicar» la guarda localmente y la sincroniza con MediaProvider.</string>

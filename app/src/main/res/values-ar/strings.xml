@@ -10,6 +10,10 @@
     <string name="section_device_status">حالة الجهاز</string>
     <string name="section_ui_family">نمط الواجهة</string>
     <string name="section_ui_family_desc">اختر ما إذا كان التطبيق سيستخدم نمط واجهة \u2066MIUIX\u2069 أو نمط واجهة \u2066Material 3\u2069.</string>
+    <string name="settings_miuix_blur">تمويه الخلفية</string>
+    <string name="settings_miuix_blur_desc">تفعيل تأثير التمويه للشريطين العلوي والسفلي.</string>
+    <string name="settings_miuix_floating_bottom_bar">شريط سفلي عائم</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">استخدام شريط سفلي عائم بتصميم \u2066Apple\u2069.</string>
     <string name="section_about">حول التطبيق</string>
     <string name="section_editable_draft">الإعدادات القابلة للتعديل</string>
     <string name="section_editable_draft_desc">هذه الحقول هي إعداداتك القابلة للتعديل. يحفظ زر «تطبيق» التغييرات محليًا ويزامنها مع \u2066MediaProvider\u2069.</string>

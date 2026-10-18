@@ -10,6 +10,10 @@
     <string name="section_device_status">État de l’appareil</string>
     <string name="section_ui_family">Famille d’interface</string>
     <string name="section_ui_family_desc">Choisissez si l’application utilise le style visuel MIUIX ou celui de Material 3.</string>
+    <string name="settings_miuix_blur">Flou</string>
+    <string name="settings_miuix_blur_desc">Activer le flou des barres supérieure et inférieure.</string>
+    <string name="settings_miuix_floating_bottom_bar">Barre inférieure flottante</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">Utiliser une barre inférieure flottante de style Apple.</string>
     <string name="section_about">À propos</string>
     <string name="section_editable_draft">Modifier la configuration</string>
     <string name="section_editable_draft_desc">Ces champs correspondent à votre configuration modifiable. « Appliquer » l’enregistre localement et la synchronise avec MediaProvider.</string>

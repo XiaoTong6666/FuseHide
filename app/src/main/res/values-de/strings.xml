@@ -10,6 +10,10 @@
     <string name="section_device_status">Gerätestatus</string>
     <string name="section_ui_family">UI-Familie</string>
     <string name="section_ui_family_desc">Wählen Sie, ob die App den MIUIX- oder den Material-3-Oberflächenstil verwendet.</string>
+    <string name="settings_miuix_blur">Unschärfe</string>
+    <string name="settings_miuix_blur_desc">Unschärfeeffekt für die obere und untere Leiste aktivieren.</string>
+    <string name="settings_miuix_floating_bottom_bar">Schwebende untere Leiste</string>
+    <string name="settings_miuix_floating_bottom_bar_desc">Schwebende untere Leiste im Apple-Stil verwenden.</string>
     <string name="section_about">Über</string>
     <string name="section_editable_draft">Konfiguration bearbeiten</string>
     <string name="section_editable_draft_desc">Diese Felder enthalten deine bearbeitbare Konfiguration. „Anwenden“ speichert sie lokal und synchronisiert sie mit MediaProvider.</string>
