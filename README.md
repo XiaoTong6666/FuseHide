@@ -1,20 +1,20 @@
-# FuseHide 1.190
+# FuseHide 1.191
 
-- **Version:** `1.190`
-- **VersionCode:** `190`
-- **Commit:** [`2ea586d`](https://github.com/XiaoTong6666/FuseHide/commit/2ea586d2e9169b7261e910f05d6fe591efb645cf)
-- **Build time:** `5m 26s`
-- **SHA256:** `f995e2f1418314812552b0eeaf418997619c620938303ac01f0fe799c03bf3c3`
+- **Version:** `1.191`
+- **VersionCode:** `191`
+- **Commit:** [`a1d3c7a`](https://github.com/XiaoTong6666/FuseHide/commit/a1d3c7a7cd3afaf6f499d7d15756b93b3acbb877)
+- **Build time:** `7m 24s`
+- **SHA256:** `fe7851878c3d98524dbab9453db2a53d65f15c88f9ca572de0030f9d7af662b4`
 
 ## Message
 
 ```text
-fix(native): Bound FUSE invalidations and drain session teardown Meow
+fix(fusehide): Harden FUSE invalidation and hot reload, Meow
 
-这次把 FuseHide 的 FUSE 缓存失效调度收紧了喵。原来根目录 entry、指定 entry 和 inode 失效会按请求创建 detached 线程，大量目录项同时被过滤时容易堆积线程；线程还会持有原始 fuse_session 指针，MediaProvider 销毁 session 后存在继续访问旧指针的风险喵（尾巴警觉地竖了起来）
+之前有些目录明明该隐藏，却会因为别的 UID 先访问过，就从 FUSE 缓存里漏出来喵（伸爪按住乱跑的 dentry）。这次把 lookup 和 READDIRPLUS 的缓存一起管好，不让不同 UID 再串缓存喵。
 
-Native 这边改为进程内共享的单 worker 和有界任务队列，保留原来的 entry 25 ms、根目录 entry 和 inode 50 ms 延迟，并对排队中的同类目标去重。队列最多容纳 4096 个任务，超出时限制警告日志频率并拒绝继续入队，避免高负载下无上限地消耗线程与内存喵（一个一个来，不许偷偷分身）
+顺手理了理 Session 生命周期和失效队列，让通知跟着正确的 Session 代次走喵。热更新碰到 root_ino=0 时，会先查看 AOSP 和设备实际 libfuse_jni 的节点树喵（认真翻翻节点树）。只有确认这个 Session 没创建对应子节点、也没有缓存要清，才跳过没必要的根目录通知喵；有东西要清的还是照常处理喵。
 
-生命周期方面新增 fuse_session_destroy 的 ELF 导入槽 Hook，兼容文件映射与 APK 内嵌 ELF 的安装路径。销毁前先阻止新任务、清空待执行队列，再等待正在执行的通知退出；新 session 被识别时更新代际并清理旧的跟踪状态。未能安装销毁 Hook 时不安排异步通知，避免继续使用无法保证生命周期的 session 指针喵（认真守住销毁顺序）
+另外补好了 KernelSU 热安装、模块操作和配置重载的细节喵。根 inode 和回调入口的诊断日志继续留着，但只在全局 Debug 开关打开时才打印，Release 就安静一点喵（把日志本收好）。测试源码也从 app/src/main 移走，不放进正式项目喵。
 
 ```
