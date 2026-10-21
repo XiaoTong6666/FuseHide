@@ -338,11 +338,16 @@ Only the MediaProvider package present on your ROM needs to be active.
 1. Use a compatible root environment with a working Zygisk implementation.
 2. Install the FuseHide APK if you want the configuration/probe UI and provider-side runtime configuration.
 3. Flash the `FuseHide-*-release.zip` module from the release assets with your root manager.
-4. Reboot the device.
+4. Reboot, or restart MediaProvider after a successful KernelSU hot install.
 5. Make sure FuseHide is not simultaneously scoped to MediaProvider in LSPosed.
 6. Open the app and verify that the MediaProvider hook is active.
 
 The module installer extracts the correct ABI's `libfusehide.so`, installs the Zygisk library, and extracts the injected dex payload from the packaged APK.
+
+In KernelSU or Magisk, use the module's **Action** button and press **Volume Up** to restart MediaProvider (Volume Down cancels).
+
+Supported KernelSU versions can hot-install updates when the Zygisk loader and boot scripts
+are unchanged. Running processes are not reloaded automatically; otherwise, reboot.
 
 ## Using the app
 

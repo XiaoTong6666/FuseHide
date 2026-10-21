@@ -75,11 +75,15 @@
     <string name="button_self_data">Données de l’application</string>
     <string name="field_hide_all_title">Masquer tous les répertoires du premier niveau</string>
     <string name="field_hide_all_desc">Lorsqu’elle est activée, chaque répertoire du premier niveau sous /storage/emulated/0 est masqué, sauf les exceptions visibles ci-dessous.</string>
+    <string name="field_hide_all_public_title">Masquer les entrées à la racine des volumes publics</string>
+    <string name="field_hide_all_public_desc">Applique une règle de masquage distincte aux volumes de stockage publics tels que /storage/0000\u002d0000. Le commutateur du stockage principal reste indépendant.</string>
     <string name="field_use_miuix_title">Utiliser la famille d’interface MIUIX</string>
     <string name="field_use_miuix_desc_enabled">L’application utilise actuellement la navigation et le style visuel MIUIX. Désactivez cette option pour revenir à Material 3.</string>
     <string name="field_use_miuix_desc_disabled">L’application utilise actuellement la navigation et le style visuel Material 3. Activez cette option pour passer à MIUIX.</string>
     <string name="field_visible_exemptions">Exceptions visibles</string>
     <string name="field_visible_exemptions_help">Un chemin par ligne. Laissez Android visible, sauf si vous savez exactement ce que vous faites.</string>
+    <string name="field_public_visible_exemptions">Exceptions visibles des volumes publics</string>
+    <string name="field_public_visible_exemptions_help">Un nom d’entrée par ligne. Ces exceptions ne concernent que la racine des volumes publics. Laissez Android visible pour éviter de perturber les points de montage.</string>
     <string name="field_hidden_targets">Cibles masquées</string>
     <string name="field_hidden_targets_help">Un chemin par ligne.</string>
     <string name="field_hidden_package_names">Noms de package masqués</string>

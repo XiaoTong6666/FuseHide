@@ -19,6 +19,8 @@ APK_SIGNATURE_FILES = (
 )
 SCRIPT_NAMES = {
     "customize.sh",
+    "action.sh",
+    "hotinstall.sh",
     "post-fs-data.sh",
     "service.sh",
     "uninstall.sh",

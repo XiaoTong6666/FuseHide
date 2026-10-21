@@ -75,11 +75,15 @@
     <string name="button_self_data">자체 데이터</string>
     <string name="field_hide_all_title">모든 최상위 디렉터리 숨기기</string>
     <string name="field_hide_all_desc">활성화하면 /storage/emulated/0 아래의 모든 최상위 디렉터리가 숨겨지며, 아래의 표시 예외만 그대로 보입니다.</string>
+    <string name="field_hide_all_public_title">공용 저장소 볼륨의 루트 항목 숨기기</string>
+    <string name="field_hide_all_public_desc">/storage/0000\u002d0000과 같은 공용 저장소 볼륨에 별도의 전체 숨김 규칙을 적용합니다. 기본 저장소 스위치는 독립적으로 작동합니다.</string>
     <string name="field_use_miuix_title">MIUIX UI 패밀리 사용</string>
     <string name="field_use_miuix_desc_enabled">앱이 현재 MIUIX 탐색 및 표면 스타일을 사용 중입니다. 끄면 Material 3 로 돌아갑니다.</string>
     <string name="field_use_miuix_desc_disabled">앱이 현재 Material 3 탐색 및 표면 스타일을 사용 중입니다. 켜면 MIUIX 로 전환됩니다.</string>
     <string name="field_visible_exemptions">표시 예외</string>
     <string name="field_visible_exemptions_help">한 줄에 경로 하나씩 입력합니다. 정확히 이유를 알고 있는 경우가 아니라면 Android는 보이도록 유지하세요.</string>
+    <string name="field_public_visible_exemptions">공용 저장소 볼륨의 표시 예외</string>
+    <string name="field_public_visible_exemptions_help">한 줄에 항목 이름 하나씩 입력합니다. 공용 저장소 볼륨의 루트에만 적용됩니다. 마운트 지점에 문제가 생기지 않도록 Android는 계속 표시하세요.</string>
     <string name="field_hidden_targets">숨김 대상</string>
     <string name="field_hidden_targets_help">한 줄에 경로 하나씩 입력합니다.</string>
     <string name="field_hidden_package_names">숨길 패키지 이름</string>

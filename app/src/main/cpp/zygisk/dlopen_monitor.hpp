@@ -16,3 +16,6 @@
 
 // Called by module.cpp in postAppSpecialize to monitor libfuse_jni.so and trigger injection.
 void InstallDlopenMonitor();
+
+// Runs in preAppSpecialize before app threads can create FUSE sessions.
+bool InstallEarlyDlopenGotMonitor();

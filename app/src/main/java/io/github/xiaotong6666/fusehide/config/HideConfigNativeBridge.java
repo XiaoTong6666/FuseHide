@@ -41,6 +41,10 @@ public final class HideConfigNativeBridge {
 
     public static native String[] getCurrentHideAllRootEntriesExemptions();
 
+    public static native boolean getCurrentEnableHideAllPublicRootEntries();
+
+    public static native String[] getCurrentHideAllPublicRootEntriesExemptions();
+
     public static native String[] getCurrentHiddenRootEntryNames();
 
     public static native String[] getCurrentHiddenRelativePaths();
@@ -61,9 +65,21 @@ public final class HideConfigNativeBridge {
             String[] hiddenPackages,
             String[] packageRulePackages,
             String[] packageRuleHiddenRootEntryNames,
-            String[] packageRuleHiddenRelativePaths);
+            String[] packageRuleHiddenRelativePaths,
+            boolean enableHideAllPublicRootEntries,
+            String[] hideAllPublicRootEntriesExemptions);
 
     // Package add/remove can change the effective hide rule for an already-seen uid even when the
     // serialized config is unchanged.
     public static native void notifyPackageSetChanged(String reason);
+
+    // True only when every active FUSE Session has verified callback coverage.
+    public static native boolean hasCompleteFuseCallbackCoverage();
+
+    // Waits for scheduled kernel notifications; not an atomic FUSE cache barrier.
+    public static native boolean waitForHideInvalidations(long timeoutMs);
+
+    // Only used by the Xposed Java entry on x86_64 when the host cannot
+    // register its linker Native API. Does not change the Zygisk v3 path.
+    public static native boolean startXposedNativeHookObserver();
 }

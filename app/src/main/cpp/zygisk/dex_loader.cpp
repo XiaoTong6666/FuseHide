@@ -87,6 +87,9 @@ constexpr NativeMethodEntry kNativeMethods[] = {
     {"getCurrentEnableHideAllRootEntries", "()Z", "getCurrentEnableHideAllRootEntries"},
     {"getCurrentHideAllRootEntriesExemptions", "()[Ljava/lang/String;",
      "getCurrentHideAllRootEntriesExemptions"},
+    {"getCurrentEnableHideAllPublicRootEntries", "()Z", "getCurrentEnableHideAllPublicRootEntries"},
+    {"getCurrentHideAllPublicRootEntriesExemptions", "()[Ljava/lang/String;",
+     "getCurrentHideAllPublicRootEntriesExemptions"},
     {"getCurrentHiddenRootEntryNames", "()[Ljava/lang/String;", "getCurrentHiddenRootEntryNames"},
     {"getCurrentHiddenRelativePaths", "()[Ljava/lang/String;", "getCurrentHiddenRelativePaths"},
     {"getCurrentHiddenPackages", "()[Ljava/lang/String;", "getCurrentHiddenPackages"},
@@ -97,9 +100,11 @@ constexpr NativeMethodEntry kNativeMethods[] = {
      "getCurrentPackageRuleHiddenRelativePaths"},
     {"applyHideConfig",
      "(Z[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
-     "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)V",
+     "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z[Ljava/lang/String;)V",
      "applyHideConfig"},
     {"notifyPackageSetChanged", "(Ljava/lang/String;)V", "notifyPackageSetChanged"},
+    {"hasCompleteFuseCallbackCoverage", "()Z", "hasCompleteFuseCallbackCoverage"},
+    {"waitForHideInvalidations", "(J)Z", "waitForHideInvalidations"},
 };
 
 constexpr char kJniSymbolPrefix[] =

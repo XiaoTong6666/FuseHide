@@ -102,7 +102,9 @@ public final class ZygiskEntry {
                 java.util.Arrays.asList(HideConfigNativeBridge.getCurrentHiddenRootEntryNames()),
                 java.util.Arrays.asList(HideConfigNativeBridge.getCurrentHiddenRelativePaths()),
                 java.util.Arrays.asList(HideConfigNativeBridge.getCurrentHiddenPackages()),
-                packageRules);
+                packageRules,
+                HideConfigNativeBridge.getCurrentEnableHideAllPublicRootEntries(),
+                java.util.Arrays.asList(HideConfigNativeBridge.getCurrentHideAllPublicRootEntriesExemptions()));
     }
 
     private static void sendConfigStatus(Context context, String requestedToken, boolean applied, String message) {
@@ -133,7 +135,18 @@ public final class ZygiskEntry {
                 applied = HideConfigStore.applyBundleToNative(bundle);
                 if (applied) {
                     applied = HideConfigStore.saveInjectedProcessSnapshot(context, config, bundleToken);
-                    message = applied ? "hide config applied" : "snapshot save failed";
+                    if (applied) {
+                        final boolean notificationsFinished = HideConfigNativeBridge.waitForHideInvalidations(12000);
+                        final boolean callbacksCovered = HideConfigNativeBridge.hasCompleteFuseCallbackCoverage();
+                        message = !callbacksCovered
+                                ? "config applied; FUSE callback coverage incomplete"
+                                : notificationsFinished
+                                        ? "config applied; invalidation notifications finished (not atomic)"
+                                        : "config applied; invalidation pending or failed";
+                        applied = callbacksCovered && notificationsFinished;
+                    } else {
+                        message = "snapshot save failed";
+                    }
                 } else {
                     message = "apply failed";
                 }
@@ -141,7 +154,8 @@ public final class ZygiskEntry {
             sendConfigStatus(context, requestedToken, applied, message);
             Log.d(
                     "FuseHide",
-                    "config reload source=" + source + " applied=" + applied + " tokenMatches=" + tokenMatches);
+                    "config reload source=" + source + " ready=" + applied + " tokenMatches=" + tokenMatches
+                            + " message=" + message);
         } finally {
             pendingResult.finish();
         }

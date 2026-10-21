@@ -56,6 +56,8 @@ object HideConfigStore {
     private const val AUTHORITY = "${io.github.xiaotong6666.fusehide.BuildConfig.APPLICATION_ID}.hideconfig"
     private const val KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES = "enable_hide_all_root_entries"
     private const val KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS = "hide_all_root_entries_exemptions"
+    private const val KEY_ENABLE_HIDE_ALL_PUBLIC_ROOT_ENTRIES = "enable_hide_all_public_root_entries"
+    private const val KEY_HIDE_ALL_PUBLIC_ROOT_ENTRIES_EXEMPTIONS = "hide_all_public_root_entries_exemptions"
     private const val KEY_HIDDEN_ROOT_ENTRY_NAMES = "hidden_root_entry_names"
     private const val KEY_HIDDEN_RELATIVE_PATHS = "hidden_relative_paths"
     private const val KEY_HIDDEN_PACKAGES = "hidden_packages"
@@ -112,6 +114,16 @@ object HideConfigStore {
                 KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES,
                 defaults.enableHideAllRootEntries,
             ),
+            enableHideAllPublicRootEntries = prefs.getBoolean(
+                KEY_ENABLE_HIDE_ALL_PUBLIC_ROOT_ENTRIES,
+                defaults.enableHideAllPublicRootEntries,
+            ),
+            hideAllPublicRootEntriesExemptions = parseStoredList(
+                prefs.getString(
+                    KEY_HIDE_ALL_PUBLIC_ROOT_ENTRIES_EXEMPTIONS,
+                    encodeList(defaults.hideAllPublicRootEntriesExemptions),
+                ),
+            ),
             hideAllRootEntriesExemptions = parseStoredList(
                 prefs.getString(
                     KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
@@ -148,6 +160,11 @@ object HideConfigStore {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit {
                 putBoolean(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES, config.enableHideAllRootEntries)
+                    .putBoolean(KEY_ENABLE_HIDE_ALL_PUBLIC_ROOT_ENTRIES, config.enableHideAllPublicRootEntries)
+                    .putString(
+                        KEY_HIDE_ALL_PUBLIC_ROOT_ENTRIES_EXEMPTIONS,
+                        encodeList(config.hideAllPublicRootEntriesExemptions),
+                    )
                     .putString(
                         KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
                         encodeList(config.hideAllRootEntriesExemptions),
@@ -177,6 +194,11 @@ object HideConfigStore {
         val saved = snapshotContext.getSharedPreferences(SNAPSHOT_PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES, config.enableHideAllRootEntries)
+            .putBoolean(KEY_ENABLE_HIDE_ALL_PUBLIC_ROOT_ENTRIES, config.enableHideAllPublicRootEntries)
+            .putString(
+                KEY_HIDE_ALL_PUBLIC_ROOT_ENTRIES_EXEMPTIONS,
+                encodeList(config.hideAllPublicRootEntriesExemptions),
+            )
             .putString(
                 KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
                 encodeList(config.hideAllRootEntriesExemptions),
@@ -213,6 +235,16 @@ object HideConfigStore {
                     KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES,
                     defaults.enableHideAllRootEntries,
                 ),
+                enableHideAllPublicRootEntries = prefs.getBoolean(
+                    KEY_ENABLE_HIDE_ALL_PUBLIC_ROOT_ENTRIES,
+                    defaults.enableHideAllPublicRootEntries,
+                ),
+                hideAllPublicRootEntriesExemptions = parseStoredList(
+                    prefs.getString(
+                        KEY_HIDE_ALL_PUBLIC_ROOT_ENTRIES_EXEMPTIONS,
+                        encodeList(defaults.hideAllPublicRootEntriesExemptions),
+                    ),
+                ),
                 hideAllRootEntriesExemptions = parseStoredList(
                     prefs.getString(
                         KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
@@ -247,6 +279,11 @@ object HideConfigStore {
     @JvmStatic
     fun toBundle(config: HideConfig): Bundle = Bundle().apply {
         putBoolean(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES, config.enableHideAllRootEntries)
+        putBoolean(KEY_ENABLE_HIDE_ALL_PUBLIC_ROOT_ENTRIES, config.enableHideAllPublicRootEntries)
+        putStringArray(
+            KEY_HIDE_ALL_PUBLIC_ROOT_ENTRIES_EXEMPTIONS,
+            config.hideAllPublicRootEntriesExemptions.toTypedArray(),
+        )
         putStringArray(
             KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS,
             config.hideAllRootEntriesExemptions.toTypedArray(),
@@ -264,6 +301,11 @@ object HideConfigStore {
         if (bundle == null) return null
         return HideConfig(
             enableHideAllRootEntries = bundle.getBoolean(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES, false),
+            enableHideAllPublicRootEntries =
+            bundle.getBoolean(KEY_ENABLE_HIDE_ALL_PUBLIC_ROOT_ENTRIES, false),
+            hideAllPublicRootEntriesExemptions =
+            bundle.getStringArray(KEY_HIDE_ALL_PUBLIC_ROOT_ENTRIES_EXEMPTIONS)?.toList()
+                ?: HideConfigDefaults.value.hideAllPublicRootEntriesExemptions,
             hideAllRootEntriesExemptions =
             bundle.getStringArray(KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS)?.toList().orEmpty(),
             hiddenRootEntryNames = bundle.getStringArray(KEY_HIDDEN_ROOT_ENTRY_NAMES)?.toList().orEmpty(),
@@ -304,6 +346,8 @@ object HideConfigStore {
                 config.packageRules.map { it.packageName }.toTypedArray(),
                 config.packageRules.map { encodeList(it.hiddenRootEntryNames) }.toTypedArray(),
                 config.packageRules.map { encodeList(it.hiddenRelativePaths) }.toTypedArray(),
+                config.enableHideAllPublicRootEntries,
+                config.hideAllPublicRootEntriesExemptions.toTypedArray(),
             )
             Log.i("FuseHide", buildAppliedConfigSnapshot(config))
             true
@@ -521,6 +565,7 @@ object HideConfigStore {
     }
 
     private fun hasSavedConfig(prefs: android.content.SharedPreferences): Boolean = prefs.contains(KEY_ENABLE_HIDE_ALL_ROOT_ENTRIES) ||
+        prefs.contains(KEY_ENABLE_HIDE_ALL_PUBLIC_ROOT_ENTRIES) ||
         prefs.contains(KEY_HIDE_ALL_ROOT_ENTRIES_EXEMPTIONS) ||
         prefs.contains(KEY_HIDDEN_ROOT_ENTRY_NAMES) ||
         prefs.contains(KEY_HIDDEN_RELATIVE_PATHS) ||

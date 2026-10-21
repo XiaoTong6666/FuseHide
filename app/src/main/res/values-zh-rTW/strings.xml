@@ -63,8 +63,12 @@
     <string name="button_self_data">自身資料</string>
     <string name="field_hide_all_title">隱藏所有第一層目錄</string>
     <string name="field_hide_all_desc">啟用後，/storage/emulated/0 下的每個第一層目錄都會被隱藏，但下列例外項目仍會顯示。</string>
+    <string name="field_hide_all_public_title">隱藏公用儲存磁碟區根目錄項目</string>
+    <string name="field_hide_all_public_desc">對 /storage/0000\u002d0000 等公用儲存磁碟區套用獨立的全部隱藏規則，不影響主要儲存磁碟區的開關。</string>
     <string name="field_visible_exemptions">可見例外</string>
     <string name="field_visible_exemptions_help">每行一個路徑。除非你很清楚自己在做什麼，否則請保留 Android 可見。</string>
+    <string name="field_public_visible_exemptions">公用儲存磁碟區可見例外</string>
+    <string name="field_public_visible_exemptions_help">每行填寫一個項目名稱，僅套用於公用儲存磁碟區根目錄。請保留 Android 可見，以免影響掛載點。</string>
     <string name="field_hidden_targets">隱藏目標</string>
     <string name="field_hidden_targets_help">每行一個路徑。</string>
     <string name="field_hidden_package_names">隱藏的套件名稱</string>

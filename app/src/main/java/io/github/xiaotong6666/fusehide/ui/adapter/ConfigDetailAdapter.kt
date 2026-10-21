@@ -24,12 +24,15 @@ import io.github.xiaotong6666.fusehide.config.parseHiddenTargetRules
 
 data class GlobalConfigDrafts(
     val visibleExemptionsText: String,
+    val publicVisibleExemptionsText: String,
     val hiddenTargetsText: String,
     val hiddenPackagesText: String,
 )
 
 fun globalConfigDrafts(config: HideConfig): GlobalConfigDrafts = GlobalConfigDrafts(
     visibleExemptionsText = HideConfigDefaults.toEditorText(config.hideAllRootEntriesExemptions),
+    publicVisibleExemptionsText =
+    HideConfigDefaults.toEditorText(config.hideAllPublicRootEntriesExemptions),
     hiddenTargetsText = formatHiddenTargetRules(config),
     hiddenPackagesText = HideConfigDefaults.toEditorText(config.hiddenPackages),
 )
@@ -45,6 +48,10 @@ fun appSpecificTargetsText(config: HideConfig, packageName: String): String {
 
 fun updatedConfigForVisibleExemptions(currentConfig: HideConfig, visibleExemptionsText: String): HideConfig = currentConfig.copy(
     hideAllRootEntriesExemptions = HideConfigDefaults.parseEditorText(visibleExemptionsText),
+)
+
+fun updatedConfigForPublicVisibleExemptions(currentConfig: HideConfig, value: String): HideConfig = currentConfig.copy(
+    hideAllPublicRootEntriesExemptions = HideConfigDefaults.parseEditorText(value),
 )
 
 fun updatedConfigForHiddenTargets(currentConfig: HideConfig, hiddenTargetsText: String): HideConfig {

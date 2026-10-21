@@ -103,7 +103,9 @@ public class Entry extends XposedModule {
                 java.util.Arrays.asList(HideConfigNativeBridge.getCurrentHiddenRootEntryNames()),
                 java.util.Arrays.asList(HideConfigNativeBridge.getCurrentHiddenRelativePaths()),
                 java.util.Arrays.asList(HideConfigNativeBridge.getCurrentHiddenPackages()),
-                packageRules);
+                packageRules,
+                HideConfigNativeBridge.getCurrentEnableHideAllPublicRootEntries(),
+                java.util.Arrays.asList(HideConfigNativeBridge.getCurrentHideAllPublicRootEntriesExemptions()));
     }
 
     private static void sendConfigStatus(
@@ -135,7 +137,18 @@ public class Entry extends XposedModule {
                 applied = HideConfigStore.applyBundleToNative(bundle);
                 if (applied) {
                     applied = HideConfigStore.saveInjectedProcessSnapshot(application, config, bundleToken);
-                    message = applied ? "hide config applied" : "snapshot save failed";
+                    if (applied) {
+                        final boolean notificationsFinished = HideConfigNativeBridge.waitForHideInvalidations(12000);
+                        final boolean callbacksCovered = HideConfigNativeBridge.hasCompleteFuseCallbackCoverage();
+                        message = !callbacksCovered
+                                ? "config applied; FUSE callback coverage incomplete"
+                                : notificationsFinished
+                                        ? "config applied; invalidation notifications finished (not atomic)"
+                                        : "config applied; invalidation pending or failed";
+                        applied = callbacksCovered && notificationsFinished;
+                    } else {
+                        message = "snapshot save failed";
+                    }
                 } else {
                     message = "apply failed";
                 }
@@ -143,7 +156,8 @@ public class Entry extends XposedModule {
             sendConfigStatus(application, requestedToken, applied, message);
             Log.d(
                     "FuseHide",
-                    "config reload source=" + source + " applied=" + applied + " tokenMatches=" + tokenMatches);
+                    "config reload source=" + source + " ready=" + applied + " tokenMatches=" + tokenMatches
+                            + " message=" + message);
         } finally {
             pendingResult.finish();
         }
@@ -201,6 +215,11 @@ public class Entry extends XposedModule {
         }
 
         System.loadLibrary("fusehide");
+        if (Build.SUPPORTED_ABIS.length > 0 && "x86_64".equals(Build.SUPPORTED_ABIS[0])) {
+            if (!HideConfigNativeBridge.startXposedNativeHookObserver()) {
+                Log.w("FuseHide", "x64 LSPosed FUSE bootstrap unavailable; hiding not verified");
+            }
+        }
         Log.d("FuseHide", "injected");
 
         final ClassLoader classLoader = param.getDefaultClassLoader();

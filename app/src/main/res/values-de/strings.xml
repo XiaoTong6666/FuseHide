@@ -75,11 +75,15 @@
     <string name="button_self_data">Eigene Daten</string>
     <string name="field_hide_all_title">Alle Verzeichnisse der ersten Ebene ausblenden</string>
     <string name="field_hide_all_desc">Wenn aktiviert, wird jedes Verzeichnis der ersten Ebene unter /storage/emulated/0 ausgeblendet, außer den unten aufgeführten sichtbaren Ausnahmen.</string>
+    <string name="field_hide_all_public_title">Stammverzeichniseinträge öffentlicher Speichervolumes ausblenden</string>
+    <string name="field_hide_all_public_desc">Für öffentliche Speichervolumes wie /storage/0000\u002d0000 gilt eine separate Regel zum Ausblenden aller Einträge. Der Schalter für den primären Speicher bleibt unabhängig davon.</string>
     <string name="field_use_miuix_title">MIUIX-UI-Familie verwenden</string>
     <string name="field_use_miuix_desc_enabled">Die App verwendet derzeit den MIUIX-Navigations- und Oberflächenstil. Schalten Sie dies aus, um zu Material 3 zurückzukehren.</string>
     <string name="field_use_miuix_desc_disabled">Die App verwendet derzeit den Material-3-Navigations- und Oberflächenstil. Schalten Sie dies ein, um zu MIUIX zu wechseln.</string>
     <string name="field_visible_exemptions">Sichtbare Ausnahmen</string>
     <string name="field_visible_exemptions_help">Ein Pfad pro Zeile. Lass Android sichtbar, sofern du nicht genau weißt, was du tust.</string>
+    <string name="field_public_visible_exemptions">Sichtbare Ausnahmen für öffentliche Speichervolumes</string>
+    <string name="field_public_visible_exemptions_help">Ein Eintragsname pro Zeile. Gilt nur für die Stammverzeichnisse öffentlicher Speichervolumes. Lass Android sichtbar, damit Bereitstellungspunkte nicht beeinträchtigt werden.</string>
     <string name="field_hidden_targets">Ausblendziele</string>
     <string name="field_hidden_targets_help">Ein Pfad pro Zeile.</string>
     <string name="field_hidden_package_names">Ausgeblendete Paketnamen</string>

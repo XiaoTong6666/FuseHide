@@ -75,11 +75,15 @@
     <string name="button_self_data">自身のデータ</string>
     <string name="field_hide_all_title">すべての第一階層ディレクトリを隠す</string>
     <string name="field_hide_all_desc">有効にすると、/storage/emulated/0 配下の第一階層ディレクトリは、以下の例外を除いてすべて隠されます。</string>
+    <string name="field_hide_all_public_title">共有ストレージボリュームのルート項目を非表示</string>
+    <string name="field_hide_all_public_desc">/storage/0000\u002d0000 などの共有ストレージボリュームに、すべてを非表示にする独立したルールを適用します。メインストレージのスイッチには影響しません。</string>
     <string name="field_use_miuix_title">MIUIX UI ファミリーを使う</string>
     <string name="field_use_miuix_desc_enabled">現在、アプリは MIUIX のナビゲーションと外観スタイルを使用しています。オフにすると Material 3 に戻ります。</string>
     <string name="field_use_miuix_desc_disabled">現在、アプリは Material 3 のナビゲーションと外観スタイルを使用しています。オンにすると MIUIX に切り替わります。</string>
     <string name="field_visible_exemptions">表示例外</string>
     <string name="field_visible_exemptions_help">1 行に 1 つのパスを指定します。明確な理由がない限り、Android は表示したままにしてください。</string>
+    <string name="field_public_visible_exemptions">共有ストレージボリュームの表示例外</string>
+    <string name="field_public_visible_exemptions_help">1 行に 1 つの項目名を入力します。共有ストレージボリュームのルートにのみ適用されます。マウントポイントへの影響を避けるため、Android は表示したままにしてください。</string>
     <string name="field_hidden_targets">隠す対象</string>
     <string name="field_hidden_targets_help">1 行に 1 つのパスを指定します。</string>
     <string name="field_hidden_package_names">隠すパッケージ名</string>

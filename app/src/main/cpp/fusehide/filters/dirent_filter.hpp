@@ -38,6 +38,14 @@ bool AlignDirentName(size_t nameLen, size_t* alignedSize);
 bool FuseDirentRecordSize(const fuse_dirent* dirent, size_t available, size_t* recordSize);
 bool FuseDirentplusRecordSize(const fuse_dirent* dirent, size_t available, size_t* recordSize);
 
+// READDIRPLUS can install positive dentries into the kernel without ever
+// calling fuse_reply_entry(). The dcache is shared by all UIDs, so even
+// entries visible to this caller must not be cached if another UID hides them.
+// Return false for non-plus, malformed, or unchanged pages.
+bool BuildUncachedSensitiveDirentplusPayload(const char* data, size_t size,
+                                             std::string_view parentPath, std::vector<char>* out,
+                                             size_t* uncachedCount);
+
 bool ShouldFilterTrackedHiddenDirentInode(uint32_t uid, uint64_t childIno, std::string_view name);
 bool ShouldFilterDirentForParentPath(uint32_t uid, std::string_view parentPath, uint64_t childIno,
                                      std::string_view name);

@@ -75,11 +75,15 @@
     <string name="button_self_data">App Data</string>
     <string name="field_hide_all_title">Hide all first-level directories</string>
     <string name="field_hide_all_desc">When enabled, every first-level directory under /storage/emulated/0 is hidden except for the visible exemptions below.</string>
+    <string name="field_hide_all_public_title">Hide public volume root entries</string>
+    <string name="field_hide_all_public_desc">Apply a separate hide-all rule to public storage volumes such as /storage/0000\u002d0000. The primary storage switch stays independent.</string>
     <string name="field_use_miuix_title">Use MIUIX UI family</string>
     <string name="field_use_miuix_desc_enabled">The app currently uses the MIUIX navigation and surface style. Turn this off to switch back to Material 3.</string>
     <string name="field_use_miuix_desc_disabled">The app currently uses the Material 3 navigation and surface style. Turn this on to switch to MIUIX.</string>
     <string name="field_visible_exemptions">Visible exemptions</string>
     <string name="field_visible_exemptions_help">One path per line. Keep Android visible unless you know exactly what you are doing.</string>
+    <string name="field_public_visible_exemptions">Public volume visible exemptions</string>
+    <string name="field_public_visible_exemptions_help">One entry name per line, applied to public volume roots only. Keep Android visible to avoid breaking mount points.</string>
     <string name="field_hidden_targets">Hidden targets</string>
     <string name="field_hidden_targets_help">One path per line. Use [package.name] sections for app-specific targets; entries before the first section are global.</string>
     <string name="field_hidden_package_names">Hidden package names</string>

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "fusehide/filters/dirent_filter.hpp"
+#include "fusehide/filters/sensitive_direntplus_cache.hpp"
 
 namespace fusehide {
 
@@ -55,6 +56,24 @@ bool FuseDirentplusRecordSize(const fuse_dirent* dirent, size_t available, size_
     }
     *recordSize = kHeaderSize + alignedNameSize;
     return true;
+}
+
+bool BuildUncachedSensitiveDirentplusPayload(const char* data, size_t size,
+                                             std::string_view parentPath, std::vector<char>* out,
+                                             size_t* uncachedCount) {
+    if (data == nullptr || size == 0 || parentPath.empty() || out == nullptr ||
+        uncachedCount == nullptr) {
+        return false;
+    }
+    const auto anyRule = RuleForAnyPackage();
+    if (!anyRule)
+        return false;
+
+    return CopyUncachedSensitiveDirentplus(
+        std::span<const char>(data, size), out, uncachedCount, [&](std::string_view name) {
+            const std::string path = HiddenPathPolicy::JoinPathComponent(parentPath, name);
+            return HiddenPathPolicy::IsAnyHiddenSubtreePath(*anyRule, path);
+        });
 }
 
 bool ShouldFilterTrackedHiddenDirentInode(uint32_t uid, uint64_t childIno, std::string_view name) {

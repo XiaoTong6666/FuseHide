@@ -75,11 +75,15 @@
     <string name="button_self_data">自身数据</string>
     <string name="field_hide_all_title">隐藏所有一级目录</string>
     <string name="field_hide_all_desc">启用后，/storage/emulated/0 下的每个一级目录都将被隐藏，以下例外情况除外。</string>
+    <string name="field_hide_all_public_title">隐藏公共存储卷根目录条目</string>
+    <string name="field_hide_all_public_desc">对 /storage/0000\u002d0000 等公共存储卷单独应用全部隐藏规则，不影响主存储卷的开关。</string>
     <string name="field_use_miuix_title">使用 MIUIX UI 风格</string>
     <string name="field_use_miuix_desc_enabled">当前应用使用 MIUIX 导航和外观风格。关闭后将切回 Material 3。</string>
     <string name="field_use_miuix_desc_disabled">当前应用使用 Material 3 导航和外观风格。开启后将切换到 MIUIX。</string>
     <string name="field_visible_exemptions">可见例外</string>
     <string name="field_visible_exemptions_help">每行一条路径。除非您明确知道您在干什么，否则请保持 Android 可见。</string>
+    <string name="field_public_visible_exemptions">公共存储卷可见例外</string>
+    <string name="field_public_visible_exemptions_help">每行填写一个条目名称，仅应用于公共存储卷根目录。请保留 Android 可见，以免影响挂载点。</string>
     <string name="field_hidden_targets">隐藏目标</string>
     <string name="field_hidden_targets_help">每行一条路径。可用 [包名] 分段配置指定应用；第一个分段前的条目是全局配置。</string>
     <string name="field_hidden_package_names">隐藏的包名</string>

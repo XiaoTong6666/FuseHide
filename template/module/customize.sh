@@ -30,6 +30,8 @@ extract "$ZIPFILE" 'module.prop' "$MODPATH"
 extract "$ZIPFILE" 'skip_mount' "$MODPATH"
 extract "$ZIPFILE" 'post-fs-data.sh' "$MODPATH"
 extract "$ZIPFILE" 'service.sh' "$MODPATH"
+extract "$ZIPFILE" 'action.sh' "$MODPATH"
+extract "$ZIPFILE" 'hotinstall.sh' "$MODPATH"
 extract "$ZIPFILE" 'uninstall.sh' "$MODPATH"
 extract "$ZIPFILE" 'sepolicy.rule' "$MODPATH"
 
@@ -68,7 +70,37 @@ ui_print "- Setting permissions"
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
+set_perm "$MODPATH/action.sh" 0 0 0755
+set_perm "$MODPATH/hotinstall.sh" 0 0 0755
 set_perm "$MODPATH/uninstall.sh" 0 0 0755
 
 ui_print "FuseHide zygisk module installed"
-ui_print "Reboot is required to take effect"
+
+# KernelSU's built-in hot install swaps module directories without replaying
+# Zygote or boot scripts. Only request it for updates whose already-loaded
+# Zygisk entrypoint is byte-identical; libfusehide.so and DEX are loaded by
+# that entrypoint for each new MediaProvider process.
+# A first install, changed Zygisk entrypoint, or changed boot script needs a
+# normal reboot. Never request native hot install from old KernelSU, Magisk
+# or APatch installers.
+active_module=/data/adb/modules/zygisk_fusehide
+if [ "${KSU:-false}" = true ] && [ "${KSU_HAS_HOT_INSTALL:-false}" = true ] &&
+   [ -f "$active_module/zygisk/$APK_ABI.so" ] &&
+   [ ! -e "$active_module/disable" ] &&
+   [ ! -e "$active_module/remove" ] &&
+   [ ! -e "$active_module/lsp_scope_enabled" ] &&
+   [ -f "$MODPATH/skip_mount" ] &&
+   [ ! -e "$MODPATH/system" ] &&
+   [ ! -e "$MODPATH/system.prop" ] &&
+   [ ! -e "$MODPATH/initrc" ] &&
+   [ -f "$active_module/post-fs-data.sh" ] &&
+   [ -f "$active_module/service.sh" ] &&
+   cmp -s "$active_module/zygisk/$APK_ABI.so" "$MODPATH/zygisk/$APK_ABI.so" &&
+   cmp -s "$active_module/post-fs-data.sh" "$MODPATH/post-fs-data.sh" &&
+   cmp -s "$active_module/service.sh" "$MODPATH/service.sh"; then
+  export MODULE_HOT_INSTALL_REQUEST=true
+  export MODULE_HOT_RUN_SCRIPT=hotinstall.sh
+  ui_print "- Requesting KernelSU hot install (Zygisk loader unchanged)"
+else
+  ui_print "- Reboot required (hot install unavailable or Zygisk/boot entrypoint changed)"
+fi

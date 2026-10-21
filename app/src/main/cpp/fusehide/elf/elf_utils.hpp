@@ -16,6 +16,7 @@
 
 #include <elf.h>
 #include <link.h>
+#include <span>
 #include <sys/mman.h>
 
 extern "C" {
@@ -318,6 +319,8 @@ std::optional<std::pair<const std::byte*, size_t>> FindNamedSectionData(const Ma
 const char* XzRetName(enum xz_ret ret);
 std::optional<MappedFile> DecompressGnuDebugdata(const std::byte* compressed, size_t size);
 std::optional<uintptr_t> FindSymbolOffset(const MappedFile& file, std::string_view symbolName);
+std::vector<std::optional<uintptr_t>> FindSymbolOffsetsOnce(
+    const MappedFile& file, std::span<const std::string_view> names);
 std::optional<SymbolMatch> FindLargestSymbolContaining(const MappedFile& file,
                                                        std::string_view needle);
 std::optional<size_t> VirtualAddressToFileOffset(const MappedFile& file, uintptr_t address);

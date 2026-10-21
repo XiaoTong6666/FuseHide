@@ -562,6 +562,64 @@ std::optional<uintptr_t> FindSymbolOffset(const MappedFile& file, std::string_vi
     return FindSymbolOffsetImpl(file, symbolName, 0);
 }
 
+// Batch-find symbol offsets in an ELF file. Scan regular symbol tables first,
+// then decompress .gnu_debugdata to resolve any remaining symbols.
+std::vector<std::optional<uintptr_t>> FindSymbolOffsetsOnce(
+    const MappedFile& file, std::span<const std::string_view> names) {
+    std::vector<std::optional<uintptr_t>> values(names.size());
+    const auto scan = [&](const MappedFile& image) {
+        if (image.bytes() == nullptr || image.size < sizeof(ElfHeader))
+            return;
+        const auto* header = reinterpret_cast<const ElfHeader*>(image.bytes());
+        if (std::memcmp(header->e_ident, ELFMAG, SELFMAG) != 0 ||
+            header->e_shentsize != sizeof(ElfSection) || header->e_shoff > image.size ||
+            header->e_shnum > (image.size - header->e_shoff) / sizeof(ElfSection))
+            return;
+        const auto* sections = reinterpret_cast<const ElfSection*>(image.bytes() + header->e_shoff);
+        for (uint16_t i = 0; i < header->e_shnum; ++i) {
+            const auto& section = sections[i];
+            if (section.sh_type != SHT_SYMTAB && section.sh_type != SHT_DYNSYM)
+                continue;
+            if (section.sh_link >= header->e_shnum || section.sh_entsize != sizeof(ElfSymbol) ||
+                section.sh_offset > image.size || section.sh_size > image.size - section.sh_offset)
+                continue;
+            const auto& strtab = sections[section.sh_link];
+            if (strtab.sh_offset > image.size || strtab.sh_size > image.size - strtab.sh_offset)
+                continue;
+            const char* strings = reinterpret_cast<const char*>(image.bytes() + strtab.sh_offset);
+            const auto* symbols =
+                reinterpret_cast<const ElfSymbol*>(image.bytes() + section.sh_offset);
+            for (size_t s = 0; s < section.sh_size / sizeof(ElfSymbol); ++s) {
+                const auto& symbol = symbols[s];
+                if (symbol.st_value == 0 || symbol.st_name >= strtab.sh_size)
+                    continue;
+                const char* currentName = strings + symbol.st_name;
+                const size_t remaining = strtab.sh_size - symbol.st_name;
+                const void* terminator = std::memchr(currentName, 0, remaining);
+                if (terminator == nullptr)
+                    continue;
+                const auto actual = std::string_view(
+                    currentName, static_cast<const char*>(terminator) - currentName);
+                for (size_t n = 0; n < names.size(); ++n) {
+                    if (!values[n].has_value() && names[n] == actual)
+                        values[n] = static_cast<uintptr_t>(symbol.st_value);
+                }
+            }
+        }
+    };
+    scan(file);
+    if (std::all_of(values.begin(), values.end(),
+                    [](const auto& value) { return value.has_value(); }))
+        return values;
+    // The stripped JNI image stores its local function names in compressed
+    // .gnu_debugdata. Decompress once for all names, never once per symbol.
+    if (const auto debugdata = FindNamedSectionData(file, ".gnu_debugdata")) {
+        if (const auto expanded = DecompressGnuDebugdata(debugdata->first, debugdata->second))
+            scan(*expanded);
+    }
+    return values;
+}
+
 void CollectSymbolsContainingImpl(const MappedFile& file, std::string_view needle, int depth,
                                   std::vector<SymbolMatch>* matches) {
     const auto* header = reinterpret_cast<const ElfHeader*>(file.bytes());

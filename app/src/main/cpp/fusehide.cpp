@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "fusehide/core/state.hpp"
+#include "fusehide/core/invalidation_plan.hpp"
 #include "fusehide/policy/path_policy.hpp"
 
 namespace fusehide {
@@ -55,7 +56,9 @@ thread_local ThreadLocalUidHideRuleCacheEntry gThreadLocalUidHideRuleCache;
 
 struct CompiledHideRuleBuilder {
     bool enableHideAllRootEntries = false;
+    bool enableHideAllPublicRootEntries = false;
     std::vector<std::string> hideAllRootEntriesExemptions;
+    std::vector<std::string> hideAllPublicRootEntriesExemptions;
     std::vector<std::string> hiddenRootEntryNames;
     std::vector<std::string> hiddenRelativePaths;
 };
@@ -82,7 +85,11 @@ void AppendNormalizedUnique(std::vector<std::string>* out, std::string_view valu
 void MergeGlobalRule(const HideConfig& config, CompiledHideRuleBuilder* out) {
     out->enableHideAllRootEntries =
         out->enableHideAllRootEntries || config.enableHideAllRootEntries;
+    out->enableHideAllPublicRootEntries =
+        out->enableHideAllPublicRootEntries || config.enableHideAllPublicRootEntries;
     AppendUnique(&out->hideAllRootEntriesExemptions, config.hideAllRootEntriesExemptions);
+    AppendUnique(&out->hideAllPublicRootEntriesExemptions,
+                 config.hideAllPublicRootEntriesExemptions);
     AppendUnique(&out->hiddenRootEntryNames, config.hiddenRootEntryNames);
     for (const auto& hiddenRelativePath : config.hiddenRelativePaths) {
         AppendNormalizedUnique(&out->hiddenRelativePaths, hiddenRelativePath);
@@ -97,8 +104,8 @@ void MergePackageRule(const PackageHideRule& rule, CompiledHideRuleBuilder* out)
 }
 
 bool RuleHasTargets(const CompiledHideRuleBuilder& rule) {
-    return rule.enableHideAllRootEntries || !rule.hiddenRootEntryNames.empty() ||
-           !rule.hiddenRelativePaths.empty();
+    return rule.enableHideAllRootEntries || rule.enableHideAllPublicRootEntries ||
+           !rule.hiddenRootEntryNames.empty() || !rule.hiddenRelativePaths.empty();
 }
 
 void FingerprintBytes(uint64_t* hash, const void* data, size_t size) {
@@ -129,11 +136,16 @@ std::vector<std::string> SortedStringsFromSet(const std::unordered_set<std::stri
 uint64_t ComputeCompiledHideRuleFingerprint(const CompiledHideRule& rule) {
     uint64_t hash = kFingerprintOffsetBasis;
     FingerprintUint64(&hash, rule.enableHideAllRootEntries ? 1ULL : 0ULL);
+    FingerprintUint64(&hash, rule.enableHideAllPublicRootEntries ? 1ULL : 0ULL);
     const auto sortedExemptions = SortedStringsFromSet(rule.hideAllRootEntriesExemptionSet);
     FingerprintUint64(&hash, sortedExemptions.size());
     for (const auto& value : sortedExemptions) {
         FingerprintString(&hash, value);
     }
+    const auto publicExemptions = SortedStringsFromSet(rule.hideAllPublicRootEntriesExemptionSet);
+    FingerprintUint64(&hash, publicExemptions.size());
+    for (const auto& value : publicExemptions)
+        FingerprintString(&hash, value);
 
     const auto sortedRootNames = SortedStringsFromSet(rule.hiddenRootEntryNameSet);
     FingerprintUint64(&hash, sortedRootNames.size());
@@ -160,7 +172,9 @@ std::shared_ptr<const CompiledHideRule> BuildCompiledHideRule(
 
     auto compiled = std::make_shared<CompiledHideRule>();
     compiled->enableHideAllRootEntries = builder.enableHideAllRootEntries;
+    compiled->enableHideAllPublicRootEntries = builder.enableHideAllPublicRootEntries;
     compiled->hideAllRootEntriesExemptions = builder.hideAllRootEntriesExemptions;
+    compiled->hideAllPublicRootEntriesExemptions = builder.hideAllPublicRootEntriesExemptions;
     compiled->hiddenRootEntryNames = builder.hiddenRootEntryNames;
     compiled->hiddenRelativePaths = builder.hiddenRelativePaths;
 
@@ -169,6 +183,11 @@ std::shared_ptr<const CompiledHideRule> BuildCompiledHideRule(
         if (!canonicalExemptEntry.empty()) {
             compiled->hideAllRootEntriesExemptionSet.insert(canonicalExemptEntry);
         }
+    }
+    for (const auto& exemptEntry : compiled->hideAllPublicRootEntriesExemptions) {
+        const std::string canonical = CanonicalizeHiddenEntryNameForMatch(exemptEntry);
+        if (!canonical.empty())
+            compiled->hideAllPublicRootEntriesExemptionSet.insert(canonical);
     }
     for (const auto& rootEntryName : compiled->hiddenRootEntryNames) {
         const std::string canonicalRootEntryName =
@@ -232,33 +251,34 @@ std::shared_ptr<const CompiledHideConfig> MakeDefaultCompiledHideConfig() {
     return std::make_shared<const CompiledHideConfig>(BuildCompiledHideConfig(DefaultHideConfig()));
 }
 
-void InvalidateTrackedHideTargetsForCurrentConfig() {
-    ScheduleHiddenEntryInvalidation();
-
-    std::vector<uint64_t> inodesToInvalidate;
-    {
-        std::lock_guard<std::mutex> lock(gInodePathCacheMutex);
-        inodesToInvalidate.reserve(gInodePathCache.size());
-        for (const auto& [ino, trackedPath] : gInodePathCache) {
-            if (HiddenPathPolicy::IsAnyHiddenSubtreePath(trackedPath)) {
-                inodesToInvalidate.push_back(ino);
-            }
+void InvalidateTrackedHideTargetsForCurrentConfig(
+    const std::shared_ptr<const CompiledHideRule>& previousRule = {}) {
+    // Rule publication is outside a FUSE request. Never guess the most recent session.
+    const auto nextRule = RuleForAnyPackage();
+    for (const auto token : SnapshotActiveSessions()) {
+        ScheduleHiddenEntryInvalidation(token, true);
+        const auto tracked = SnapshotTrackedPaths(token);
+        const auto planned = PlanInodeInvalidations(
+            tracked,
+            [&](std::string_view path) {
+                return previousRule &&
+                       HiddenPathPolicy::IsAnyHiddenSubtreePath(*previousRule, path);
+            },
+            [&](std::string_view path) {
+                return nextRule && HiddenPathPolicy::IsAnyHiddenSubtreePath(*nextRule, path);
+            });
+        size_t changed = 0;
+        for (const auto& candidate : planned) {
+            // Changed targets first, then still-hidden paths. Both remain
+            // exact inode notifications, never approximate parent sweeps.
+            changed += candidate.changed ? 1 : 0;
+            ScheduleHiddenInodeInvalidation(token, candidate.ino, true);
         }
-    }
-    for (const uint64_t ino : inodesToInvalidate) {
-        RuntimeState::ScheduleHiddenInodeInvalidation(ino);
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(gHiddenSubtreeInodesMutex);
-        gHiddenSubtreeInodeRules.clear();
-    }
-    {
-        std::lock_guard<std::mutex> lock(gRecentHiddenParentPathsMutex);
-        gRecentHiddenParentPaths.clear();
-        gRecentHiddenParentPathUids.clear();
-        gRecentHiddenParentPathAnyUid.clear();
-        gRecentHiddenParentPathAnyUidOwner = 0;
+        DebugLogPrint(4,
+                      "config invalidation affected inodes se=%p changed=%zu "
+                      "still_hidden=%zu tracked=%zu",
+                      token.se, changed, planned.size() - changed, tracked.size());
+        ResetSessionRuleTracking(token);
     }
 }
 
@@ -267,8 +287,10 @@ void InvalidateTrackedHideTargetsForCurrentConfig() {
 HideConfig DefaultHideConfig() {
     HideConfig config;
     config.enableHideAllRootEntries = kEnableHideAllRootEntries;
+    config.enableHideAllPublicRootEntries = false;
     for (const auto& value : kHideAllRootEntriesExemptions) {
         config.hideAllRootEntriesExemptions.emplace_back(value);
+        config.hideAllPublicRootEntriesExemptions.emplace_back(value);
     }
     for (const auto& value : kHiddenRootEntryNames) {
         config.hiddenRootEntryNames.emplace_back(value);
@@ -318,6 +340,12 @@ std::shared_ptr<const CompiledHideConfig> CurrentCompiledHideConfig() {
 }
 
 void ApplyHideConfig(HideConfig config) {
+    // Serialize config generations so a second publication cannot steal the
+    // active invalidation epoch while the first is still scheduling work.
+    static std::mutex applyMutex;
+    std::lock_guard<std::mutex> applyLock(applyMutex);
+    const auto previousRule = RuleForAnyPackage();
+    BeginHideInvalidationBatch();
     auto next = std::make_shared<const HideConfig>(std::move(config));
     auto compiledNext = std::make_shared<const CompiledHideConfig>(BuildCompiledHideConfig(*next));
     std::atomic_store_explicit(&gHideConfig, next, std::memory_order_release);
@@ -330,7 +358,13 @@ void ApplyHideConfig(HideConfig config) {
     }
     ClearRootSnapshotCache();
     ClearHiddenPathClassificationCache();
-    InvalidateTrackedHideTargetsForCurrentConfig();
+    ResolveUnknownPrimaryRootNodes();
+    InvalidateTrackedHideTargetsForCurrentConfig(previousRule);
+    if (!AllActiveSessionsHaveLowlevelCallbacks()) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                            "FUSE capability degraded: at least one active session has no "
+                            "verified lowlevel callback coverage");
+    }
     DebugLogPrint(4,
                   "applied hide config generation=%llu hide_all=%d exemptions=%zu roots=%zu "
                   "packages=%zu package_rules=%zu",
@@ -575,8 +609,13 @@ std::optional<std::shared_ptr<const CompiledHideRule>> ResolveHideRuleForUidWith
             merged.enableHideAllRootEntries =
                 merged.enableHideAllRootEntries ||
                 compiledConfig->globalRuleFragment->enableHideAllRootEntries;
+            merged.enableHideAllPublicRootEntries =
+                merged.enableHideAllPublicRootEntries ||
+                compiledConfig->globalRuleFragment->enableHideAllPublicRootEntries;
             AppendUnique(&merged.hideAllRootEntriesExemptions,
                          compiledConfig->globalRuleFragment->hideAllRootEntriesExemptions);
+            AppendUnique(&merged.hideAllPublicRootEntriesExemptions,
+                         compiledConfig->globalRuleFragment->hideAllPublicRootEntriesExemptions);
             AppendUnique(&merged.hiddenRootEntryNames,
                          compiledConfig->globalRuleFragment->hiddenRootEntryNames);
             AppendUnique(&merged.hiddenRelativePaths,
@@ -595,10 +634,11 @@ std::optional<std::shared_ptr<const CompiledHideRule>> ResolveHideRuleForUidWith
         return finish(std::shared_ptr<const CompiledHideRule>(nullptr));
     }
     auto compiledRule = BuildCompiledHideRule(merged);
-    DebugLogPrint(4, "resolved uid=%u hide=1 roots=%zu rel=%zu hide_all=%d",
+    DebugLogPrint(4, "resolved uid=%u hide=1 roots=%zu rel=%zu hide_all=%d public_hide_all=%d",
                   static_cast<unsigned>(uid), compiledRule->hiddenRootEntryNames.size(),
                   compiledRule->hiddenRelativePaths.size(),
-                  compiledRule->enableHideAllRootEntries ? 1 : 0);
+                  compiledRule->enableHideAllRootEntries ? 1 : 0,
+                  compiledRule->enableHideAllPublicRootEntries ? 1 : 0);
     return finish(compiledRule);
 }
 
@@ -633,7 +673,9 @@ bool CompiledHideRulesSemanticallyEqual(const std::shared_ptr<const CompiledHide
         return false;
     }
     return lhs->enableHideAllRootEntries == rhs->enableHideAllRootEntries &&
+           lhs->enableHideAllPublicRootEntries == rhs->enableHideAllPublicRootEntries &&
            lhs->hideAllRootEntriesExemptionSet == rhs->hideAllRootEntriesExemptionSet &&
+           lhs->hideAllPublicRootEntriesExemptionSet == rhs->hideAllPublicRootEntriesExemptionSet &&
            lhs->hiddenRootEntryNameSet == rhs->hiddenRootEntryNameSet &&
            lhs->normalizedHiddenRelativePathExactSet == rhs->normalizedHiddenRelativePathExactSet;
 }

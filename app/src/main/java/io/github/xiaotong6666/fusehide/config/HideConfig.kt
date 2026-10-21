@@ -26,13 +26,23 @@ data class PackageHideRule(
 )
 
 @Immutable
-data class HideConfig(
+data class HideConfig @JvmOverloads constructor(
     val enableHideAllRootEntries: Boolean,
     val hideAllRootEntriesExemptions: List<String>,
     val hiddenRootEntryNames: List<String>,
     val hiddenRelativePaths: List<String>,
     val hiddenPackages: List<String>,
     val packageRules: List<PackageHideRule> = emptyList(),
+    val enableHideAllPublicRootEntries: Boolean = false,
+    val hideAllPublicRootEntriesExemptions: List<String> = listOf(
+        "Android",
+        "DCIM",
+        "Download",
+        "Documents",
+        "Movies",
+        "Music",
+        "Pictures",
+    ),
 )
 
 object HideConfigDefaults {

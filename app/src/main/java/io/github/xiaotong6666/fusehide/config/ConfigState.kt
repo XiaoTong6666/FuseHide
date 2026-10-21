@@ -91,6 +91,9 @@ fun formatHiddenTargetRules(config: HideConfig): String = buildString {
 fun buildAppliedConfigSnapshot(config: HideConfig): String = buildString {
     append("MediaProvider current native config\n")
     append("enableHideAllRootEntries=${config.enableHideAllRootEntries}\n")
+    append("enableHideAllPublicRootEntries=${config.enableHideAllPublicRootEntries}\n")
+    append("hideAllPublicRootEntriesExemptions=\n")
+    config.hideAllPublicRootEntriesExemptions.forEach { append("- $it\n") }
     append("hideAllRootEntriesExemptions=\n")
     if (config.hideAllRootEntriesExemptions.isEmpty()) append("(empty)\n")
     config.hideAllRootEntriesExemptions.forEach { append("- $it\n") }
@@ -142,12 +145,19 @@ fun buildDraftVsAppliedDiff(context: Context, draft: HideConfig, applied: HideCo
     }
 
     val boolMatches = draft.enableHideAllRootEntries == applied.enableHideAllRootEntries
+    val publicBoolMatches =
+        draft.enableHideAllPublicRootEntries == applied.enableHideAllPublicRootEntries
     val details = buildString {
         append("Draft vs applied diff\n")
         append("enableHideAllRootEntries: ")
         append(if (boolMatches) "MATCH" else "DIFF")
         append(" (draft=").append(draft.enableHideAllRootEntries)
         append(", applied=").append(applied.enableHideAllRootEntries).append(")\n\n")
+        append("enableHideAllPublicRootEntries: ")
+        append(if (publicBoolMatches) "MATCH" else "DIFF")
+        append(" (draft=").append(draft.enableHideAllPublicRootEntries)
+        append(", applied=").append(applied.enableHideAllPublicRootEntries).append(")\n\n")
+        append(section("hideAllPublicRootEntriesExemptions", draft.hideAllPublicRootEntriesExemptions, applied.hideAllPublicRootEntriesExemptions)).append("\n")
         append(section("hideAllRootEntriesExemptions", draft.hideAllRootEntriesExemptions, applied.hideAllRootEntriesExemptions)).append("\n")
         append(section("hiddenRootEntryNames", draft.hiddenRootEntryNames, applied.hiddenRootEntryNames)).append("\n")
         append(section("hiddenRelativePaths", draft.hiddenRelativePaths, applied.hiddenRelativePaths)).append("\n")
@@ -166,6 +176,8 @@ fun buildDraftVsAppliedDiff(context: Context, draft: HideConfig, applied: HideCo
 fun hasDraftVsAppliedDifferences(draft: HideConfig, applied: HideConfig?): Boolean {
     if (applied == null) return false
     return draft.enableHideAllRootEntries != applied.enableHideAllRootEntries ||
+        draft.enableHideAllPublicRootEntries != applied.enableHideAllPublicRootEntries ||
+        draft.hideAllPublicRootEntriesExemptions.toSet() != applied.hideAllPublicRootEntriesExemptions.toSet() ||
         draft.hideAllRootEntriesExemptions.toSet() != applied.hideAllRootEntriesExemptions.toSet() ||
         draft.hiddenRootEntryNames.toSet() != applied.hiddenRootEntryNames.toSet() ||
         draft.hiddenRelativePaths.toSet() != applied.hiddenRelativePaths.toSet() ||

@@ -75,11 +75,15 @@
     <string name="button_self_data">Datos propios</string>
     <string name="field_hide_all_title">Ocultar todos los directorios de primer nivel</string>
     <string name="field_hide_all_desc">Cuando está activado, se oculta cada directorio de primer nivel bajo /storage/emulated/0, salvo las excepciones visibles de abajo.</string>
+    <string name="field_hide_all_public_title">Ocultar entradas raíz de los volúmenes públicos</string>
+    <string name="field_hide_all_public_desc">Aplica una regla independiente para ocultar todas las entradas de volúmenes de almacenamiento públicos, como /storage/0000\u002d0000. El interruptor del almacenamiento principal funciona por separado.</string>
     <string name="field_use_miuix_title">Usar la familia de UI MIUIX</string>
     <string name="field_use_miuix_desc_enabled">La aplicación usa actualmente la navegación y el estilo visual de MIUIX. Desactívalo para volver a Material 3.</string>
     <string name="field_use_miuix_desc_disabled">La aplicación usa actualmente la navegación y el estilo visual de Material 3. Actívalo para cambiar a MIUIX.</string>
     <string name="field_visible_exemptions">Excepciones visibles</string>
     <string name="field_visible_exemptions_help">Una ruta por línea. Mantén Android visible salvo que sepas exactamente lo que estás haciendo.</string>
+    <string name="field_public_visible_exemptions">Excepciones visibles de volúmenes públicos</string>
+    <string name="field_public_visible_exemptions_help">Un nombre de entrada por línea. Solo se aplica a las raíces de los volúmenes públicos. Mantén Android visible para evitar problemas con los puntos de montaje.</string>
     <string name="field_hidden_targets">Objetivos ocultos</string>
     <string name="field_hidden_targets_help">Una ruta por línea.</string>
     <string name="field_hidden_package_names">Nombres de paquete ocultos</string>

@@ -16,6 +16,9 @@
 #include "fusehide/native_callback_gate.hpp"
 
 #include <atomic>
+#include <chrono>
+#include <link.h>
+#include <thread>
 
 namespace {
 enum class NativeModuleInitState : uint8_t {
@@ -30,6 +33,23 @@ std::atomic<NativeModuleInitState> gNativeModuleInitState{NativeModuleInitState:
 volatile bool gDisableFuseHooksForDiagnostic = false;
 int (*gNativeOwnerUnhook)(void*) = nullptr;
 fusehide::NativeCallbackGate gNativeCallbackGate;
+#if defined(__x86_64__)
+std::atomic_bool gXposedObserverStarted{false};
+
+bool HasLoadedFuseJni() {
+    bool loaded = false;
+    dl_iterate_phdr(
+        [](dl_phdr_info* info, size_t, void* state) -> int {
+            if (info && info->dlpi_name && std::strstr(info->dlpi_name, fusehide::kTargetLibrary)) {
+                *static_cast<bool*>(state) = true;
+                return 1;
+            }
+            return 0;
+        },
+        &loaded);
+    return loaded;
+}
+#endif
 
 bool BeginNativeModuleInit(NativeModuleInitState initializing, NativeModuleInitState ready) {
     auto expected = NativeModuleInitState::kUninitialized;
@@ -184,6 +204,56 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
 }
 
 JNIEXPORT jboolean JNICALL
+Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_startXposedNativeHookObserver(
+    JNIEnv*, jclass) {
+#if !defined(__x86_64__)
+    return JNI_FALSE;
+#else
+    // Vector's x86_64 native loader hook can fail closed on linker targets:
+    // it only offers ART quiescence, not whole-process stop-the-world.
+    // Observe loader metadata instead of weakening concurrent Dobby hooks.
+    const auto initState = gNativeModuleInitState.load(std::memory_order_acquire);
+    if (initState == NativeModuleInitState::kReadyV2) {
+        // Vector's dlopen hook is already bound. There is no need to start a
+        // competing ELF observer, and skipping it is not a capability failure.
+        // Actual per-Session callback coverage is checked separately.
+        __android_log_print(ANDROID_LOG_INFO, fusehide::kLogTag,
+                            "Xposed x64 native bootstrap: Native API v2 already bound");
+        return JNI_TRUE;
+    }
+    if (initState != NativeModuleInitState::kUninitialized) {
+        return JNI_FALSE;
+    }
+    if (gXposedObserverStarted.exchange(true, std::memory_order_acq_rel))
+        return true;
+    std::thread([]() {
+        constexpr unsigned kMaxChecks = 30000;
+        for (unsigned n = 0; n < kMaxChecks; ++n) {
+            if (gNativeModuleInitState.load(std::memory_order_acquire) !=
+                NativeModuleInitState::kUninitialized) {
+                __android_log_print(ANDROID_LOG_INFO, fusehide::kLogTag,
+                                    "Xposed phdr observer stopped: native host available");
+                return;
+            }
+            if (HasLoadedFuseJni()) {
+                __android_log_print(ANDROID_LOG_INFO, fusehide::kLogTag,
+                                    "Xposed phdr observer found libfuse_jni.so");
+                fusehide::InstallFuseHooks();
+                return;
+            }
+            std::this_thread::sleep_for(n < 10000 ? std::chrono::microseconds(200)
+                                                  : std::chrono::milliseconds(5));
+        }
+        __android_log_print(ANDROID_LOG_ERROR, fusehide::kLogTag,
+                            "Xposed phdr observer timed out; FUSE not hooked");
+    }).detach();
+    __android_log_print(ANDROID_LOG_INFO, fusehide::kLogTag,
+                        "Xposed phdr observer started (x64, without Native API)");
+    return JNI_TRUE;
+#endif
+}
+
+JNIEXPORT jboolean JNICALL
 Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_getDefaultEnableHideAllRootEntries(
     JNIEnv*, jclass) {
     return fusehide::DefaultHideConfig().enableHideAllRootEntries ? JNI_TRUE : JNI_FALSE;
@@ -224,6 +294,19 @@ Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_getCurrentHid
     JNIEnv* env, jclass) {
     return VectorToJavaStringArray(env,
                                    fusehide::CurrentHideConfig()->hideAllRootEntriesExemptions);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_getCurrentEnableHideAllPublicRootEntries(
+    JNIEnv*, jclass) {
+    return fusehide::CurrentHideConfig()->enableHideAllPublicRootEntries ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_getCurrentHideAllPublicRootEntriesExemptions(
+    JNIEnv* env, jclass) {
+    return VectorToJavaStringArray(
+        env, fusehide::CurrentHideConfig()->hideAllPublicRootEntriesExemptions);
 }
 
 JNIEXPORT jobjectArray JNICALL
@@ -267,10 +350,14 @@ Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_applyHideConf
     JNIEnv* env, jclass, jboolean enableHideAllRootEntries,
     jobjectArray hideAllRootEntriesExemptions, jobjectArray hiddenRootEntryNames,
     jobjectArray hiddenRelativePaths, jobjectArray hiddenPackages, jobjectArray packageRulePackages,
-    jobjectArray packageRuleHiddenRootEntryNames, jobjectArray packageRuleHiddenRelativePaths) {
+    jobjectArray packageRuleHiddenRootEntryNames, jobjectArray packageRuleHiddenRelativePaths,
+    jboolean enableHideAllPublicRootEntries, jobjectArray hideAllPublicRootEntriesExemptions) {
     fusehide::HideConfig config;
     config.enableHideAllRootEntries = enableHideAllRootEntries == JNI_TRUE;
+    config.enableHideAllPublicRootEntries = enableHideAllPublicRootEntries == JNI_TRUE;
     config.hideAllRootEntriesExemptions = JStringArrayToVector(env, hideAllRootEntriesExemptions);
+    config.hideAllPublicRootEntriesExemptions =
+        JStringArrayToVector(env, hideAllPublicRootEntriesExemptions);
     config.hiddenRootEntryNames = JStringArrayToVector(env, hiddenRootEntryNames);
     config.hiddenRelativePaths = JStringArrayToVector(env, hiddenRelativePaths);
     config.hiddenPackages = JStringArrayToVector(env, hiddenPackages);
@@ -296,6 +383,20 @@ Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_applyHideConf
 
 // Package add/remove is observed from the injected MediaProvider process and forwarded here so the
 // native uid-rule caches track PackageManager-visible changes without a full config reload.
+JNIEXPORT jboolean JNICALL
+Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_hasCompleteFuseCallbackCoverage(
+    JNIEnv*, jclass) {
+    return fusehide::AllActiveSessionsHaveLowlevelCallbacks() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_waitForHideInvalidations(
+    JNIEnv*, jclass, jlong timeoutMs) {
+    const jlong bounded = std::clamp<jlong>(timeoutMs, 0, 20000);
+    return fusehide::WaitForHideInvalidation(std::chrono::milliseconds(bounded)) ? JNI_TRUE
+                                                                                 : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_notifyPackageSetChanged(
     JNIEnv* env, jclass, jstring reason) {

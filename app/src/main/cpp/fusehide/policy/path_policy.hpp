@@ -43,6 +43,8 @@ std::string CanonicalizeRelativeHiddenPathForMatch(std::string_view path);
 std::optional<std::string> RelativePathForVisibleRoot(std::string_view path);
 bool MatchesRelativeHiddenPathList(std::string_view relativePath, bool exactOnly);
 bool IsWildcardRootEntryCandidate(std::string_view name);
+bool IsWildcardRootEntryCandidate(std::string_view name, std::string_view rootPath);
+bool HideAllForStorageRoot(const CompiledHideRule& rule, std::string_view rootPath);
 bool ShouldHideWildcardRootEntryByParent(uint64_t parent, uint64_t rootParent,
                                          std::string_view name);
 bool IsParentOfExactHiddenTargetPath(uint32_t uid, std::string_view path);

@@ -344,11 +344,15 @@ reload 流程会使用 reload token，fallback IPC 也包含认证检查，而�
 1. 使用兼容的 root 环境，并确保 Zygisk 实现正常工作。
 2. 如果需要配置/Probe UI 和 provider 配置同步，先安装 FuseHide APK。
 3. 在 root 管理器中刷入 release 里的 `FuseHide-*-release.zip`。
-4. 重启设备。
+4. 重启设备；如果 KernelSU 热安装成功，可改为重启 MediaProvider 进程。
 5. 确认没有同时在 LSPosed 中把 FuseHide 作用到 MediaProvider。
 6. 打开应用检查 MediaProvider Hook 状态。
 
 模块安装器会根据当前 ABI 提取 `libfusehide.so`，安装 Zygisk library，并从打包 APK 中提取 injected dex payload。
+
+在 KernelSU 或 Magisk 中点击模块的 **Action**，按**音量上键**重启 MediaProvider，按音量下键取消。
+
+支持热安装的 KernelSU 可在 Zygisk 加载器和启动脚本未变化时热更新模块。热安装不会自动重载已运行的进程，其余情况仍需重启设备。
 
 ## 应用界面
 

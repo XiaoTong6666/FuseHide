@@ -18,3 +18,5 @@
 commit.txt
 jadx
 libfusefixer.so
+__pycache__/
+*.py[cod]

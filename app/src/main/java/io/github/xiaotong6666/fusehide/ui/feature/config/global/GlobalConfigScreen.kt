@@ -31,6 +31,7 @@ import io.github.xiaotong6666.fusehide.ui.adapter.defaultGlobalConfigDrafts
 import io.github.xiaotong6666.fusehide.ui.adapter.globalConfigDrafts
 import io.github.xiaotong6666.fusehide.ui.adapter.updatedConfigForHiddenPackages
 import io.github.xiaotong6666.fusehide.ui.adapter.updatedConfigForHiddenTargets
+import io.github.xiaotong6666.fusehide.ui.adapter.updatedConfigForPublicVisibleExemptions
 import io.github.xiaotong6666.fusehide.ui.adapter.updatedConfigForVisibleExemptions
 import io.github.xiaotong6666.fusehide.ui.core.model.ConfigCallbacks
 import io.github.xiaotong6666.fusehide.ui.core.model.ConfigUiState
@@ -52,6 +53,9 @@ fun GlobalConfigPage(
     val view = LocalView.current
     val initialDrafts = globalConfigDrafts(state.currentHideConfig)
     var visibleExemptionsDraft by rememberSaveable { mutableStateOf(initialDrafts.visibleExemptionsText) }
+    var publicVisibleExemptionsDraft by rememberSaveable {
+        mutableStateOf(initialDrafts.publicVisibleExemptionsText)
+    }
     var hiddenTargetsDraft by rememberSaveable { mutableStateOf(initialDrafts.hiddenTargetsText) }
     var hiddenPackagesDraft by rememberSaveable { mutableStateOf(initialDrafts.hiddenPackagesText) }
 
@@ -65,6 +69,7 @@ fun GlobalConfigPage(
                 onClick = {
                     val defaultDrafts = defaultGlobalConfigDrafts()
                     visibleExemptionsDraft = defaultDrafts.visibleExemptionsText
+                    publicVisibleExemptionsDraft = defaultDrafts.publicVisibleExemptionsText
                     hiddenTargetsDraft = defaultDrafts.hiddenTargetsText
                     hiddenPackagesDraft = defaultDrafts.hiddenPackagesText
                     callbacks.onResetConfigClick()
@@ -94,6 +99,22 @@ fun GlobalConfigPage(
                         },
                     )
                 }
+                item {
+                    AppConfigToggleCard(
+                        checked = state.currentHideConfig.enableHideAllPublicRootEntries,
+                        title = stringResource(R.string.field_hide_all_public_title),
+                        description = stringResource(R.string.field_hide_all_public_desc),
+                        onToggle = {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            callbacks.onConfigUpdate(
+                                state.currentHideConfig.copy(
+                                    enableHideAllPublicRootEntries =
+                                    !state.currentHideConfig.enableHideAllPublicRootEntries,
+                                ),
+                            )
+                        },
+                    )
+                }
             }
 
             DetailGroup {
@@ -106,6 +127,24 @@ fun GlobalConfigPage(
                         },
                         title = stringResource(R.string.field_visible_exemptions),
                         description = stringResource(R.string.field_visible_exemptions_help),
+                        minLines = 5,
+                        maxLines = 5,
+                    )
+                }
+                item {
+                    SettingsTextAreaItem(
+                        value = publicVisibleExemptionsDraft,
+                        onValueChange = { newValue ->
+                            publicVisibleExemptionsDraft = newValue
+                            callbacks.onConfigUpdate(
+                                updatedConfigForPublicVisibleExemptions(
+                                    state.currentHideConfig,
+                                    newValue,
+                                ),
+                            )
+                        },
+                        title = stringResource(R.string.field_public_visible_exemptions),
+                        description = stringResource(R.string.field_public_visible_exemptions_help),
                         minLines = 5,
                         maxLines = 5,
                     )

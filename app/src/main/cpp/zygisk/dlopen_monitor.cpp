@@ -317,7 +317,12 @@ void StartFuseJniObserver() {
                 }
             }
             if (attempt < kFastAttempts) {
+#if defined(__x86_64__)
+                // Narrow the phdr observation race before MediaProvider creates FUSE sessions.
+                std::this_thread::sleep_for(std::chrono::microseconds(200));
+#else
                 std::this_thread::sleep_for(std::chrono::milliseconds(5));
+#endif
             } else if (attempt < kMediumAttempts) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             } else {
@@ -437,6 +442,35 @@ bool InstallPublicLoaderHook(const char* label, void* target, dobby_dummy_func_t
 
 }  // namespace
 
+bool InstallEarlyDlopenGotMonitor() {
+#if defined(__x86_64__)
+    if (gFuseHideHandle == nullptr)
+        return false;
+    using Installer = bool (*)(void*, void**);
+    const auto installer =
+        reinterpret_cast<Installer>(dlsym(gFuseHideHandle, "FuseHideInstallEarlyLoaderGotHook"));
+    if (!installer) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                            "early loader GOT installer export missing");
+        return false;
+    }
+    void* original = nullptr;
+    if (!installer(reinterpret_cast<void*>(+HookedAndroidDlopenExt), &original) ||
+        original == nullptr) {
+        __android_log_print(
+            ANDROID_LOG_ERROR, kLogTag,
+            "early loader GOT interception unavailable; observer is diagnostic only");
+        return false;
+    }
+    gAndroidDlopenExtHook.original.store(original, std::memory_order_release);
+    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                        "early loader GOT interceptor ready before app specialization");
+    return true;
+#else
+    return false;
+#endif
+}
+
 void InstallDlopenMonitor() {
     StartFuseJniObserver();
 #if !defined(__aarch64__)
@@ -446,7 +480,7 @@ void InstallDlopenMonitor() {
     // proof.  The phdr observer is sufficient because PostNativeInit only
     // requires the mapped libfuse_jni path, not its dlopen handle.
     __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                        "loader inline hooks disabled on this ABI; using phdr observer");
+                        "loader inline hooks disabled; early importer GOT or diagnostic observer");
     return;
 #endif
     RecoverLoaderHookIfNeeded("android_dlopen_ext", &gAndroidDlopenExtHook);

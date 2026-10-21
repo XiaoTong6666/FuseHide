@@ -75,11 +75,15 @@
     <string name="button_self_data">بيانات التطبيق</string>
     <string name="field_hide_all_title">إخفاء جميع مجلدات المستوى الأول</string>
     <string name="field_hide_all_desc">عند التفعيل، يُخفى كل مجلد من المستوى الأول ضمن \u2066/storage/emulated/0\u2069 باستثناء المسارات المرئية المستثناة أدناه.</string>
+    <string name="field_hide_all_public_title">إخفاء عناصر المستوى الأول في وحدات التخزين العامة</string>
+    <string name="field_hide_all_public_desc">تطبيق قاعدة إخفاء مستقلة على وحدات التخزين العامة، مثل \u2066/storage/0000\u002d0000\u2069، دون التأثير في مفتاح إخفاء وحدة التخزين الأساسية.</string>
     <string name="field_use_miuix_title">استخدام نمط واجهة \u2066MIUIX\u2069</string>
     <string name="field_use_miuix_desc_enabled">يستخدم التطبيق حاليًا نمط التنقل والواجهة الخاص بـ \u2066MIUIX\u2069. عطّل هذا الخيار للعودة إلى \u2066Material 3\u2069.</string>
     <string name="field_use_miuix_desc_disabled">يستخدم التطبيق حاليًا نمط التنقل والواجهة الخاص بـ \u2066Material 3\u2069. فعّل هذا الخيار للتبديل إلى \u2066MIUIX\u2069.</string>
     <string name="field_visible_exemptions">الاستثناءات المرئية</string>
     <string name="field_visible_exemptions_help">مسار واحد في كل سطر. أبقِ مجلد \u2066Android\u2069 مرئيًا ما لم تكن تعرف تمامًا ما تفعله.</string>
+    <string name="field_public_visible_exemptions">استثناءات العناصر المرئية في وحدات التخزين العامة</string>
+    <string name="field_public_visible_exemptions_help">اسم عنصر واحد في كل سطر. تُطبّق هذه الاستثناءات على جذر وحدات التخزين العامة فقط. أبقِ مجلد \u2066Android\u2069 مرئيًا لتجنّب تعطل نقاط التحميل.</string>
     <string name="field_hidden_targets">المسارات المستهدفة للإخفاء</string>
     <string name="field_hidden_targets_help">مسار واحد في كل سطر. استخدم أقسام \u2066[package.name]\u2069 للمسارات المستهدفة الخاصة بالتطبيق؛ وتُعد الإدخالات السابقة للقسم الأول عامة.</string>
     <string name="field_hidden_package_names">أسماء الحزم التي سيُطبّق عليها الإخفاء</string>

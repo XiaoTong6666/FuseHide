@@ -107,6 +107,8 @@ namespace fusehide {
 inline constexpr const char* kLogTag = "FuseHide";
 inline constexpr const char* kTargetLibrary = "libfuse_jni.so";
 inline constexpr std::string_view kVisibleStorageRoots[] = {"/storage/emulated/0"};
+// Public FUSE volumes have per-volume roots, e.g. /storage/0000-0000.
+std::optional<std::string_view> VisibleStorageRootForPath(std::string_view path);
 // Optional stress mode: when enabled, treat every first-level entry under kVisibleStorageRoots
 // as hidden for test UIDs. Keep disabled by default to avoid breaking normal app behavior.
 inline constexpr bool kEnableHideAllRootEntries = false;
@@ -299,7 +301,9 @@ struct PackageHideRule {
 
 struct HideConfig {
     bool enableHideAllRootEntries = false;
+    bool enableHideAllPublicRootEntries = false;
     std::vector<std::string> hideAllRootEntriesExemptions;
+    std::vector<std::string> hideAllPublicRootEntriesExemptions;
     std::vector<std::string> hiddenRootEntryNames;
     std::vector<std::string> hiddenRelativePaths;
     std::vector<std::string> hiddenPackages;
@@ -312,10 +316,13 @@ struct HideConfig {
 struct CompiledHideRule {
     uint64_t fingerprint = 0;
     bool enableHideAllRootEntries = false;
+    bool enableHideAllPublicRootEntries = false;
     std::vector<std::string> hideAllRootEntriesExemptions;
+    std::vector<std::string> hideAllPublicRootEntriesExemptions;
     std::vector<std::string> hiddenRootEntryNames;
     std::vector<std::string> hiddenRelativePaths;
     std::unordered_set<std::string> hideAllRootEntriesExemptionSet;
+    std::unordered_set<std::string> hideAllPublicRootEntriesExemptionSet;
     std::unordered_set<std::string> hiddenRootEntryNameSet;
     std::unordered_set<std::string> normalizedHiddenRelativePathExactSet;
     std::vector<std::string> normalizedHiddenRelativePathPrefixes;
@@ -539,7 +546,11 @@ inline bool ShouldLogLimited(std::atomic<int>& counter, int limit = 8) {
 template <typename... Args>
 inline void DebugLogPrint(int priority, const char* fmt, Args... args) {
     if constexpr (kEnableDebugHooks) {
-        __android_log_print(priority, kLogTag, fmt, args...);
+        if constexpr (sizeof...(Args) == 0) {
+            __android_log_write(priority, kLogTag, fmt);
+        } else {
+            __android_log_print(priority, kLogTag, fmt, args...);
+        }
     }
 }
 
@@ -637,8 +648,43 @@ extern DynamicAbiHookOriginal gOriginalGetDirectoryEntries;
 extern DynamicAbiHookOriginal gOriginalAddDirectoryEntriesFromLowerFs;
 extern std::atomic<DirectoryEntriesAbi> gDirectoryEntriesAbi;
 extern std::atomic<void*> gLastFuseSession;
-extern std::atomic<bool> gHiddenEntryInvalidationPending;
-extern std::atomic<uint64_t> gHiddenRootParentInode;
+struct SessionToken {
+    void* se = nullptr;
+    uint64_t generation = 0;
+    explicit operator bool() const {
+        return se != nullptr && generation != 0;
+    }
+    bool operator==(const SessionToken&) const = default;
+};
+SessionToken CurrentSessionToken();
+SessionToken RegisterSession(void* session);
+void BindSessionFUSEUserdata(SessionToken token, void* userdata);
+// Verified ARM64 MediaProvider private fuse::root field; not a public libfuse ABI.
+inline constexpr size_t kFuseRootOffset = 0x70;
+void SetVerifiedPrimaryRootNodeLookup(void* lookupFunction);
+void ResolveUnknownPrimaryRootNodes();
+void RegisterSessionRootPath(SessionToken token, std::string_view sourcePath);
+void RememberEmulatedZeroFromRootDirentplus(SessionToken token, uint64_t parent, const char* data,
+                                            size_t size);
+void MarkSessionLowlevelCallbacks(SessionToken token, size_t replaced, size_t required);
+void EnsureSessionLowlevelCallbacks(SessionToken token);
+bool BackfillSessionLowlevelCallbacks(void* session);
+void RequireSessionRootRefresh(SessionToken token);
+bool AllActiveSessionsHaveLowlevelCallbacks();
+bool WaitForHideInvalidation(std::chrono::milliseconds timeout);
+void BeginHideInvalidationBatch();
+SessionToken PushFuseRequestSession(fuse_req_t req);
+void RestoreFuseRequestSession(SessionToken previous);
+uint64_t CurrentRootParentInode();
+bool IsProtectedMountInvalidationPath(std::string_view logicalPath);
+void RememberRootParentInode(uint64_t ino, const char* reason);
+std::vector<SessionToken> SnapshotActiveSessions();
+std::vector<std::pair<uint64_t, std::string>> SnapshotTrackedPaths(SessionToken token);
+void ResetSessionRuleTracking(SessionToken token);
+void PutPendingReaddirContext(uint64_t unique, const struct PendingReaddirContext& context);
+std::optional<struct PendingReaddirContext> GetPendingReaddirContext(uint64_t unique);
+void RemovePendingReaddirContext(uint64_t unique);
+void SetPendingReaddirPath(uint64_t unique, std::string_view path);
 extern thread_local bool gInPfLookup;
 extern thread_local bool gInPfLookupPostfilter;
 extern thread_local bool gInPfReaddir;
@@ -658,24 +704,12 @@ extern thread_local bool gZeroAttrCacheForCurrentGetattr;
 extern thread_local fuse_req_t gPendingHiddenErrReq;
 extern thread_local uint64_t gPendingHiddenErrReqUnique;
 extern thread_local int gPendingHiddenErrno;
-extern std::mutex gHiddenSubtreeInodesMutex;
-extern std::unordered_map<uint64_t, std::vector<std::shared_ptr<const CompiledHideRule>>>
-    gHiddenSubtreeInodeRules;
-extern std::mutex gInodePathCacheMutex;
-extern std::unordered_map<uint64_t, std::string> gInodePathCache;
 struct PendingReaddirContext {
     uint32_t uid = 0;
     uint64_t ino = 0;
     std::string path;
 };
-extern std::mutex gPendingReaddirContextsMutex;
-extern std::unordered_map<uint64_t, PendingReaddirContext> gPendingReaddirContexts;
 extern thread_local uint64_t gCurrentReaddirReqUnique;
-extern std::mutex gRecentHiddenParentPathsMutex;
-extern std::unordered_map<uint32_t, std::string> gRecentHiddenParentPaths;
-extern std::unordered_map<uint32_t, uint32_t> gRecentHiddenParentPathUids;
-extern std::string gRecentHiddenParentPathAnyUid;
-extern uint32_t gRecentHiddenParentPathAnyUidOwner;
 
 namespace ReplyErrorBridge {
 // Use Original() only when preserving strict "hook backup only" semantics for a wrapper that
@@ -692,6 +726,8 @@ void RememberFuseSession(fuse_req_t req);
 void ClearActiveFuseRequestSession();
 void ScheduleHiddenEntryInvalidation();
 void ScheduleHiddenInodeInvalidation(uint64_t ino);
+void ScheduleHiddenEntryInvalidation(SessionToken token, bool configReload = false);
+void ScheduleHiddenInodeInvalidation(SessionToken token, uint64_t ino, bool configReload = false);
 std::string InodePath(uint64_t ino);
 bool IsHiddenLookupTarget(uint32_t uid, uint64_t parent, uint32_t error_in, const char* name);
 bool IsHiddenLookupCacheTarget(uint32_t uid, uint64_t parent, const char* name);
@@ -709,6 +745,8 @@ void ArmHiddenErrorRemap(fuse_req_t req, int err, const char* opName);
 int MaybeRewriteHiddenLeakErrno(fuse_req_t req, int err, const char* caller);
 void ArmHiddenCreateLeakRemap(fuse_req_t req, const char* opName);
 void ClearPendingRootSnapshotMutations();
+void ClearPendingRootSnapshotMutations(SessionToken token);
+void ClearRootSnapshotCacheForSession(SessionToken token);
 
 bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino);
 bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino);
@@ -716,6 +754,9 @@ bool RemoveTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino);
 std::optional<std::string> LookupTrackedPathForInode(uint64_t ino);
 std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path);
 void RememberTrackedPathForInode(uint64_t ino, std::string_view path);
+std::optional<std::string> LookupTrackedPathForInode(SessionToken token, uint64_t ino);
+std::optional<uint64_t> LookupTrackedInodeForPath(SessionToken token, std::string_view path);
+void RememberTrackedPathForInode(SessionToken token, uint64_t ino, std::string_view path);
 void NoteHiddenSubtreePathForCache(uint32_t uid, std::string_view path);
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path);
 std::optional<std::string> LookupRecentHiddenParentPath(uint32_t uid,

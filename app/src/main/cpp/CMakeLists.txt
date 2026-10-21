@@ -128,62 +128,18 @@ target_link_libraries(zygisk dobby ${log-lib} ${dl-lib})
 target_link_options(zygisk PRIVATE -Wl,-z,max-page-size=16384)
 
 option(FUSEHIDE_NATIVE_HOOK_REVIEW_TEST "Build standalone native v2 ownership regression" OFF)
-if(FUSEHIDE_NATIVE_HOOK_REVIEW_TEST)
-    add_executable(fusehide_native_hook_review
-        tests/native_hook_adapter_test.cpp
-        zygisk/native_hook_adapter.cpp
-    )
-    target_compile_features(fusehide_native_hook_review PRIVATE cxx_std_20)
-    target_include_directories(fusehide_native_hook_review PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        third_party/Dobby/include
-    )
-    target_link_libraries(fusehide_native_hook_review PRIVATE dobby dl)
-    if(ANDROID)
-        target_link_libraries(fusehide_native_hook_review PRIVATE log)
-    endif()
-    target_link_options(fusehide_native_hook_review PRIVATE -Wl,--wrap=DobbyCodePatch)
-endif()
-
 option(FUSEHIDE_LINKER_REVIEW_TEST "Build isolated Android do_dlopen smoke test" OFF)
-if(FUSEHIDE_LINKER_REVIEW_TEST AND ANDROID)
-    add_executable(fusehide_linker_review
-        tests/linker_monitor_test.cpp
-        zygisk/dlopen_monitor.cpp
-        zygisk/native_hook_adapter.cpp
-        fusehide/elf/elf_utils.cpp
-        third_party/xz-embedded/xz_dec_stream.c
-        third_party/xz-embedded/xz_dec_lzma2.c
-        third_party/xz-embedded/xz_crc32.c
-    )
-    target_compile_features(fusehide_linker_review PRIVATE cxx_std_20)
-    target_compile_definitions(fusehide_linker_review PRIVATE FUSEHIDE_LINKER_REVIEW_TEST=1)
-    target_include_directories(fusehide_linker_review PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        third_party/Dobby/include
-        third_party/xz-embedded
-        zygisk/include
-    )
-    target_link_libraries(fusehide_linker_review PRIVATE dobby log dl)
-    target_link_options(fusehide_linker_review PRIVATE -Wl,--wrap=DobbyCodePatch)
-endif()
-
 option(FUSEHIDE_CALLBACK_LIFETIME_TEST "Build native module callback lifetime review" OFF)
-if(FUSEHIDE_CALLBACK_LIFETIME_TEST AND ANDROID)
-    add_executable(fusehide_callback_lifetime_review
-        tests/native_callback_lifetime_test.cpp
-        zygisk/native_hook_adapter.cpp
-    )
-    target_compile_features(fusehide_callback_lifetime_review PRIVATE cxx_std_20)
-    target_include_directories(fusehide_callback_lifetime_review PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-    target_link_libraries(fusehide_callback_lifetime_review PRIVATE dobby dl log)
-    add_executable(fusehide_callback_gate_review
-        tests/native_callback_gate_test.cpp
-    )
-    target_compile_features(fusehide_callback_gate_review PRIVATE cxx_std_20)
-    target_include_directories(fusehide_callback_gate_review PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-    )
+if(FUSEHIDE_NATIVE_HOOK_REVIEW_TEST OR FUSEHIDE_LINKER_REVIEW_TEST OR
+   FUSEHIDE_CALLBACK_LIFETIME_TEST)
+    # Review tests are local-only and deliberately excluded from committed
+    # sources and production artifacts. Diagnose missing local sources only
+    # when a developer explicitly asks CMake to build those review targets.
+    set(FUSEHIDE_LOCAL_REVIEW_TARGETS
+        "${CMAKE_CURRENT_LIST_DIR}/../../../../tests/native/ReviewTargets.cmake")
+    if(NOT EXISTS "${FUSEHIDE_LOCAL_REVIEW_TARGETS}")
+        message(FATAL_ERROR
+            "Local review tests are unavailable: ${FUSEHIDE_LOCAL_REVIEW_TARGETS}")
+    endif()
+    include("${FUSEHIDE_LOCAL_REVIEW_TARGETS}")
 endif()

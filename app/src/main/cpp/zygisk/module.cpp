@@ -168,6 +168,10 @@ class FuseHideZygiskModule : public zygisk::ModuleBase {
             __android_log_print(ANDROID_LOG_ERROR, kLogTag,
                                 "failed to preload module runtime for target process");
             shouldInject_ = false;
+        } else {
+            // Patch libnativeloader's import before it can load libfuse_jni.so.
+            // Failure is reported as missing coverage, never silently accepted.
+            InstallEarlyDlopenGotMonitor();
         }
     }
 

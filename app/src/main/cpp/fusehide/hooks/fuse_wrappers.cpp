@@ -15,8 +15,12 @@
 #include "fusehide/hooks/wrappers.hpp"
 
 #include "fusehide/filters/dirent_filter.hpp"
+#include "fusehide/filters/readdir_cookie.hpp"
 #include "fusehide/filters/reply_buf_filter.hpp"
 #include "fusehide/policy/path_policy.hpp"
+
+#include <tuple>
+#include <map>
 
 namespace fusehide {
 
@@ -26,7 +30,22 @@ thread_local uint32_t gActiveCreateUid = 0;
 thread_local uint32_t gActiveCreateScopeDepth = 0;
 thread_local uint32_t gActivePathPolicyUid = 0;
 thread_local std::string_view gActivePathPolicyPath;
-thread_local uint32_t gFuseRequestSessionScopeDepth = 0;
+thread_local bool gCrossUidSensitiveLookup = false;
+
+// Keep entry-point diagnostics for future device ABI investigations. Compile
+// them out entirely with the existing global NDEBUG / kEnableDebugHooks flag.
+void DebugRootCallbackProbe(size_t kind, const char* operation, uint64_t inode,
+                            const void* fileInfo) {
+    if constexpr (kEnableDebugHooks) {
+        static std::atomic<uint32_t> counts[4]{};
+        if (kind < 4 && counts[kind].fetch_add(1, std::memory_order_relaxed) < 12) {
+            const SessionToken token = CurrentSessionToken();
+            DebugLogPrint(4, "root callback probe op=%s ino=0x%llx fi=%p se=%p generation=%llu",
+                          operation, static_cast<unsigned long long>(inode), fileInfo, token.se,
+                          static_cast<unsigned long long>(token.generation));
+        }
+    }
+}
 
 bool IsVisibleRootPath(std::string_view path);
 void RememberVisibleRootParentInode(uint64_t parent, const char* reason);
@@ -39,6 +58,19 @@ struct ActiveReaddirContext {
 };
 
 thread_local ActiveReaddirContext gActiveReaddirContext;
+
+#if defined(__x86_64__)
+// A wholly filtered readdirplus page is not EOF. Keep exactly one kernel reply
+// per request while advancing the original MediaProvider directory cursor.
+struct ReaddirplusContinuation {
+    fuse_req_t req = nullptr;
+    off_t currentOffset = 0;
+    off_t nextOffset = 0;
+    bool needsNextPage = false;
+    bool replySent = false;
+};
+thread_local ReaddirplusContinuation* gReaddirplusContinuation = nullptr;
+#endif
 
 enum class HiddenPathClassification : uint8_t {
     kNone,
@@ -72,18 +104,21 @@ struct HiddenPathClassificationCacheEntry {
 // MediaProvider root enumeration is uid-sensitive, so root snapshots stay scoped to uid +
 // effective FuseHide rule fingerprint instead of being shared by fingerprint alone.
 struct RootSnapshotCacheKey {
+    SessionToken session;
     uint32_t uid = 0;
     uint64_t fingerprint = 0;
     std::string path;
 
     bool operator==(const RootSnapshotCacheKey& other) const {
-        return uid == other.uid && fingerprint == other.fingerprint && path == other.path;
+        return session == other.session && uid == other.uid && fingerprint == other.fingerprint &&
+               path == other.path;
     }
 };
 
 struct RootSnapshotCacheKeyHash {
     size_t operator()(const RootSnapshotCacheKey& key) const {
-        const size_t uidHash = std::hash<uint32_t>{}(key.uid);
+        const size_t uidHash = std::hash<uint32_t>{}(key.uid) ^ std::hash<void*>{}(key.session.se) ^
+                               std::hash<uint64_t>{}(key.session.generation);
         const size_t fingerprintHash = std::hash<uint64_t>{}(key.fingerprint);
         const size_t pathHash = std::hash<std::string>{}(key.path);
         const size_t combined =
@@ -111,7 +146,7 @@ std::mutex gRootSnapshotCacheMutex;
 std::unordered_map<RootSnapshotCacheKey, RootSnapshotCacheEntry, RootSnapshotCacheKeyHash>
     gRootSnapshotCache;
 std::mutex gPendingRootSnapshotMutationsMutex;
-std::unordered_map<uint64_t, const char*> gPendingRootSnapshotMutations;
+std::map<std::tuple<void*, uint64_t, uint64_t>, const char*> gPendingRootSnapshotMutations;
 std::atomic<uint64_t> gRootSnapshotParentGeneration{1};
 
 class ScopedCreateUid final {
@@ -152,24 +187,14 @@ class ScopedPathPolicyContext final {
 
 class ScopedFuseRequestSession final {
    public:
-    explicit ScopedFuseRequestSession(fuse_req_t req) {
-        if (gFuseRequestSessionScopeDepth++ == 0) {
-            RuntimeState::RememberFuseSession(req);
-            ownsSessionScope_ = true;
-        }
+    explicit ScopedFuseRequestSession(fuse_req_t req) : previous_(PushFuseRequestSession(req)) {
     }
-
     ~ScopedFuseRequestSession() {
-        if (gFuseRequestSessionScopeDepth != 0) {
-            --gFuseRequestSessionScopeDepth;
-        }
-        if (ownsSessionScope_) {
-            ClearActiveFuseRequestSession();
-        }
+        RestoreFuseRequestSession(previous_);
     }
 
    private:
-    bool ownsSessionScope_ = false;
+    SessionToken previous_;
 };
 
 class ScopedReaddirContext final {
@@ -197,8 +222,7 @@ class ScopedReaddirContext final {
         };
         ownsContext_ = true;
         if (gActiveReaddirContext.globalBacked) {
-            std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-            gPendingReaddirContexts[reqUnique_] = gActiveReaddirContext.pending;
+            PutPendingReaddirContext(reqUnique_, gActiveReaddirContext.pending);
         }
     }
 
@@ -253,11 +277,7 @@ void UpdateActiveReaddirPath(uint64_t reqUnique, std::string_view path) {
         return;
     }
     gActiveReaddirContext.pending.path.assign(path.data(), path.size());
-    std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-    const auto it = gPendingReaddirContexts.find(reqUnique);
-    if (it != gPendingReaddirContexts.end()) {
-        it->second.path = gActiveReaddirContext.pending.path;
-    }
+    SetPendingReaddirPath(reqUnique, gActiveReaddirContext.pending.path);
 }
 
 void CompletePendingReaddirContext(fuse_req_t req, uint32_t reqUid) {
@@ -266,8 +286,7 @@ void CompletePendingReaddirContext(fuse_req_t req, uint32_t reqUid) {
     }
     if (gActiveReaddirContext.depth != 0 && gActiveReaddirContext.reqUnique == req->unique) {
         if (gActiveReaddirContext.globalBacked) {
-            std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-            gPendingReaddirContexts.erase(req->unique);
+            RemovePendingReaddirContext(req->unique);
             gActiveReaddirContext.globalBacked = false;
         }
         return;
@@ -278,8 +297,7 @@ void CompletePendingReaddirContext(fuse_req_t req, uint32_t reqUid) {
     if (reqUid != 0 && BorrowHideRuleForUid(reqUid) == nullptr) {
         return;
     }
-    std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-    gPendingReaddirContexts.erase(req->unique);
+    RemovePendingReaddirContext(req->unique);
 }
 
 std::string_view TrimTrailingSlashes(std::string_view path) {
@@ -290,18 +308,18 @@ std::string_view TrimTrailingSlashes(std::string_view path) {
 }
 
 bool IsVisibleRootPath(std::string_view path) {
-    return TrimTrailingSlashes(path) == kVisibleStorageRoots[0];
+    path = TrimTrailingSlashes(path);
+    const auto root = VisibleStorageRootForPath(path);
+    return root.has_value() && path == *root;
 }
 
 bool IsPathUnderVisibleRoot(std::string_view path) {
     path = TrimTrailingSlashes(path);
-    const std::string_view root = kVisibleStorageRoots[0];
-    return path == root || (path.size() > root.size() && path.compare(0, root.size(), root) == 0 &&
-                            path[root.size()] == '/');
+    return VisibleStorageRootForPath(path).has_value();
 }
 
 std::string CanonicalRootSnapshotPath(std::string_view path) {
-    return IsVisibleRootPath(path) ? std::string(kVisibleStorageRoots[0]) : std::string();
+    return IsVisibleRootPath(path) ? std::string(path) : std::string();
 }
 
 bool PathHasVisibleRootParent(std::string_view path) {
@@ -317,17 +335,33 @@ bool ResolveVisibleParentPath(uint64_t parent, std::string* parentPathOut) {
     if (parentPathOut == nullptr) {
         return false;
     }
-    const uint64_t rootParent = gHiddenRootParentInode.load(std::memory_order_relaxed);
-    if (rootParent != 0 && parent == rootParent) {
-        *parentPathOut = std::string(kVisibleStorageRoots[0]);
-        return true;
-    }
     const auto trackedParentPath = LookupTrackedPathForInode(parent);
     if (!trackedParentPath.has_value()) {
         return false;
     }
     *parentPathOut = *trackedParentPath;
     return true;
+}
+
+// The kernel's positive FUSE dentries are shared across request UIDs. If an
+// unrestricted UID looks up a name that *another* UID hides, the normal AOSP
+// entry_timeout (DBL_MAX) lets the restricted UID bypass our lookup callback
+// via dcache. Keep only names covered by some effective rule uncached.
+bool IsCrossUidSensitiveLookup(uint64_t parent, const char* name) {
+    if (parent == 0 || name == nullptr || name[0] == '\0') {
+        return false;
+    }
+    const auto anyRule = RuleForAnyPackage();
+    if (!anyRule) {
+        return false;
+    }
+    if (const auto parentPath = LookupTrackedPathForInode(parent); parentPath.has_value()) {
+        return HiddenPathPolicy::IsAnyHiddenSubtreePath(
+            *anyRule, HiddenPathPolicy::JoinPathComponent(*parentPath, name));
+    }
+    // Root parent tracking may lag its first lookup. Do not let that window
+    // create a long-lived positive dentry for a configured hidden root entry.
+    return parent == CurrentRootParentInode() && HiddenPathPolicy::IsHiddenRootEntryName(name);
 }
 
 std::optional<std::string> InferVisibleRootPathFromLookup(uint64_t parent, std::string_view name) {
@@ -350,12 +384,7 @@ void RememberVisibleRootParentInode(uint64_t parent, const char* reason) {
     if (parent == 0) {
         return;
     }
-    uint64_t expected = 0;
-    if (gHiddenRootParentInode.compare_exchange_strong(expected, parent,
-                                                       std::memory_order_relaxed)) {
-        DebugLogPrint(4, "record hidden root parent reason=%s ino=%s", reason,
-                      InodePath(parent).c_str());
-    }
+    RememberRootParentInode(parent, reason);
 }
 
 HiddenPathClassification ComputeHiddenPathClassification(uint32_t uid, std::string_view path) {
@@ -517,13 +546,14 @@ ValueDirectoryEntries RebuildValueDirectoryEntries(const CachedValueDirectoryEnt
 template <typename Entries>
 std::optional<Entries> LookupRootSnapshotCache(
     uint32_t uid, std::string_view path, const std::shared_ptr<const CompiledHideRule>& rule) {
+    const SessionToken token = CurrentSessionToken();
     const std::string canonicalPath = CanonicalRootSnapshotPath(path);
-    if (canonicalPath.empty()) {
+    if (!token || canonicalPath.empty()) {
         return std::nullopt;
     }
 
     const uint64_t fingerprint = EffectiveHideRuleFingerprint(rule);
-    const RootSnapshotCacheKey key{uid, fingerprint, canonicalPath};
+    const RootSnapshotCacheKey key{token, uid, fingerprint, canonicalPath};
     std::lock_guard<std::mutex> lock(gRootSnapshotCacheMutex);
     const uint64_t configGeneration = gHideConfigGeneration.load(std::memory_order_acquire);
     const uint64_t packageSetGeneration = gUidPackageSetGeneration.load(std::memory_order_acquire);
@@ -595,8 +625,9 @@ template <typename Entries>
 void MaybeStoreRootSnapshotCache(uint32_t uid, std::string_view path,
                                  const std::shared_ptr<const CompiledHideRule>& rule,
                                  const Entries& entries) {
+    const SessionToken token = CurrentSessionToken();
     const std::string canonicalPath = CanonicalRootSnapshotPath(path);
-    if (canonicalPath.empty() || !CanCacheRootSnapshotEntries(entries)) {
+    if (!token || canonicalPath.empty() || !CanCacheRootSnapshotEntries(entries)) {
         return;
     }
 
@@ -628,8 +659,8 @@ void MaybeStoreRootSnapshotCache(uint32_t uid, std::string_view path,
     } else {
         cacheEntry.valueSnapshot = std::move(snapshot);
     }
-    gRootSnapshotCache.insert_or_assign(RootSnapshotCacheKey{uid, fingerprint, canonicalPath},
-                                        std::move(cacheEntry));
+    gRootSnapshotCache.insert_or_assign(
+        RootSnapshotCacheKey{token, uid, fingerprint, canonicalPath}, std::move(cacheEntry));
     DebugLogPrint(4,
                   "cache root_snapshot store uid=%u path=%s fingerprint=%llu entries=%zu "
                   "generation=%llu package_generation=%llu parent_generation=%llu",
@@ -638,6 +669,18 @@ void MaybeStoreRootSnapshotCache(uint32_t uid, std::string_view path,
                   static_cast<unsigned long long>(configGeneration),
                   static_cast<unsigned long long>(packageSetGeneration),
                   static_cast<unsigned long long>(parentGeneration));
+}
+
+void ClearRootSnapshotCacheForSessionImpl(SessionToken token) {
+    if (!token)
+        return;
+    std::lock_guard<std::mutex> lock(gRootSnapshotCacheMutex);
+    for (auto it = gRootSnapshotCache.begin(); it != gRootSnapshotCache.end();) {
+        if (it->first.session == token)
+            it = gRootSnapshotCache.erase(it);
+        else
+            ++it;
+    }
 }
 
 void BumpRootSnapshotParentGeneration(const char* reason) {
@@ -657,16 +700,22 @@ void TrackPendingRootSnapshotMutation(fuse_req_t req, const char* opName) {
     if (req == nullptr) {
         return;
     }
+    const auto token = CurrentSessionToken();
+    if (!token || req->se != token.se)
+        return;
     std::lock_guard<std::mutex> lock(gPendingRootSnapshotMutationsMutex);
-    gPendingRootSnapshotMutations[req->unique] = opName;
+    gPendingRootSnapshotMutations[{token.se, token.generation, req->unique}] = opName;
 }
 
 std::optional<const char*> TakePendingRootSnapshotMutation(fuse_req_t req) {
     if (req == nullptr) {
         return std::nullopt;
     }
+    const auto token = CurrentSessionToken();
+    if (!token || req->se != token.se)
+        return std::nullopt;
     std::lock_guard<std::mutex> lock(gPendingRootSnapshotMutationsMutex);
-    const auto it = gPendingRootSnapshotMutations.find(req->unique);
+    const auto it = gPendingRootSnapshotMutations.find({token.se, token.generation, req->unique});
     if (it == gPendingRootSnapshotMutations.end()) {
         return std::nullopt;
     }
@@ -728,8 +777,16 @@ void InvalidateFilteredParentChildren(uint32_t uid, std::string_view parentPath,
                       DebugPreview(parentPath).c_str(), removedEntries.size());
         return;
     }
+    const auto& rule = BorrowHideRuleForUid(uid);
+    const bool wildcardRoot = IsVisibleRootPath(parentPath) && rule != nullptr &&
+                              HideAllForStorageRoot(*rule, parentPath);
+    if (wildcardRoot) {
+        // A session root sweep covers the filtered names without queuing two tasks per entry.
+        RuntimeState::ScheduleHiddenEntryInvalidation();
+    }
     for (const auto& entry : removedEntries) {
-        RuntimeState::ScheduleSpecificEntryInvalidation(*parentIno, entry.name);
+        if (!wildcardRoot)
+            RuntimeState::ScheduleSpecificEntryInvalidation(*parentIno, entry.name);
         if (entry.ino != 0) {
             const std::string childPath =
                 HiddenPathPolicy::JoinPathComponent(parentPath, entry.name);
@@ -739,7 +796,8 @@ void InvalidateFilteredParentChildren(uint32_t uid, std::string_view parentPath,
                               DebugPreview(parentPath).c_str(), DebugPreview(entry.name).c_str(),
                               InodePath(entry.ino).c_str());
             }
-            RuntimeState::ScheduleHiddenInodeInvalidation(entry.ino);
+            if (!wildcardRoot)
+                RuntimeState::ScheduleHiddenInodeInvalidation(entry.ino);
         }
     }
     DebugLogPrint(4, "invalidate filtered children parent=%s ino=%s names=%zu",
@@ -748,6 +806,24 @@ void InvalidateFilteredParentChildren(uint32_t uid, std::string_view parentPath,
 }
 
 }  // namespace
+
+void ClearRootSnapshotCacheForSession(SessionToken token) {
+    ClearRootSnapshotCacheForSessionImpl(token);
+}
+
+void ClearPendingRootSnapshotMutations(SessionToken token) {
+    if (!token)
+        return;
+    std::lock_guard<std::mutex> lock(gPendingRootSnapshotMutationsMutex);
+    for (auto it = gPendingRootSnapshotMutations.begin();
+         it != gPendingRootSnapshotMutations.end();) {
+        if (std::get<0>(it->first) == token.se && std::get<1>(it->first) == token.generation) {
+            it = gPendingRootSnapshotMutations.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
 
 void ClearPendingRootSnapshotMutations() {
     std::lock_guard<std::mutex> lock(gPendingRootSnapshotMutationsMutex);
@@ -759,6 +835,7 @@ void ClearPendingRootSnapshotMutations() {
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#851
 extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* name) {
     const ScopedFuseRequestSession scopedSession(req);
+    DebugRootCallbackProbe(0, "lookup", parent, nullptr);
     const uint32_t uid = RuntimeState::ReqUid(req);
     std::string parentPath;
     if (name != nullptr && parent != 0 && ResolveVisibleParentPath(parent, &parentPath) &&
@@ -771,6 +848,7 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
     gCurrentLookupName = name != nullptr ? std::string_view(name) : std::string_view();
     gTrackRootHiddenLookup = IsHiddenLookupCacheTarget(uid, parent, name);
     gTrackHiddenSubtreeLookup = IsTrackedHiddenSubtreeInode(uid, parent);
+    gCrossUidSensitiveLookup = IsCrossUidSensitiveLookup(parent, name);
     DebugLogPrint(3, "lookup: req=%lu parent=%s name=%s", (unsigned long)req->unique,
                   InodePath(parent).c_str(), name ? DebugPreview(name).c_str() : "null");
 
@@ -783,6 +861,7 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
     gInPfLookup = false;
     gTrackHiddenSubtreeLookup = false;
     gTrackRootHiddenLookup = false;
+    gCrossUidSensitiveLookup = false;
 }
 
 bool ShouldFilterDirectoryEntry(uint32_t uid, std::string_view parentPath, std::string_view name) {
@@ -971,6 +1050,7 @@ extern "C" void WrappedPfReaddirPostfilter(fuse_req_t req, uint64_t ino, uint32_
                                            off_t off_in, off_t off_out, size_t size_out,
                                            const void* dirents_in, void* fi) {
     const ScopedFuseRequestSession scopedSession(req);
+    DebugRootCallbackProbe(1, "readdir_postfilter", ino, fi);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const auto fn = gOriginalPfReaddirPostfilter.get();
     if (fn == nullptr) {
@@ -1223,6 +1303,7 @@ extern "C" void WrappedPfCreate(fuse_req_t req, uint64_t parent, const char* nam
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1944
 extern "C" void WrappedPfReaddir(fuse_req_t req, uint64_t ino, size_t size, off_t off, void* fi) {
     const ScopedFuseRequestSession scopedSession(req);
+    DebugRootCallbackProbe(2, "readdir", ino, fi);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const auto fn = gOriginalPfReaddir.get();
     if (fn == nullptr) {
@@ -1267,6 +1348,7 @@ extern "C" void WrappedDoReaddirCommon(fuse_req_t req, uint64_t ino, size_t size
 extern "C" void WrappedPfReaddirplus(fuse_req_t req, uint64_t ino, size_t size, off_t off,
                                      void* fi) {
     const ScopedFuseRequestSession scopedSession(req);
+    DebugRootCallbackProbe(3, "readdirplus", ino, fi);
     const uint32_t uid = RuntimeState::ReqUid(req);
     const auto fn = gOriginalPfReaddirplus.get();
     if (fn == nullptr) {
@@ -1279,7 +1361,44 @@ extern "C" void WrappedPfReaddirplus(fuse_req_t req, uint64_t ino, size_t size, 
     gPfReaddirUid = uid;
     gPfReaddirIno = ino;
     gCurrentReaddirReqUnique = req != nullptr ? req->unique : 0;
+#if defined(__x86_64__)
+    const auto path = LookupTrackedPathForInode(ino);
+    const auto rule = BorrowHideRuleForUid(uid);
+    const bool rootHideAll =
+        path && IsVisibleRootPath(*path) && rule && HideAllForStorageRoot(*rule, *path);
+    if (rootHideAll && fi != nullptr && req != nullptr && size != 0) {
+        ReaddirplusContinuation frame{.req = req};
+        auto* previousFrame = gReaddirplusContinuation;
+        gReaddirplusContinuation = &frame;
+        constexpr size_t kMaxEmptyPages = 1024;
+        const auto start = std::chrono::steady_clock::now();
+        bool finished = false;
+        for (size_t page = 0; page < kMaxEmptyPages; ++page) {
+            frame.currentOffset = off;
+            frame.needsNextPage = false;
+            frame.replySent = false;
+            fn(req, ino, size, off, fi);
+            if (!frame.needsNextPage) {
+                finished = true;
+                break;
+            }
+            off = frame.nextOffset;
+            if (std::chrono::steady_clock::now() - start > std::chrono::seconds(5))
+                break;
+        }
+        gReaddirplusContinuation = previousFrame;
+        if (!finished) {
+            __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                                "readdirplus continuation limit req=%lu ino=%s",
+                                static_cast<unsigned long>(req->unique), InodePath(ino).c_str());
+            ReplyErrorBridge::Reply(req, EOVERFLOW, "readdirplus pagination");
+        }
+    } else {
+        fn(req, ino, size, off, fi);
+    }
+#else
     fn(req, ino, size, off, fi);
+#endif
     gCurrentReaddirReqUnique = 0;
     gPfReaddirIno = 0;
     gPfReaddirUid = 0;
@@ -1314,12 +1433,38 @@ extern "C" int WrappedNotifyInvalInode(void* se, uint64_t ino, off_t off, off_t 
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1166
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1211
 extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* e) {
+    const ScopedFuseRequestSession scopedSession(req);
     const auto fn = gOriginalReplyEntry.get();
-    const bool hiddenLookupForUid = HiddenPathPolicy::IsTestHiddenUid(RuntimeState::ReqUid(req)) &&
+    const uint32_t lookupUid = RuntimeState::ReqUid(req);
+    const bool hiddenLookupForUid = HiddenPathPolicy::IsTestHiddenUid(lookupUid) &&
                                     (gTrackRootHiddenLookup || gTrackHiddenSubtreeLookup);
+    // An ENOENT root lookup cannot learn e->ino through a successful reply.
+    // The root sweep already invalidates this first-level dentry in hide-all mode.
+    // Avoid scheduling a forever-unresolvable inode invalidation for that child.
+    bool rootSweepCoversLookup = false;
+    if (gTrackRootHiddenLookup && gCurrentLookupParentInode != 0 && !gCurrentLookupName.empty()) {
+        const auto parentPath = LookupTrackedPathForInode(gCurrentLookupParentInode);
+        const auto& rule = BorrowHideRuleForUid(lookupUid);
+        rootSweepCoversLookup = parentPath && IsVisibleRootPath(*parentPath) && rule &&
+                                HideAllForStorageRoot(*rule, *parentPath) &&
+                                IsWildcardRootEntryCandidate(gCurrentLookupName, *parentPath);
+    }
     if (hiddenLookupForUid) {
         if (gTrackRootHiddenLookup || gTrackHiddenSubtreeLookup) {
             ArmHiddenCreateLeakRemap(req, "fuse_reply_entry");
+        }
+        // A successful *underlying* lookup already supplies the real inode.
+        // Even though we suppress its positive reply for this UID, remember
+        // the verified parent/name relationship before scheduling an exact
+        // inode invalidation. Otherwise the notification is deferred forever
+        // (and a later config reload correctly remains ready=false).
+        if (e != nullptr && e->ino != 0 && gCurrentLookupParentInode != 0 &&
+            !gCurrentLookupName.empty()) {
+            if (const auto parentPath = LookupTrackedPathForInode(gCurrentLookupParentInode);
+                parentPath.has_value()) {
+                RememberTrackedPathForInode(
+                    e->ino, HiddenPathPolicy::JoinPathComponent(*parentPath, gCurrentLookupName));
+            }
         }
         if (gTrackHiddenSubtreeLookup) {
             if (const auto parentPath = LookupTrackedPathForInode(gCurrentLookupParentInode);
@@ -1343,8 +1488,8 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
                 RuntimeState::ScheduleSpecificEntryInvalidation(gCurrentLookupParentInode,
                                                                 gCurrentLookupName);
             }
-            if (e != nullptr && e->ino != 0 &&
-                TrackHiddenSubtreeInode(RuntimeState::ReqUid(req), e->ino)) {
+            if (e != nullptr && e->ino != 0 && TrackHiddenSubtreeInode(lookupUid, e->ino) &&
+                !rootSweepCoversLookup) {
                 RuntimeState::ScheduleHiddenInodeInvalidation(e->ino);
             }
             return *ret;
@@ -1352,7 +1497,10 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
     }
     fuse_entry_param patchedEntry = {};
     const struct fuse_entry_param* replyEntry = e;
-    bool forceUncachedReplyEntry = gTrackRootHiddenLookup || gTrackHiddenSubtreeLookup;
+    // Even a successful lookup by an unrestricted UID must not create a
+    // positive dentry that a restricted UID can later stat/open without FUSE.
+    bool forceUncachedReplyEntry =
+        gTrackRootHiddenLookup || gTrackHiddenSubtreeLookup || gCrossUidSensitiveLookup;
     bool exactHiddenTargetReplyEntry = false;
     if (e != nullptr && (gTrackRootHiddenLookup || gTrackHiddenSubtreeLookup)) {
         patchedEntry = *e;
@@ -1363,7 +1511,7 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
                       req ? (unsigned long)req->unique : 0UL, InodePath(e->ino).c_str(),
                       gTrackRootHiddenLookup ? 1 : 0, gTrackHiddenSubtreeLookup ? 1 : 0);
         RuntimeState::ScheduleHiddenEntryInvalidation();
-        if (TrackHiddenSubtreeInode(RuntimeState::ReqUid(req), e->ino)) {
+        if (TrackHiddenSubtreeInode(lookupUid, e->ino) && !rootSweepCoversLookup) {
             RuntimeState::ScheduleHiddenInodeInvalidation(e->ino);
         }
     }
@@ -1390,8 +1538,9 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
             childPath = *visibleRootPath;
         } else if (IsFirstComponentOfHiddenRelativePath(RuntimeState::ReqUid(req),
                                                         gCurrentLookupName)) {
-            childPath =
-                HiddenPathPolicy::JoinPathComponent(kVisibleStorageRoots[0], gCurrentLookupName);
+            const auto rootPath = LookupTrackedPathForInode(CurrentRootParentInode());
+            if (rootPath && IsVisibleRootPath(*rootPath))
+                childPath = HiddenPathPolicy::JoinPathComponent(*rootPath, gCurrentLookupName);
             DebugLogPrint(4, "infer root child path ino=%s name=%s path=%s",
                           InodePath(gCurrentLookupParentInode).c_str(),
                           DebugPreview(gCurrentLookupName).c_str(),
@@ -1464,6 +1613,7 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#510
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1002
 extern "C" int WrappedReplyAttr(fuse_req_t req, const struct stat* attr, double timeout) {
+    const ScopedFuseRequestSession scopedSession(req);
     const auto fn = gOriginalReplyAttr.get();
     const double replyTimeout = gZeroAttrCacheForCurrentGetattr ? 0.0 : timeout;
     if (gZeroAttrCacheForCurrentGetattr) {
@@ -1480,6 +1630,7 @@ extern "C" int WrappedReplyAttr(fuse_req_t req, const struct stat* attr, double 
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1941
 // https://android.googlesource.com/platform/packages/providers/MediaProvider/+/refs/heads/android14-release/jni/FuseDaemon.cpp#1997
 extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
+    const ScopedFuseRequestSession scopedSession(req);
     const auto fn = gOriginalReplyBuf.get();
     const char* replyBuf = buf;
     size_t replySize = size;
@@ -1491,10 +1642,8 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
     bool hasPendingContext = SnapshotActiveReaddirContext(req, &pendingContext);
     if (!hasPendingContext && req != nullptr &&
         (reqUid == 0 || BorrowHideRuleForUid(reqUid) != nullptr)) {
-        std::lock_guard<std::mutex> lock(gPendingReaddirContextsMutex);
-        const auto it = gPendingReaddirContexts.find(req->unique);
-        if (it != gPendingReaddirContexts.end()) {
-            pendingContext = it->second;
+        if (const auto stored = GetPendingReaddirContext(req->unique)) {
+            pendingContext = *stored;
             hasPendingContext = true;
         }
     }
@@ -1508,6 +1657,8 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
     const bool filterPostfilterReaddir = gInPfReaddirPostfilter;
     const bool filterReaddirplus = gInPfReaddirplus;
     const bool requireParentMatch = filterIno != 0;
+    if (filterReaddirplus && filterIno == 1)
+        RememberEmulatedZeroFromRootDirentplus(CurrentSessionToken(), filterIno, buf, size);
     const char* filterMode = nullptr;
     uint32_t fallbackHiddenUid = 0;
     const std::optional<std::string> fallbackParentPath =
@@ -1625,6 +1776,48 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
         }
     }
 
+    // AOSP readdirplus calls fuse_add_direntry_plus(), not fuse_reply_entry().
+    // Otherwise an unrestricted UID can populate a long-lived positive dentry
+    // for a target hidden from another UID. Only touch verified plus payloads
+    // for a tracked parent; preserve names, cookies and inode attributes.
+    if (filterReaddirplus && filterIno != 0 && replyBuf != nullptr && replySize != 0) {
+        const auto parentPath = LookupTrackedPathForInode(filterIno);
+        if (parentPath.has_value()) {
+            std::vector<char> uncached;
+            size_t uncachedCount = 0;
+            if (BuildUncachedSensitiveDirentplusPayload(replyBuf, replySize, *parentPath, &uncached,
+                                                        &uncachedCount)) {
+                filteredStorage = std::move(uncached);
+                replyBuf = filteredStorage.data();
+                replySize = filteredStorage.size();
+                DebugLogPrint(4, "readdirplus cross-uid uncached entries=%zu uid=%u parent=%s",
+                              uncachedCount, static_cast<unsigned>(reqUid),
+                              DebugPreview(*parentPath).c_str());
+            }
+        }
+    }
+
+#if defined(__x86_64__)
+    if (filterReaddirplus && filterIno != 0 && size != 0 && replySize == 0 && removedCount != 0 &&
+        filterMode != nullptr && gReaddirplusContinuation != nullptr &&
+        gReaddirplusContinuation->req == req && !gReaddirplusContinuation->replySent) {
+        const auto next =
+            LastReaddirplusCookie(std::span<const char>(buf, size),
+                                  static_cast<int64_t>(gReaddirplusContinuation->currentOffset));
+        if (next) {
+            gReaddirplusContinuation->nextOffset = static_cast<off_t>(*next);
+            gReaddirplusContinuation->needsNextPage = true;
+            return 0;  // Do not send an EOF reply while the directory has more entries.
+        }
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag,
+                            "readdirplus invalid continuation cookie req=%lu",
+                            req ? static_cast<unsigned long>(req->unique) : 0UL);
+        gReaddirplusContinuation->replySent = true;
+        return ReplyErrorBridge::Reply(req, EIO, "readdirplus cookie").value_or(-EIO);
+    }
+    if (gReaddirplusContinuation != nullptr && gReaddirplusContinuation->req == req)
+        gReaddirplusContinuation->replySent = true;
+#endif
     int ret = fn ? fn(req, replyBuf, replySize) : -1;
     if (hasPendingContext) {
         CompletePendingReaddirContext(req, reqUid);
@@ -1644,6 +1837,11 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
 }
 
 extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
+    const ScopedFuseRequestSession scopedSession(req);
+#if defined(__x86_64__)
+    if (gReaddirplusContinuation != nullptr && gReaddirplusContinuation->req == req)
+        gReaddirplusContinuation->replySent = true;
+#endif
     auto fn = ReplyErrorBridge::Original();
     // Root mutations are tracked when the request is issued, but the snapshot must only be bumped
     // after the kernel-visible reply succeeds.
@@ -1694,16 +1892,13 @@ extern "C" int WrappedLstat(const char* path, struct stat* st) {
     const std::string_view pathView = path != nullptr ? std::string_view(path) : std::string_view();
     if (gInPfGetattr && gPfGetattrIno != 0 &&
         HiddenPathPolicy::IsHiddenRootDirectoryPath(pathView)) {
-        uint64_t expected = 0;
-        const bool recorded = gHiddenRootParentInode.compare_exchange_strong(
-            expected, gPfGetattrIno, std::memory_order_relaxed);
-        if (recorded) {
-            DebugLogPrint(4, "record hidden root parent from getattr=%s path=%s",
-                          InodePath(gPfGetattrIno).c_str(), DebugPreview(pathView).c_str());
-        }
+        // Recover the volume identity for Sessions first observed after creation.
+        RegisterSessionRootPath(CurrentSessionToken(), pathView);
+        const bool recorded = CurrentRootParentInode() == 0;
+        RememberRootParentInode(gPfGetattrIno, "getattr_lstat");
         RemoveTrackedHiddenSubtreeInode(gPfGetattrUid, gPfGetattrIno);
         if (const auto rule = RuleForAnyPackage();
-            recorded && rule != nullptr && rule->enableHideAllRootEntries) {
+            recorded && rule != nullptr && HideAllForStorageRoot(*rule, pathView)) {
             RuntimeState::ScheduleHiddenEntryInvalidation();
         }
     }
