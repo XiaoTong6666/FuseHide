@@ -5,6 +5,7 @@ project(fusehide)
 add_library(
     fusehide
     SHARED
+    local_atexit.cpp
     fusehide.cpp
     fusehide/core/runtime_state.cpp
     fusehide/elf/elf_utils.cpp
@@ -92,6 +93,7 @@ add_subdirectory(third_party/Dobby)
 add_library(
     zygisk
     SHARED
+    local_atexit.cpp
     zygisk/module.cpp
     zygisk/dex_loader.cpp
     zygisk/dlopen_monitor.cpp
