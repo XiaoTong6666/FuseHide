@@ -505,12 +505,38 @@ inline constexpr DeviceHookProfile kDeviceHookProfileApi37ValueEntries = {
     .pfReaddirplusOffset = 0x00065a60,
 };
 
+// CP2A.260605.016 MediaProvider on pudding, arm64 Build ID 2c53260883ad6ba6b10a07826004e535.
+// This build retains classic libc++ strings and 0x10-byte shared_ptr directory entries.
+inline constexpr DeviceHookProfile kDeviceHookProfileCp2aPudding = {
+    .name = "cp2a_pudding",
+    .stringLayout = AbiStringLayout::kClassic,
+    .isAppAccessiblePathOffset = 0x000d510c,
+    .pfLookupOffset = 0x000cebd4,
+    .pfLookupPostfilterOffset = 0x000ced24,
+    .pfGetattrOffset = 0x000cf064,
+    .shouldNotCacheOffset = 0x000d69ac,
+    .doReaddirCommonOffset = 0x000d95d8,
+    .getDirectoryEntriesOffset = 0x000e3928,
+    .addDirectoryEntriesFromLowerFsOffset = 0x000e5228,
+    .addDirectoryEntriesFromLowerFsThunkOffset = 0x000f2580,
+    .pfMkdirOffset = 0x000cffcc,
+    .pfMknodOffset = 0x000cfb0c,
+    .pfUnlinkOffset = 0x000d04e8,
+    .pfRmdirOffset = 0x000d0960,
+    .pfRenameOffset = 0x000d0f1c,
+    .pfCreateOffset = 0x000d3d38,
+    .pfReaddirOffset = 0x000d2d24,
+    .pfReaddirPostfilterOffset = 0x000d2e54,
+    .pfReaddirplusOffset = 0x000d48f8,
+};
+
 inline constexpr DeviceHookProfile kKnownDeviceHookProfiles[] = {
     kDeviceHookProfileLegacy,
     kDeviceHookProfileBp2a,
     kDeviceHookProfileV3,
     kDeviceHookProfileV6,
     kDeviceHookProfileApi37ValueEntries,
+    kDeviceHookProfileCp2aPudding,
 };
 inline constexpr size_t kFuseEntryOutWireSize = 128;
 
