@@ -987,6 +987,16 @@ DeviceHookInstallPlan ResolveDeviceHookInstallPlan(const ModuleInfo& module) {
         }
     }
 
+    // Callback discovery can request this cached plan before the main hook-install path.
+    const DirectoryEntriesAbi directoryEntriesAbi = DetectDirectoryEntriesAbi(module);
+    gDirectoryEntriesAbi.store(directoryEntriesAbi, std::memory_order_release);
+    __android_log_print(4, kLogTag, "directory entries ABI=%s",
+                        DirectoryEntriesAbiName(directoryEntriesAbi));
+    if (directoryEntriesAbi == DirectoryEntriesAbi::kUnknown) {
+        __android_log_print(6, kLogTag,
+                            "unknown DirectoryEntries ABI; skipping unsafe C++ container hooks");
+    }
+
     const ResolvedHookFeatureOffsets features = ResolveHookFeatureOffsets(module);
     const int resolvedCount = CountResolvedHookFeatures(features);
     const DeviceHookProfile* bestProfile = &kDeviceHookProfileLegacy;
@@ -2542,15 +2552,6 @@ void InstallFuseHooks() {
     if (!hasClassicStringAbi) {
         __android_log_print(5, kLogTag,
                             "skipping hooks that decode or construct libc++ string objects");
-    }
-
-    const DirectoryEntriesAbi directoryEntriesAbi = DetectDirectoryEntriesAbi(*module);
-    gDirectoryEntriesAbi.store(directoryEntriesAbi, std::memory_order_release);
-    __android_log_print(4, kLogTag, "directory entries ABI=%s",
-                        DirectoryEntriesAbiName(directoryEntriesAbi));
-    if (directoryEntriesAbi == DirectoryEntriesAbi::kUnknown) {
-        __android_log_print(6, kLogTag,
-                            "unknown DirectoryEntries ABI; skipping unsafe C++ container hooks");
     }
 
     CoreHookStatus coreStatus;
