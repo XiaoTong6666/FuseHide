@@ -1,19 +1,14 @@
-# FuseHide 1.197
+# FuseHide 1.198
 
-- **Version:** `1.197`
-- **VersionCode:** `197`
-- **Commit:** [`c59a62b`](https://github.com/XiaoTong6666/FuseHide/commit/c59a62b5d8884908aadefee0b82491d0197504b2)
-- **Build time:** `5m 53s`
-- **SHA256:** `a32ffd5ed32a3bc05c129642ee4074d714480931f44516e81be3aabec09b4b6e`
+- **Version:** `1.198`
+- **VersionCode:** `198`
+- **Commit:** [`a8005e2`](https://github.com/XiaoTong6666/FuseHide/commit/a8005e2e1157b2f40ed79d7761b6faa26f0e8a02)
+- **Build time:** `6m 05s`
+- **SHA256:** `5a61207469b0de6f568325ab88cdce16c2fa72e7dd71ee2c67dc6355fb31dc4d`
 
 ## Message
 
 ```text
-fix(native): 补充基于小米17(pudding) hyperos4 4.0.4.0正式版的 MediaProvider 布局适配 (#116)
+fix(native): resolve __ndk1 ShouldNotCache by exact symbol Meow
 
-* fix(native): 先检测目录项 ABI 再缓存挂点计划
-
-* fix(native): 补齐 pudding MediaProvider 原生布局适配
-
-* fix(native): 补齐 pudding 的两个精确符号签名
 ```
