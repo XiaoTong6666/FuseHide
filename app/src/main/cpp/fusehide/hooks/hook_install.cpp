@@ -1247,6 +1247,13 @@ bool TryInstallInlineHookAt(void* target, void* replacement, void** backup,
     auto loadBackup = [&]() -> void* {
         return backup ? __atomic_load_n(backup, __ATOMIC_ACQUIRE) : nullptr;
     };
+    std::string_view hookName(failureMessage);
+    if (hookName.starts_with("hook ")) {
+        hookName.remove_prefix(5);
+    }
+    if (hookName.ends_with(" failed")) {
+        hookName.remove_suffix(7);
+    }
     if (backup != nullptr && publicationFailed()) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag,
                             "previous hook may have published: %s target=%p", failureMessage,
@@ -1255,8 +1262,9 @@ bool TryInstallInlineHookAt(void* target, void* replacement, void** backup,
     }
     if (backup != nullptr && loadBackup() != nullptr) {
         __android_log_print(4, kLogTag,
-                            "hook already installed %s target=%p replacement=%p backup=%p",
-                            failureMessage, target, replacement, loadBackup());
+                            "hook already installed %.*s target=%p replacement=%p backup=%p",
+                            static_cast<int>(hookName.size()), hookName.data(), target, replacement,
+                            loadBackup());
         return true;
     }
     if (gHookInstaller == nullptr) {
@@ -1292,8 +1300,9 @@ bool TryInstallInlineHookAt(void* target, void* replacement, void** backup,
         retainFailedPublication();
         return false;
     }
-    __android_log_print(4, kLogTag, "hook installed %s target=%p replacement=%p backup=%p",
-                        failureMessage, target, replacement, loadBackup());
+    __android_log_print(4, kLogTag, "hook installed %.*s target=%p replacement=%p backup=%p",
+                        static_cast<int>(hookName.size()), hookName.data(), target, replacement,
+                        loadBackup());
     return true;
 }
 
