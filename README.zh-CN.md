@@ -109,7 +109,9 @@ Zygisk
 
 FuseHide 不应该让两套后端同时 Hook 同一个 MediaProvider 进程。
 
-Zygisk 模块中的 `post-fs-data.sh` 会读取 LSPosed 的模块/作用域数据库，检查 FuseHide 是否已经启用并将 MediaProvider 加入作用域。如果检测到 LSPosed 路径已经生效，会记录 `lsp_scope_enabled` 并禁用 Zygisk 模块路径。native Zygisk 入口也会检查这个标记，并在 LSPosed 路径存在时拒绝继续注入。
+Zygisk 模块中的 `post-fs-data.sh` 会读取 LSPosed 的模块/作用域数据库，检查 FuseHide 是否已经启用并将 MediaProvider 加入作用域。检测到作用域已启用时，会记录 `lsp_scope_enabled`。native Zygisk 入口检查这个标记，命中后跳过注入。
+
+标记缺失时，root companion 会在预载前通过系统 SQLite 库查询当前包、当前用户的 LSPosed 作用域，命中后跳过 Zygisk 注入。native 初始化前按加载基址区分自身预载实例与其他 FuseHide 实例，检测到其他实例时跳过初始化。
 
 因此，**同一个 MediaProvider 只使用一种注入后端**。
 
