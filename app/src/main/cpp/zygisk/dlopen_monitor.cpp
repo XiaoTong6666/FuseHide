@@ -70,27 +70,46 @@ enum class FuseHideInitState : uint8_t {
     kNotStarted,
     kInitializing,
     kReady,
+    kSkippedForNativeFramework,
     // JNI_OnLoad may already have made irreversible changes. Do not rerun it
     // after a partial native initialization failure.
     kFailedAfterJni,
 };
 std::atomic<FuseHideInitState> gFuseHideInitState{FuseHideInitState::kNotStarted};
 
-bool MapsContains(const char* needle) {
-    FILE* maps = fopen("/proc/self/maps", "re");
-    if (maps == nullptr) {
-        return false;
-    }
-    char line[512];
-    bool found = false;
-    while (fgets(line, sizeof(line), maps) != nullptr) {
-        if (strstr(line, needle) != nullptr) {
-            found = true;
-            break;
+bool HasOtherFuseHideRuntime() {
+    struct SearchState {
+        void* ownBase;
+        bool found;
+    } state{nullptr, false};
+    if (gFuseHideHandle != nullptr) {
+        Dl_info own{};
+        if (dladdr(dlsym(gFuseHideHandle, "JNI_OnLoad"), &own) == 0) {
+            return false;
         }
+        state.ownBase = own.dli_fbase;
     }
-    fclose(maps);
-    return found;
+    dl_iterate_phdr(
+        [](dl_phdr_info* info, size_t, void* opaque) -> int {
+            auto* search = static_cast<SearchState*>(opaque);
+            if (info == nullptr || info->dlpi_name == nullptr ||
+                reinterpret_cast<void*>(info->dlpi_addr) == search->ownBase) {
+                return 0;
+            }
+            const std::string_view name(info->dlpi_name);
+            if (name == kFuseHideMarker || name.ends_with("/libfusehide.so")) {
+                search->found = true;
+                return 1;
+            }
+            return 0;
+        },
+        &state);
+    return state.found;
+}
+
+bool IsInitializationFinished(FuseHideInitState state) {
+    return state == FuseHideInitState::kReady || state == FuseHideInitState::kFailedAfterJni ||
+           state == FuseHideInitState::kSkippedForNativeFramework;
 }
 
 bool IsFuseJni(const char* name) {
@@ -169,11 +188,6 @@ void StartInjectedJavaWhenApplicationReady(JNIEnv* env) {
 }
 
 void InitFuseHideOnFuseLoaded(const char* loadedLibrary, void* loadedHandle) {
-    if (gFuseHideHandle == nullptr && MapsContains(kFuseHideMarker)) {
-        __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                            "libfusehide.so already loaded; native framework owns initialization");
-        return;
-    }
     if (gFuseHideHandle == nullptr) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "preloaded libfusehide.so is unavailable");
         return;
@@ -182,6 +196,15 @@ void InitFuseHideOnFuseLoaded(const char* loadedLibrary, void* loadedHandle) {
     auto expected = FuseHideInitState::kNotStarted;
     if (!gFuseHideInitState.compare_exchange_strong(expected, FuseHideInitState::kInitializing,
                                                     std::memory_order_acq_rel)) {
+        return;
+    }
+
+    if (HasOtherFuseHideRuntime()) {
+        gFuseHideInitState.store(FuseHideInitState::kSkippedForNativeFramework,
+                                 std::memory_order_release);
+        __android_log_print(
+            ANDROID_LOG_INFO, kLogTag,
+            "another libfusehide.so instance is loaded; skip Zygisk initialization");
         return;
     }
 
@@ -304,15 +327,14 @@ void StartFuseJniObserver() {
         bool slowObserverLogged = false;
         for (int attempt = 0;; ++attempt) {
             const auto state = gFuseHideInitState.load(std::memory_order_acquire);
-            if (state == FuseHideInitState::kReady || state == FuseHideInitState::kFailedAfterJni) {
+            if (IsInitializationFinished(state)) {
                 return;
             }
             std::string path;
             if (FindLoadedFuseJni(&path)) {
                 InitFuseHideOnFuseLoaded(path.c_str(), nullptr);
                 const auto after = gFuseHideInitState.load(std::memory_order_acquire);
-                if (after == FuseHideInitState::kReady ||
-                    after == FuseHideInitState::kFailedAfterJni) {
+                if (IsInitializationFinished(after)) {
                     return;
                 }
             }
@@ -485,7 +507,9 @@ void InstallDlopenMonitor() {
 #endif
     RecoverLoaderHookIfNeeded("android_dlopen_ext", &gAndroidDlopenExtHook);
     RecoverLoaderHookIfNeeded("dlopen", &gPublicDlopenHook);
-    if (gFuseHideInitState.load(std::memory_order_acquire) == FuseHideInitState::kReady) {
+    const auto initState = gFuseHideInitState.load(std::memory_order_acquire);
+    if (initState == FuseHideInitState::kReady ||
+        initState == FuseHideInitState::kSkippedForNativeFramework) {
         return;
     }
     bool expected = false;

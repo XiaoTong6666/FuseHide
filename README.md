@@ -101,7 +101,9 @@ The injected Java classes are loaded from the APK dex payload through `InMemoryD
 
 FuseHide should not install both hook backends into the same MediaProvider process.
 
-The Zygisk module contains `post-fs-data.sh` logic that checks LSPosed's module/scope database for an enabled FuseHide MediaProvider scope. When that scope is detected, the module records `lsp_scope_enabled` and disables the Zygisk module path. The native Zygisk entry also checks the marker and refuses to inject when the LSPosed path is active.
+The Zygisk module contains `post-fs-data.sh` logic that checks LSPosed's module/scope database for an enabled FuseHide MediaProvider scope. When that scope is detected, the module records `lsp_scope_enabled`. The native Zygisk entry checks this marker and skips injection when it is present.
+
+When the marker is absent, the root companion queries the current package and user's LSPosed scope through the system SQLite library before preloading, and skips Zygisk injection when the scope is enabled. Before native initialization, Zygisk uses load addresses to distinguish its own preloaded FuseHide instance from other instances and skips initialization when another instance is detected.
 
 In other words, **use one injection backend for MediaProvider at a time**.
 

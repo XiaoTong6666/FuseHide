@@ -95,6 +95,7 @@ add_library(
     SHARED
     local_atexit.cpp
     zygisk/module.cpp
+    zygisk/lsposed_scope.cpp
     zygisk/dex_loader.cpp
     zygisk/dlopen_monitor.cpp
     zygisk/native_hook_adapter.cpp

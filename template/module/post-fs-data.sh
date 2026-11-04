@@ -28,12 +28,9 @@ if [ "$result" != "1" ]; then
 fi
 
 if [ "$result" = "1" ]; then
-  : > "$MODDIR/disable"
-  chmod 0600 "$MODDIR/disable"
   : > "$FLAG"
   chmod 0600 "$FLAG"
 else
-  rm -f "$MODDIR/disable"
   rm -f "$FLAG"
 fi
 

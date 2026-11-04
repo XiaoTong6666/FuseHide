@@ -18,6 +18,8 @@
 #include <android/log.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -27,6 +29,7 @@
 #include "dex_loader.hpp"
 #include "dlopen_monitor.hpp"
 #include "dobby.h"
+#include "lsposed_scope.hpp"
 #include "zygisk_log.hpp"
 
 // Used by dlopen_monitor.cpp / dex_loader.cpp.
@@ -39,6 +42,7 @@ constexpr char kLogTag[] = "FuseHide";
 constexpr char kDexRelPath[] = "dex";
 constexpr char kFuseHideLibrary[] = "libfusehide.so";
 constexpr char kLsposedScopeFlag[] = "lsp_scope_enabled";
+constexpr char kLsposedDatabase[] = "/data/adb/lspd/config/modules_config.db";
 constexpr char kMediaProviderPackage[] = "com.android.providers.media.module";
 constexpr char kGoogleMediaProviderPackage[] = "com.google.android.providers.media.module";
 
@@ -54,21 +58,22 @@ constexpr char kAbi[] = "x86";
 #error Unsupported Android ABI
 #endif
 
-bool IsTargetProcess(JNIEnv* env, jstring niceName) {
+int GetTargetProcess(JNIEnv* env, jstring niceName) {
     if (env == nullptr || niceName == nullptr) {
-        return false;
+        return -1;
     }
     const char* processName = env->GetStringUTFChars(niceName, nullptr);
     if (processName == nullptr) {
         if (env->ExceptionCheck()) {
             env->ExceptionClear();
         }
-        return false;
+        return -1;
     }
-    const bool matched = strcmp(processName, kMediaProviderPackage) == 0 ||
-                         strcmp(processName, kGoogleMediaProviderPackage) == 0;
+    const int target = strcmp(processName, kMediaProviderPackage) == 0         ? 0
+                       : strcmp(processName, kGoogleMediaProviderPackage) == 0 ? 1
+                                                                               : -1;
     env->ReleaseStringUTFChars(niceName, processName);
-    return matched;
+    return target;
 }
 
 bool PreloadModuleRuntime(zygisk::Api* api, JNIEnv* env) {
@@ -144,6 +149,57 @@ bool ShouldSkipForLsposedScope(zygisk::Api* api) {
     return true;
 }
 
+struct ScopeRequest {
+    int32_t userId;
+    int32_t target;
+};
+
+void SetScopeSocketTimeout(int fd) {
+    const timeval timeout{1, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+}
+
+void HandleScopeRequest(int client) {
+    SetScopeSocketTimeout(client);
+    ScopeRequest request{};
+    auto scope = fusehide::zygisk::LsposedScope::kUnknown;
+    if (recv(client, &request, sizeof(request), MSG_WAITALL) == sizeof(request) &&
+        request.userId >= 0 && (request.target == 0 || request.target == 1)) {
+        scope = fusehide::zygisk::QueryLsposedScope("libsqlite.so", kLsposedDatabase,
+                                                    request.userId, request.target == 1);
+    }
+    send(client, &scope, sizeof(scope), MSG_NOSIGNAL);
+}
+
+bool ShouldSkipForLsposedDatabase(zygisk::Api* api, int uid, int target) {
+    if (api == nullptr) {
+        return false;
+    }
+    const int client = api->connectCompanion();
+    auto scope = fusehide::zygisk::LsposedScope::kUnknown;
+    if (client >= 0) {
+        SetScopeSocketTimeout(client);
+        const ScopeRequest request{uid / 100000, target};
+        if (send(client, &request, sizeof(request), MSG_NOSIGNAL) != sizeof(request) ||
+            recv(client, &scope, sizeof(scope), MSG_WAITALL) != sizeof(scope)) {
+            scope = fusehide::zygisk::LsposedScope::kUnknown;
+        }
+        close(client);
+    }
+    if (scope == fusehide::zygisk::LsposedScope::kEnabled) {
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                            "LSPosed MediaProvider scope enabled for user=%d; skip Zygisk backend",
+                            uid / 100000);
+        return true;
+    }
+    if (scope != fusehide::zygisk::LsposedScope::kDisabled) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                            "LSPosed scope query unavailable; checking loaded native runtime");
+    }
+    return false;
+}
+
 }  // namespace
 
 namespace {
@@ -156,11 +212,13 @@ class FuseHideZygiskModule : public zygisk::ModuleBase {
     }
 
     void preAppSpecialize(zygisk::AppSpecializeArgs* args) override {
-        shouldInject_ = IsTargetProcess(gVmEnv(), args != nullptr ? args->nice_name : nullptr);
+        const int target = GetTargetProcess(gVmEnv(), args != nullptr ? args->nice_name : nullptr);
+        shouldInject_ = target >= 0;
         if (!shouldInject_) {
             return;
         }
-        if (ShouldSkipForLsposedScope(api_)) {
+        if (ShouldSkipForLsposedScope(api_) ||
+            ShouldSkipForLsposedDatabase(api_, args->uid, target)) {
             shouldInject_ = false;
             return;
         }
@@ -210,3 +268,4 @@ class FuseHideZygiskModule : public zygisk::ModuleBase {
 }  // namespace
 
 REGISTER_ZYGISK_MODULE(FuseHideZygiskModule)
+REGISTER_ZYGISK_COMPANION(HandleScopeRequest)
