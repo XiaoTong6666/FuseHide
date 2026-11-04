@@ -1,31 +1,19 @@
-# FuseHide 1.196
+# FuseHide 1.197
 
-- **Version:** `1.196`
-- **VersionCode:** `196`
-- **Commit:** [`43ec341`](https://github.com/XiaoTong6666/FuseHide/commit/43ec341bf883766e74c20009b5ec83fe085bc435)
-- **Build time:** `8m 10s`
-- **SHA256:** `4b27541d2185230fbd35489fba58e0732a9a80a64bd9dba0615b342954bec8d6`
+- **Version:** `1.197`
+- **VersionCode:** `197`
+- **Commit:** [`c59a62b`](https://github.com/XiaoTong6666/FuseHide/commit/c59a62b5d8884908aadefee0b82491d0197504b2)
+- **Build time:** `5m 53s`
+- **SHA256:** `a32ffd5ed32a3bc05c129642ee4074d714480931f44516e81be3aabec09b4b6e`
 
 ## Message
 
 ```text
-build(deps): bump org.commonmark:commonmark from 0.30.1 to 0.31.0 (#113)
+fix(native): 补充基于小米17(pudding) hyperos4 4.0.4.0正式版的 MediaProvider 布局适配 (#116)
 
-Bumps [org.commonmark:commonmark](https://github.com/commonmark/commonmark-java) from 0.30.1 to 0.31.0.
-- [Release notes](https://github.com/commonmark/commonmark-java/releases)
-- [Changelog](https://github.com/commonmark/commonmark-java/blob/main/CHANGELOG.md)
-- [Commits](https://github.com/commonmark/commonmark-java/compare/commonmark-parent-0.30.1...commonmark-parent-0.31.0)
+* fix(native): 先检测目录项 ABI 再缓存挂点计划
 
----
-updated-dependencies:
-- dependency-name: org.commonmark:commonmark
-  dependency-version: 0.31.0
-  dependency-type: direct:production
-  update-type: version-update:semver-minor
-...
+* fix(native): 补齐 pudding MediaProvider 原生布局适配
 
-Signed-off-by: dependabot[bot] <support@github.com>
-Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
-Co-authored-by: dependabot[bot] <xiaotong6666@users.noreply.github.com>
-
+* fix(native): 补齐 pudding 的两个精确符号签名
 ```
