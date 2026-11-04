@@ -95,8 +95,13 @@ int InstallNativeHookInternal(void* target, void* replacement, void** backup, vo
         // to the adapter itself.  Backup validation remains mandatory so a
         // callable original can never be published with a proven control-flow
         // cycle into the replacement/patched entry.
+        // The MediaProvider functions on Android 17 commonly begin with
+        // PACIASP. Preserve that instruction and publish the matching PAC
+        // original trampoline instead of failing every strict inline hook.
+        // Keep backup validation enabled. PAC support is not a reason to
+        // publish unverified originals from unrelated BTI/branch targets.
         DOBBY_HOOK_REQUIRE_CONCURRENT_SAFE | DOBBY_HOOK_VALIDATE_BACKUP |
-            DOBBY_HOOK_PRESERVE_LANDING_PAD,
+            DOBBY_HOOK_PRESERVE_LANDING_PAD | DOBBY_HOOK_EXPERIMENTAL_PAC_SP,
 #elif defined(__x86_64__)
         // A live MediaProvider is not a cooperative quiescent host. Its x64
         // long entry patch must fail closed until all execution can be parked.

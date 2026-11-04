@@ -61,7 +61,8 @@ inline constexpr std::string_view kShouldNotCacheSymbols[] = {
     "traitsIcEENS2_9allocatorIcEEEE",
     "_ZN13mediaprovider4fuse4fuse14ShouldNotCacheERKNSt3__112basic_stringIcNS2_11char_"
     "traitsIcEENS2_9allocatorIcEEEE",
-    "_ZN4fuse14ShouldNotCacheERKNSt6__ndk112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEE",
+    "_ZN4fuse14ShouldNotCacheERKNSt6__ndk112basic_stringIcNS0_11char_traitsIcEENS0_"
+    "9allocatorIcEEEE",
     "_ZN4fuse14ShouldNotCacheERKNSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEE",
     "ShouldNotCache",
 };

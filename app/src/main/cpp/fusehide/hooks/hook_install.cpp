@@ -453,6 +453,7 @@ enum class HookResolutionSource {
 
 struct ResolvedHookFeatureOffsets {
     std::optional<uintptr_t> isAppAccessiblePathOffset;
+    HookResolutionSource isAppAccessiblePathSource = HookResolutionSource::kUnavailable;
     std::optional<uintptr_t> pfLookupOffset;
     std::optional<uintptr_t> pfLookupPostfilterOffset;
     std::optional<uintptr_t> pfGetattrOffset;
@@ -579,6 +580,9 @@ struct CriticalHookTargetPlan {
 struct DeviceHookInstallPlan {
     DeviceHookProfile profile;
     bool profileTrusted = false;
+    // An exact string-bearing symbol can enable the existing string wrappers
+    // independently of DirectoryEntries availability or legacy profile RVAs.
+    bool runtimeStringSignatureResolved = false;
     CriticalHookTargetPlan shouldNotCache;
     CriticalHookTargetPlan doReaddirCommon;
     CriticalHookTargetPlan getDirectoryEntries;
@@ -589,28 +593,27 @@ struct DeviceHookInstallPlan {
     CriticalHookTargetPlan pfReaddirplus;
 };
 
-bool HasVerifiedClassicStringAbi(const DeviceHookInstallPlan& installPlan) {
-    return installPlan.profileTrusted &&
-           installPlan.profile.stringLayout == AbiStringLayout::kClassic;
+// A matching mangled symbol proves the entry's parameter type, not the
+// private libc++ string-object layout. Keep the older trusted profile path;
+// runtime symbols enable the existing classic-layout wrappers provisionally.
+bool CanUseClassicStringWrappers(const DeviceHookInstallPlan& installPlan) {
+    return installPlan.runtimeStringSignatureResolved ||
+           (installPlan.profileTrusted &&
+            installPlan.profile.stringLayout == AbiStringLayout::kClassic);
 }
 
 bool CanInstallDirectoryEntriesHooks(const DeviceHookInstallPlan& installPlan) {
-    if (!HasVerifiedClassicStringAbi(installPlan)) {
+    if (!CanUseClassicStringWrappers(installPlan)) {
         return false;
     }
     const DirectoryEntriesAbi abi = gDirectoryEntriesAbi.load(std::memory_order_acquire);
     if (abi == DirectoryEntriesAbi::kSharedPtr) {
         return true;
     }
-    return abi == DirectoryEntriesAbi::kValue && installPlan.profileTrusted &&
-           std::strcmp(installPlan.profile.name, kDeviceHookProfileApi37ValueEntries.name) == 0 &&
+    return abi == DirectoryEntriesAbi::kValue &&
            installPlan.getDirectoryEntries.source == HookResolutionSource::kResolvedSymbol &&
-           installPlan.getDirectoryEntries.offset ==
-               kDeviceHookProfileApi37ValueEntries.getDirectoryEntriesOffset &&
            installPlan.addDirectoryEntriesFromLowerFs.source ==
-               HookResolutionSource::kResolvedSymbol &&
-           installPlan.addDirectoryEntriesFromLowerFs.offset ==
-               kDeviceHookProfileApi37ValueEntries.addDirectoryEntriesFromLowerFsOffset;
+               HookResolutionSource::kResolvedSymbol;
 }
 
 bool TryInstallInlineHookAt(void* target, void* replacement, void** backup,
@@ -663,8 +666,8 @@ inline constexpr LayoutAnchorDescriptor kLayoutAnchorDescriptors[] = {
 
 ResolvedHookFeatureOffsets ResolveHookFeatureOffsets(const ModuleInfo& module) {
     ResolvedHookFeatureOffsets features;
-    features.isAppAccessiblePathOffset =
-        ResolveFirstAvailableSymbolOffset(module, kIsAppAccessiblePathSymbols);
+    features.isAppAccessiblePathOffset = ResolveFeatureOffsetBySymbols(
+        module, kIsAppAccessiblePathSymbols, &features.isAppAccessiblePathSource);
     features.pfLookupOffset = ResolveFirstAvailableSymbolOffset(module, kPfLookupSymbols);
     features.pfLookupPostfilterOffset =
         ResolveFirstAvailableSymbolOffset(module, kPfLookupPostfilterSymbols);
@@ -701,8 +704,8 @@ ResolvedHookFeatureOffsets ResolveHookFeatureOffsets(const ModuleInfo& module) {
     features.pfReaddirplusOffset =
         ResolveFeatureOffsetBySymbols(module, kPfReaddirplusSymbols, &features.pfReaddirplusSource);
     if (!features.isAppAccessiblePathOffset.has_value()) {
-        features.isAppAccessiblePathOffset =
-            ResolveFeatureOffsetByContains(module, "is_app_accessible_path", nullptr);
+        features.isAppAccessiblePathOffset = ResolveFeatureOffsetByContains(
+            module, "is_app_accessible_path", &features.isAppAccessiblePathSource);
     }
     if (!features.pfLookupOffset.has_value()) {
         features.pfLookupOffset =
@@ -1017,6 +1020,12 @@ DeviceHookInstallPlan ResolveDeviceHookInstallPlan(const ModuleInfo& module) {
     DeviceHookInstallPlan installPlan;
     installPlan.profile = *bestProfile;
     installPlan.profileTrusted = profileTrusted;
+    // Reuse the existing resolution results. DirectoryEntries has a separate
+    // ABI gate, so a missing directory helper must not block string hooks.
+    installPlan.runtimeStringSignatureResolved =
+        features.isAppAccessiblePathSource == HookResolutionSource::kResolvedSymbol;
+    if (installPlan.runtimeStringSignatureResolved)
+        DebugLogPrint(4, "string hook signature resolved exactly; classic object layout assumed");
     int overrideCount = 0;
     ApplyResolvedHookFeatureOverrides(features, &installPlan.profile, &overrideCount);
     int derivedCount = 0;
@@ -1500,7 +1509,7 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
     auto& process = Process();
     const DeviceHookInstallPlan installPlan = ResolveDeviceHookInstallPlan(module);
     const DeviceHookProfile& deviceProfile = installPlan.profile;
-    const bool hasClassicStringAbi = HasVerifiedClassicStringAbi(installPlan);
+    const bool hasClassicStringAbi = CanUseClassicStringWrappers(installPlan);
     if (hasClassicStringAbi) {
         InstallFirstAvailableFileInlineHook(
             module, kIsAppAccessiblePathSymbols,
@@ -1768,7 +1777,7 @@ void InstallAdvancedCoreHooks(const ModuleInfo& module, CoreHookStatus* status) 
     auto& process = Process();
     const DeviceHookInstallPlan installPlan = ResolveDeviceHookInstallPlan(module);
     const DeviceHookProfile& deviceProfile = installPlan.profile;
-    const bool hasClassicStringAbi = HasVerifiedClassicStringAbi(installPlan);
+    const bool hasClassicStringAbi = CanUseClassicStringWrappers(installPlan);
     if (hasClassicStringAbi && !status->appAccessible) {
         InstallFirstAvailableInlineHook(
             kIsAppAccessiblePathSymbols, reinterpret_cast<void*>(+WrappedIsAppAccessiblePath),
@@ -2544,7 +2553,7 @@ void InstallFuseHooks() {
         }
     }
 
-    const bool hasClassicStringAbi = HasVerifiedClassicStringAbi(installPlan);
+    const bool hasClassicStringAbi = CanUseClassicStringWrappers(installPlan);
     __android_log_print(hasClassicStringAbi ? 4 : 5, kLogTag,
                         "libc++ string ABI=%s profile=%s trusted=%d",
                         hasClassicStringAbi ? "classic" : "unverified", installPlan.profile.name,
