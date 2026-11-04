@@ -1,21 +1,30 @@
-# FuseHide 1.199
+# FuseHide 1.201
 
-- **Version:** `1.199`
-- **VersionCode:** `199`
-- **Commit:** [`a6e1d36`](https://github.com/XiaoTong6666/FuseHide/commit/a6e1d36f2392a70d416d2aafd46c79a7f656cbe7)
-- **Build time:** `5m 10s`
-- **SHA256:** `9f139a59771580ff63455a1bc027a382b7a2ce121217b2387c1ef497c6359ce2`
+- **Version:** `1.201`
+- **VersionCode:** `201`
+- **Commit:** [`33b2011`](https://github.com/XiaoTong6666/FuseHide/commit/33b20118ed334fde8c27fceb3981c374b2a749c0)
+- **Build time:** `5m 41s`
+- **SHA256:** `649b974edab2a0123ad636f51c5eb382b315f08c03d15fe59e6bc5b6d9be4a9d`
 
 ## Message
 
 ```text
-fix(native): enable PAC-aware MediaProvider hooks with exact symbols Meow
+build(deps): bump org.commonmark:commonmark from 0.31.0 to 0.32.0 (#117)
 
-在 Zygisk Native Hook adapter 中使用 PAC-SP 处理路径，保留并发安全和备份验证要求，让 Android 17 MediaProvider 的 PACIASP 入口能够进入内联 Hook 流程喵（认真盯着跳板代码）
+Bumps [org.commonmark:commonmark](https://github.com/commonmark/commonmark-java) from 0.31.0 to 0.32.0.
+- [Release notes](https://github.com/commonmark/commonmark-java/releases)
+- [Changelog](https://github.com/commonmark/commonmark-java/blob/main/CHANGELOG.md)
+- [Commits](https://github.com/commonmark/commonmark-java/compare/commonmark-parent-0.31.0...commonmark-parent-0.32.0)
 
-复用现有 ELF 精确符号解析结果识别字符串参数入口，避免历史 profile 的 RVA 不匹配时连带跳过相关 Hook 喵
-根据目录辅助函数的精确符号和已识别的容器 ABI 选择 DirectoryEntries Hook，同时保留历史 RVA fallback，不引入新的设备白名单或硬编码偏移喵（满意地晃晃尾巴）
+---
+updated-dependencies:
+- dependency-name: org.commonmark:commonmark
+  dependency-version: 0.32.0
+  dependency-type: direct:production
+  update-type: version-update:semver-minor
+...
 
-同步更新 Dobby 子模块指针，接入新增的 PAC 感知 Hook 实现喵（把代码仔细收好）
+Signed-off-by: dependabot[bot] <support@github.com>
+Co-authored-by: dependabot[bot] <xiaotong6666@users.noreply.github.com>
 
 ```
