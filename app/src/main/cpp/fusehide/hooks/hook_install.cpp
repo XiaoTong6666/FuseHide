@@ -1261,10 +1261,9 @@ bool TryInstallInlineHookAt(void* target, void* replacement, void** backup,
         return false;
     }
     if (backup != nullptr && loadBackup() != nullptr) {
-        __android_log_print(4, kLogTag,
-                            "hook already installed %.*s target=%p replacement=%p backup=%p",
-                            static_cast<int>(hookName.size()), hookName.data(), target, replacement,
-                            loadBackup());
+        __android_log_print(
+            4, kLogTag, "hook already installed %.*s target=%p replacement=%p backup=%p",
+            static_cast<int>(hookName.size()), hookName.data(), target, replacement, loadBackup());
         return true;
     }
     if (gHookInstaller == nullptr) {
