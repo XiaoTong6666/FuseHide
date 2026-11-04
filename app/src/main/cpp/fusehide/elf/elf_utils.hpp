@@ -61,6 +61,7 @@ inline constexpr std::string_view kShouldNotCacheSymbols[] = {
     "traitsIcEENS2_9allocatorIcEEEE",
     "_ZN13mediaprovider4fuse4fuse14ShouldNotCacheERKNSt3__112basic_stringIcNS2_11char_"
     "traitsIcEENS2_9allocatorIcEEEE",
+    "_ZN4fuse14ShouldNotCacheERKNSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEE",
     "ShouldNotCache",
 };
 
@@ -72,6 +73,7 @@ inline constexpr std::string_view kEqualsIgnoreCaseSymbols[] = {
 };
 
 inline constexpr std::string_view kDoReaddirCommonSymbols[] = {
+    "_ZN13mediaprovider4fuseL17do_readdir_commonEP8fuse_reqmmlP14fuse_file_infob",
     "do_readdir_common",
 };
 
