@@ -1843,11 +1843,46 @@ extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
         gReaddirplusContinuation->replySent = true;
 #endif
     auto fn = ReplyErrorBridge::Original();
+    [[maybe_unused]] const int originalErr = err;
     // Root mutations are tracked when the request is issued, but the snapshot must only be bumped
     // after the kernel-visible reply succeeds.
     const auto pendingRootMutation = TakePendingRootSnapshotMutation(req);
     CompletePendingReaddirContext(req, RuntimeState::ReqUid(req));
     err = MaybeRewriteHiddenLeakErrno(req, err, "fuse_reply_err");
+    if constexpr (kEnableDebugHooks) {
+        if (err == ENOENT) {
+            // The error may come from MediaProvider itself, not necessarily our
+            // filtering. Capture the enclosing lookup context to distinguish them.
+            const uint32_t uid = RuntimeState::ReqUid(req);
+            const auto parentPath = gInPfLookup && gCurrentLookupParentInode != 0
+                                        ? LookupTrackedPathForInode(gCurrentLookupParentInode)
+                                        : std::nullopt;
+            const bool hasLookupName = gInPfLookup && !gCurrentLookupName.empty();
+            const std::string childPath =
+                hasLookupName && parentPath
+                    ? HiddenPathPolicy::JoinPathComponent(*parentPath, gCurrentLookupName)
+                    : "";
+            const bool policyHidden =
+                !childPath.empty() && HiddenPathPolicy::ShouldHideTestPath(uid, childPath);
+            const bool trackedParent =
+                gInPfLookup && IsTrackedHiddenSubtreeInode(uid, gCurrentLookupParentInode);
+            const bool mismatch = trackedParent && parentPath && !policyHidden;
+            static std::atomic<int> sampled{0};
+            if (mismatch || ShouldLogLimited(sampled, 192)) {
+                DebugLogPrint(mismatch ? 5 : 4,
+                              "hide-diag reply_err uid=%u req=%lu original_err=%d err=%d "
+                              "lookup=%d parent=0x%llx parent_path=%s name=%s policy_hidden=%d "
+                              "tracked_parent=%d mismatch=%d",
+                              static_cast<unsigned>(uid),
+                              req ? static_cast<unsigned long>(req->unique) : 0UL, originalErr, err,
+                              gInPfLookup ? 1 : 0,
+                              static_cast<unsigned long long>(gCurrentLookupParentInode),
+                              parentPath ? DebugPreview(*parentPath).c_str() : "(unknown)",
+                              hasLookupName ? DebugPreview(gCurrentLookupName).c_str() : "(none)",
+                              policyHidden ? 1 : 0, trackedParent ? 1 : 0, mismatch ? 1 : 0);
+            }
+        }
+    }
     if (pendingRootMutation.has_value() && err == 0) {
         BumpRootSnapshotParentGeneration(*pendingRootMutation);
     }
@@ -1916,6 +1951,24 @@ extern "C" int WrappedLstat(const char* path, struct stat* st) {
     const auto fn = gOriginalLstat.get();
     if (fn) {
         const int ret = fn(path, st);
+        if constexpr (kEnableDebugHooks) {
+            if (ret == -1 && errno == ENOENT && gInPfGetattr) {
+                // Logging must not change the errno observed by MediaProvider.
+                const int savedErrno = errno;
+                static std::atomic<int> sampled{0};
+                if (ShouldLogLimited(sampled, 192)) {
+                    DebugLogPrint(
+                        4,
+                        "hide-diag lower_lstat uid=%u ino=0x%llx path=%s "
+                        "original_enoent=1 policy_hidden=%d",
+                        static_cast<unsigned>(gPfGetattrUid),
+                        static_cast<unsigned long long>(gPfGetattrIno),
+                        DebugPreview(pathView).c_str(),
+                        HiddenPathPolicy::ShouldHideTestPath(gPfGetattrUid, pathView) ? 1 : 0);
+                }
+                errno = savedErrno;
+            }
+        }
         if (ret == 0 && gInPfGetattr && gPfGetattrIno != 0) {
             RememberTrackedPathForInode(gPfGetattrIno, pathView);
             if (HiddenPathPolicy::IsTestHiddenUid(gPfGetattrUid) &&
@@ -1948,7 +2001,23 @@ extern "C" int WrappedStat(const char* path, struct stat* st) {
     }
     const auto fn = gOriginalStat.get();
     if (fn) {
-        return fn(path, st);
+        const int ret = fn(path, st);
+        if constexpr (kEnableDebugHooks) {
+            if (ret == -1 && errno == ENOENT && gInPfReaddirPostfilter) {
+                const int savedErrno = errno;
+                static std::atomic<int> sampled{0};
+                if (ShouldLogLimited(sampled, 192)) {
+                    DebugLogPrint(
+                        4,
+                        "hide-diag lower_stat uid=%u path=%s original_enoent=1 "
+                        "policy_hidden=%d",
+                        static_cast<unsigned>(gPfReaddirUid), DebugPreview(pathView).c_str(),
+                        HiddenPathPolicy::ShouldHideTestPath(gPfReaddirUid, pathView) ? 1 : 0);
+                }
+                errno = savedErrno;
+            }
+        }
+        return ret;
     }
     errno = ENOSYS;
     return -1;

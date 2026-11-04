@@ -1529,14 +1529,56 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     }
     const uint64_t rootParent = CurrentRootParentInode();
     if (parent != 0 && parent != rootParent && IsTrackedHiddenSubtreeInode(uid, parent)) {
+        if constexpr (kEnableDebugHooks) {
+            // A stale inode mark can hide a child even when the full path is exempt.
+            // Always report that contradiction, not only the first N ordinary matches.
+            const auto parentPath = LookupTrackedPathForInode(parent);
+            const std::string childPath =
+                parentPath ? HiddenPathPolicy::JoinPathComponent(*parentPath, name) : "";
+            const bool pathHidden =
+                parentPath && HiddenPathPolicy::IsAnyHiddenSubtreePath(uid, childPath);
+            const bool mismatch = parentPath && !pathHidden;
+            static std::atomic<int> sampled{0};
+            if (mismatch || ShouldLogLimited(sampled, 96)) {
+                DebugLogPrint(
+                    mismatch ? 5 : 4,
+                    "hide-diag named uid=%u source=tracked_parent parent=0x%llx root=0x%llx "
+                    "parent_path=%s name=%s child_path_hidden=%d mismatch=%d",
+                    static_cast<unsigned>(uid), static_cast<unsigned long long>(parent),
+                    static_cast<unsigned long long>(rootParent),
+                    parentPath ? DebugPreview(*parentPath).c_str() : "(unknown)",
+                    DebugPreview(name).c_str(), pathHidden ? 1 : 0, mismatch ? 1 : 0);
+            }
+        }
         return HiddenNamedTargetKind::Descendant;
     }
     if (rootParent != 0 && parent == rootParent &&
         HiddenPathPolicy::IsHiddenRootEntryName(uid, name)) {
+        if constexpr (kEnableDebugHooks) {
+            static std::atomic<int> sampled{0};
+            if (ShouldLogLimited(sampled, 96)) {
+                DebugLogPrint(4, "hide-diag named uid=%u source=root_entry parent=0x%llx name=%s",
+                              static_cast<unsigned>(uid), static_cast<unsigned long long>(parent),
+                              DebugPreview(name).c_str());
+            }
+        }
         return HiddenNamedTargetKind::Root;
     }
     if (const auto trackedPathKind = ClassifyHiddenNamedTargetByTrackedPath(uid, parent, name);
         trackedPathKind.has_value()) {
+        if constexpr (kEnableDebugHooks) {
+            static std::atomic<int> sampled{0};
+            if (ShouldLogLimited(sampled, 96)) {
+                const auto parentPath = LookupTrackedPathForInode(parent);
+                DebugLogPrint(4,
+                              "hide-diag named uid=%u source=tracked_path kind=%d parent=0x%llx "
+                              "parent_path=%s name=%s",
+                              static_cast<unsigned>(uid), static_cast<int>(*trackedPathKind),
+                              static_cast<unsigned long long>(parent),
+                              parentPath ? DebugPreview(*parentPath).c_str() : "(unknown)",
+                              DebugPreview(name).c_str());
+            }
+        }
         return *trackedPathKind;
     }
     return HiddenNamedTargetKind::None;
@@ -1764,15 +1806,32 @@ bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
     const auto state = CurrentTracking();
     if (rule == nullptr || ino == 0 || !state)
         return false;
-    std::lock_guard<std::mutex> lock(state->mutex);
-    auto& rules = state->hiddenSubtreeRules[ino];
-    const bool alreadyTracked =
-        std::any_of(rules.begin(), rules.end(), [&](const auto& trackedRule) {
-            return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
-        });
-    if (alreadyTracked)
-        return false;
-    rules.push_back(rule);
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        auto& rules = state->hiddenSubtreeRules[ino];
+        const bool alreadyTracked =
+            std::any_of(rules.begin(), rules.end(), [&](const auto& trackedRule) {
+                return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
+            });
+        if (alreadyTracked)
+            return false;
+        rules.push_back(rule);
+    }
+    if constexpr (kEnableDebugHooks) {
+        // Resolve the path after releasing state->mutex: path lookup takes the same lock.
+        const auto path = LookupTrackedPathForInode(ino);
+        const bool pathHidden = path && HiddenPathPolicy::IsAnyHiddenSubtreePath(uid, *path);
+        const bool mismatch = path && !pathHidden;
+        static std::atomic<int> sampled{0};
+        if (mismatch || ShouldLogLimited(sampled, 128)) {
+            DebugLogPrint(
+                mismatch ? 5 : 4,
+                "hide-diag inode_mark uid=%u ino=0x%llx path=%s path_hidden=%d mismatch=%d",
+                static_cast<unsigned>(uid), static_cast<unsigned long long>(ino),
+                path ? DebugPreview(*path).c_str() : "(unknown)", pathHidden ? 1 : 0,
+                mismatch ? 1 : 0);
+        }
+    }
     return true;
 }
 
@@ -1781,20 +1840,34 @@ bool RemoveTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
     const auto state = CurrentTracking();
     if (rule == nullptr || ino == 0 || !state)
         return false;
-    std::lock_guard<std::mutex> lock(state->mutex);
-    const auto it = state->hiddenSubtreeRules.find(ino);
-    if (it == state->hiddenSubtreeRules.end())
-        return false;
-    auto& rules = it->second;
-    const size_t oldSize = rules.size();
-    rules.erase(std::remove_if(rules.begin(), rules.end(),
-                               [&](const auto& trackedRule) {
-                                   return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
-                               }),
-                rules.end());
-    const bool changed = rules.size() != oldSize;
-    if (rules.empty())
-        state->hiddenSubtreeRules.erase(it);
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        const auto it = state->hiddenSubtreeRules.find(ino);
+        if (it == state->hiddenSubtreeRules.end())
+            return false;
+        auto& rules = it->second;
+        const size_t oldSize = rules.size();
+        rules.erase(std::remove_if(rules.begin(), rules.end(),
+                                   [&](const auto& trackedRule) {
+                                       return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
+                                   }),
+                    rules.end());
+        changed = rules.size() != oldSize;
+        if (rules.empty())
+            state->hiddenSubtreeRules.erase(it);
+    }
+    if constexpr (kEnableDebugHooks) {
+        if (changed) {
+            static std::atomic<int> sampled{0};
+            if (ShouldLogLimited(sampled, 128)) {
+                const auto path = LookupTrackedPathForInode(ino);
+                DebugLogPrint(4, "hide-diag inode_unmark uid=%u ino=0x%llx path=%s",
+                              static_cast<unsigned>(uid), static_cast<unsigned long long>(ino),
+                              path ? DebugPreview(*path).c_str() : "(unknown)");
+            }
+        }
+    }
     return changed;
 }
 
