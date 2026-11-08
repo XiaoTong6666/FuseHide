@@ -1,18 +1,34 @@
-# FuseHide 1.202
+# FuseHide 1.204
 
-- **Version:** `1.202`
-- **VersionCode:** `202`
-- **Commit:** [`34ca0ce`](https://github.com/XiaoTong6666/FuseHide/commit/34ca0ceca07651e16ca1a72cd07aff3eb5f6b6b0)
-- **Build time:** `7m 00s`
-- **SHA256:** `cc007cc09db8d3b1b89bd63d1cc380533740c2c0d3b2a9a8b852c139eb380a27`
+- **Version:** `1.204`
+- **VersionCode:** `204`
+- **Commit:** [`d739791`](https://github.com/XiaoTong6666/FuseHide/commit/d739791e92d24a783ad52e70d85043d689d72cd7)
+- **Build time:** `8m 36s`
+- **SHA256:** `0ebda4e0b1ca4561772fba7f013da2328575f52255e5a8bddceded2e7735cf48`
 
 ## Message
 
 ```text
-chore(native): add debug diagnostics for FUSE hide mismatches
+build(deps): bump agp from 9.5.0 to 9.5.1 (#120)
 
-记录隐藏子树 inode 标记与基于父 inode 的隐藏判定来源喵
-捕获 FUSE ENOENT 与 lower-fs stat/lstat 原始错误并保留 errno 喵
-限制常规日志采样，持续报告策略与 inode 跟踪矛盾喵
+Bumps `agp` from 9.5.0 to 9.5.1.
 
+Updates `com.android.application` from 9.5.0 to 9.5.1
+
+Updates `com.android.library` from 9.5.0 to 9.5.1
+
+---
+updated-dependencies:
+- dependency-name: com.android.application
+  dependency-version: 9.5.1
+  dependency-type: direct:production
+  update-type: version-update:semver-patch
+- dependency-name: com.android.library
+  dependency-version: 9.5.1
+  dependency-type: direct:production
+  update-type: version-update:semver-patch
+...
+
+Signed-off-by: dependabot[bot] <support@github.com>
+Co-authored-by: dependabot[bot] <xiaotong6666@users.noreply.github.com>
 ```
