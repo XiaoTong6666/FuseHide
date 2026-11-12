@@ -1,30 +1,22 @@
-# FuseHide 1.204
+# FuseHide 1.205
 
-- **Version:** `1.204`
-- **VersionCode:** `204`
-- **Commit:** [`d739791`](https://github.com/XiaoTong6666/FuseHide/commit/d739791e92d24a783ad52e70d85043d689d72cd7)
-- **Build time:** `8m 36s`
-- **SHA256:** `0ebda4e0b1ca4561772fba7f013da2328575f52255e5a8bddceded2e7735cf48`
+- **Version:** `1.205`
+- **VersionCode:** `205`
+- **Commit:** [`54d38de`](https://github.com/XiaoTong6666/FuseHide/commit/54d38de40573794bcb8b2503aa11883847d2ae58)
+- **Build time:** `6m 32s`
+- **SHA256:** `01bac69d6730001ab1f4b0f572449c1155b0ca9f5c28d623796d98837fa2edd5`
 
 ## Message
 
 ```text
-build(deps): bump agp from 9.5.0 to 9.5.1 (#120)
+build(deps): bump androidx.test.uiautomator:uiautomator (#124)
 
-Bumps `agp` from 9.5.0 to 9.5.1.
-
-Updates `com.android.application` from 9.5.0 to 9.5.1
-
-Updates `com.android.library` from 9.5.0 to 9.5.1
+Bumps androidx.test.uiautomator:uiautomator from 2.4.0 to 2.4.1.
 
 ---
 updated-dependencies:
-- dependency-name: com.android.application
-  dependency-version: 9.5.1
-  dependency-type: direct:production
-  update-type: version-update:semver-patch
-- dependency-name: com.android.library
-  dependency-version: 9.5.1
+- dependency-name: androidx.test.uiautomator:uiautomator
+  dependency-version: 2.4.1
   dependency-type: direct:production
   update-type: version-update:semver-patch
 ...
