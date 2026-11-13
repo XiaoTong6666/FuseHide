@@ -1,22 +1,22 @@
-# FuseHide 1.205
+# FuseHide 1.206
 
-- **Version:** `1.205`
-- **VersionCode:** `205`
-- **Commit:** [`54d38de`](https://github.com/XiaoTong6666/FuseHide/commit/54d38de40573794bcb8b2503aa11883847d2ae58)
-- **Build time:** `6m 32s`
-- **SHA256:** `01bac69d6730001ab1f4b0f572449c1155b0ca9f5c28d623796d98837fa2edd5`
+- **Version:** `1.206`
+- **VersionCode:** `206`
+- **Commit:** [`b7e36d0`](https://github.com/XiaoTong6666/FuseHide/commit/b7e36d04fbf46c388f0c9ce28111e203bcfc6c3f)
+- **Build time:** `6m 47s`
+- **SHA256:** `d3df8f51aff7a55a6d9065c3c0582c0db2e6b272b587e1f61c2a7f2f158d8a4a`
 
 ## Message
 
 ```text
-build(deps): bump androidx.test.uiautomator:uiautomator (#124)
+build(deps): bump androidx.compose.material3:material3 (#123)
 
-Bumps androidx.test.uiautomator:uiautomator from 2.4.0 to 2.4.1.
+Bumps androidx.compose.material3:material3 from 1.5.0-beta02 to 1.5.0-rc01.
 
 ---
 updated-dependencies:
-- dependency-name: androidx.test.uiautomator:uiautomator
-  dependency-version: 2.4.1
+- dependency-name: androidx.compose.material3:material3
+  dependency-version: 1.5.0-rc01
   dependency-type: direct:production
   update-type: version-update:semver-patch
 ...
