@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "fusehide/policy/path_policy.hpp"
+#include "fusehide/core/inode_path_tracking.hpp"
 #include "fusehide/core/invalidation_admission.hpp"
 #include "fusehide/hooks/callback_coverage.hpp"
 #include "fusehide/filters/sensitive_direntplus_cache.hpp"
@@ -25,6 +26,9 @@ namespace fusehide {
 
 // Hook state for libfuse_jni.so running inside the MediaProvider process.
 HookOriginal<PfLookupFn> gOriginalPfLookup;
+HookOriginal<PfForgetFn> gOriginalPfForget;
+HookOriginal<PfForgetMultiFn> gOriginalPfForgetMulti;
+HookOriginal<NodeDeletedFn> gOriginalNodeDeleted;
 HookOriginal<PfLookupPostfilterFn> gOriginalPfLookupPostfilter;
 HookOriginal<PfAccessFn> gOriginalPfAccess;
 HookOriginal<PfFileInfoFn> gOriginalPfOpen;
@@ -164,6 +168,7 @@ struct TransparentStringEqual {
 
 struct SessionTracking {
     std::mutex mutex;
+    uint64_t pathEpoch = 0;
     uint64_t rootIno = 0;
     std::string rootPath;
     bool rootRefreshNeeded = false;
@@ -171,16 +176,42 @@ struct SessionTracking {
     std::unordered_set<uint64_t> deferredInodes;
     size_t deferredEntryCount = 0;
     std::unordered_map<uint64_t, std::string> inodeToPath;
-    std::unordered_map<std::string, uint64_t, TransparentStringHash, TransparentStringEqual>
-        pathToInode;
+    // Sorted path index: subtree invalidation uses lower_bound(prefix) rather
+    // than scanning every tracked inode in the FUSE session.
+    std::map<std::string, uint64_t, std::less<>> pathToInode;
+    std::unordered_set<uint64_t> authoritativePathInodes;
+    // A trusted inode relocated by a successful rename remains eligible for
+    // immediate policy evaluation even before a fresh lookup/readdir.
+    std::unordered_set<uint64_t> renamedVerifiedInodes;
     std::unordered_map<uint64_t, std::vector<std::shared_ptr<const CompiledHideRule>>>
         hiddenSubtreeRules;
     std::unordered_map<uint64_t, PendingReaddirContext> pendingReaddir;
     std::unordered_map<uint32_t, std::string> recentParent;
+    std::set<std::pair<std::string, uint32_t>> recentParentByPath;
     std::string recentAnyParent;
     uint32_t recentAnyUid = 0;
     std::unordered_map<uint32_t, UidErrRemapState> uidErrRemap;
 };
+
+// Must hold state.mutex. Drop the UID fallback when its parent path was
+// reassigned, renamed, or retired.
+size_t PruneRecentParentPaths(SessionTracking& state, std::string_view prefix) {
+    return inode_tracking::PruneRecentParents(state.recentParent, state.recentParentByPath,
+                                              state.recentAnyParent, state.recentAnyUid, prefix);
+}
+
+// Requires SessionTracking::mutex. The path indexes and authoritative inode
+// set are owned by the caller's EraseInode/EraseSubtree operation.
+size_t RetireInodeStateLocked(SessionTracking& state, uint64_t ino) {
+    const size_t removedMarks = state.hiddenSubtreeRules.erase(ino);
+    state.renamedVerifiedInodes.erase(ino);
+    if (auto pending = state.deferredEntries.find(ino); pending != state.deferredEntries.end()) {
+        state.deferredEntryCount -= pending->second.size();
+        state.deferredEntries.erase(pending);
+    }
+    state.deferredInodes.erase(ino);
+    return removedMarks;
+}
 
 thread_local SessionToken gActiveFuseRequestToken;
 
@@ -958,6 +989,7 @@ void RegisterSessionRootPath(SessionToken token, std::string_view sourcePath) {
             state->rootIno = 1;
             state->inodeToPath.emplace(1, state->rootPath);
             state->pathToInode.emplace(state->rootPath, 1);
+            ++state->pathEpoch;
         }
         refresh = std::exchange(state->rootRefreshNeeded, false);
     }
@@ -1793,12 +1825,36 @@ bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
     if (rule == nullptr || ino == 0 || !state)
         return false;
     std::lock_guard<std::mutex> lock(state->mutex);
+    const auto known = state->inodeToPath.find(ino);
+    const bool verified =
+        known != state->inodeToPath.end() && state->authoritativePathInodes.contains(ino);
+    if (verified && state->renamedVerifiedInodes.contains(ino)) {
+        // Rename may move a visible parent into a hidden path without a
+        // previous inode mark. The successful rename supplies its new path.
+        return HiddenPathPolicy::IsAnyHiddenSubtreePath(*rule, known->second);
+    }
     const auto it = state->hiddenSubtreeRules.find(ino);
     if (it == state->hiddenSubtreeRules.end())
         return false;
-    return std::any_of(it->second.begin(), it->second.end(), [&](const auto& trackedRule) {
-        return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
-    });
+    const bool tracked =
+        std::any_of(it->second.begin(), it->second.end(), [&](const auto& trackedRule) {
+            return CompiledHideRulesSemanticallyEqual(rule, trackedRule);
+        });
+    if (tracked) {
+        // The inode mark is never sufficient to overrule a newer verified
+        // visible path, regardless of the rule with which it was first seen.
+        const auto path = state->inodeToPath.find(ino);
+        if (path != state->inodeToPath.end() && state->authoritativePathInodes.contains(ino) &&
+            !HiddenPathPolicy::IsAnyHiddenSubtreePath(*rule, path->second)) {
+            if constexpr (kEnableDebugHooks) {
+                DebugLogPrint(5, "hide-diag reject_stale_mark uid=%u ino=0x%llx path=%s",
+                              static_cast<unsigned>(uid), static_cast<unsigned long long>(ino),
+                              DebugPreview(path->second).c_str());
+            }
+            return false;
+        }
+    }
+    return tracked;
 }
 
 bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
@@ -1808,6 +1864,16 @@ bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
         return false;
     {
         std::lock_guard<std::mutex> lock(state->mutex);
+        const auto known = state->inodeToPath.find(ino);
+        if (known != state->inodeToPath.end() && state->authoritativePathInodes.contains(ino) &&
+            !HiddenPathPolicy::IsAnyHiddenSubtreePath(*rule, known->second)) {
+            if constexpr (kEnableDebugHooks) {
+                DebugLogPrint(5, "hide-diag refuse_mark_visible uid=%u ino=0x%llx path=%s",
+                              static_cast<unsigned>(uid), static_cast<unsigned long long>(ino),
+                              DebugPreview(known->second).c_str());
+            }
+            return false;
+        }
         auto& rules = state->hiddenSubtreeRules[ino];
         const bool alreadyTracked =
             std::any_of(rules.begin(), rules.end(), [&](const auto& trackedRule) {
@@ -1888,6 +1954,21 @@ std::optional<std::string> LookupTrackedPathForInode(uint64_t ino) {
     return LookupTrackedPathForInode(CurrentSessionToken(), ino);
 }
 
+std::optional<std::string> LookupVerifiedTrackedPathForInode(uint64_t ino) {
+    if (ino == 0)
+        return std::nullopt;
+    const auto state = CurrentTracking();
+    if (!state)
+        return std::nullopt;
+    std::lock_guard<std::mutex> lock(state->mutex);
+    if (ino == state->rootIno && !state->rootPath.empty())
+        return state->rootPath;
+    const auto it = state->inodeToPath.find(ino);
+    if (it == state->inodeToPath.end() || !state->authoritativePathInodes.contains(ino))
+        return std::nullopt;
+    return it->second;
+}
+
 std::optional<uint64_t> LookupTrackedInodeForPath(SessionToken token, std::string_view path) {
     if (path.empty())
         return std::nullopt;
@@ -1905,18 +1986,23 @@ std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path) {
     return LookupTrackedInodeForPath(CurrentSessionToken(), path);
 }
 
-void RememberTrackedPathForInode(SessionToken token, uint64_t ino, std::string_view path) {
+void RememberTrackedPathForInode(SessionToken token, uint64_t ino, std::string_view path,
+                                 bool authoritative) {
     if (ino == 0 || path.empty())
         return;
     const bool visibleRoot = IsVisibleStorageRootPath(path);
-    if (!visibleRoot && (!MayParticipateInHidePolicy(path) || !IsProtectedTrackedPath(path)))
-        return;
+    const bool eligible =
+        visibleRoot || (MayParticipateInHidePolicy(path) && IsProtectedTrackedPath(path));
     const auto state = TrackingForToken(token);
     if (!state)
         return;
     bool refresh = false;
     std::unordered_set<std::string> deferredNames;
     bool deferredInode = false;
+    inode_tracking::UpdateResult update;
+    size_t prunedMarks = 0;
+    size_t prunedRecent = 0;
+    bool ignoredVisible = false;
     {
         std::lock_guard<std::mutex> lock(state->mutex);
         if (visibleRoot) {
@@ -1931,29 +2017,69 @@ void RememberTrackedPathForInode(SessionToken token, uint64_t ino, std::string_v
                               InodePath(state->rootIno).c_str(), InodePath(ino).c_str());
             }
         }
-        const auto existing = state->inodeToPath.find(ino);
-        const bool newEntry = existing == state->inodeToPath.end();
-        if (newEntry && state->inodeToPath.size() >= kMaxTrackedPathEntries)
-            return;
-        if (!newEntry && existing->second != path) {
-            const auto oldReverse = state->pathToInode.find(existing->second);
-            if (oldReverse != state->pathToInode.end() && oldReverse->second == ino) {
-                state->pathToInode.erase(oldReverse);
+        const bool alreadyTracked = state->inodeToPath.contains(ino);
+        const bool allowNew =
+            eligible && (alreadyTracked || state->inodeToPath.size() < kMaxTrackedPathEntries);
+        const auto forgetMarks = [&](uint64_t oldIno) {
+            prunedMarks += RetireInodeStateLocked(*state, oldIno);
+        };
+        update = inode_tracking::Observe(state->inodeToPath, state->pathToInode,
+                                         state->authoritativePathInodes, ino, path, authoritative,
+                                         allowNew, forgetMarks);
+        if (update.kind == inode_tracking::UpdateKind::Added ||
+            update.kind == inode_tracking::UpdateKind::Replaced)
+            ++state->pathEpoch;
+        if (update.kind == inode_tracking::UpdateKind::Replaced)
+            prunedRecent = PruneRecentParentPaths(*state, update.previousPath);
+        ignoredVisible = !eligible && !alreadyTracked;
+        if (authoritative) {
+            // Even an unchanged trusted path can refute an old policy mark left
+            // after configuration changes or inode reuse.
+            if (auto it = state->hiddenSubtreeRules.find(ino);
+                it != state->hiddenSubtreeRules.end()) {
+                auto& rules = it->second;
+                const size_t oldSize = rules.size();
+                rules.erase(std::remove_if(rules.begin(), rules.end(),
+                                           [&](const auto& rule) {
+                                               return !HiddenPathPolicy::IsAnyHiddenSubtreePath(
+                                                   *rule, path);
+                                           }),
+                            rules.end());
+                prunedMarks += oldSize - rules.size();
+                if (rules.empty())
+                    state->hiddenSubtreeRules.erase(it);
             }
         }
-        if (newEntry) {
-            state->inodeToPath.emplace(ino, std::string(path));
-        } else if (existing->second != path) {
-            existing->second.assign(path.data(), path.size());
+        if (update.kind == inode_tracking::UpdateKind::Ignored ||
+            update.kind == inode_tracking::UpdateKind::ConflictingInference) {
+            // Never use the original inode path to resolve deferred notifications
+            // when the observation was rejected.
+            deferredNames.clear();
+        } else {
+            if (auto pending = state->deferredEntries.find(ino);
+                pending != state->deferredEntries.end()) {
+                deferredNames = std::move(pending->second);
+                state->deferredEntryCount -= deferredNames.size();
+                state->deferredEntries.erase(pending);
+            }
+            deferredInode = state->deferredInodes.erase(ino) != 0;
         }
-        state->pathToInode[std::string(path)] = ino;
-        if (auto pending = state->deferredEntries.find(ino);
-            pending != state->deferredEntries.end()) {
-            deferredNames = std::move(pending->second);
-            state->deferredEntryCount -= deferredNames.size();
-            state->deferredEntries.erase(pending);
+    }
+    if constexpr (kEnableDebugHooks) {
+        const bool noteworthy = update.kind == inode_tracking::UpdateKind::Replaced ||
+                                update.kind == inode_tracking::UpdateKind::ConflictingInference ||
+                                prunedMarks != 0 || prunedRecent != 0;
+        static std::atomic<int> sampled{0};
+        if (noteworthy || (authoritative && ShouldLogLimited(sampled, 96))) {
+            DebugLogPrint(noteworthy ? 5 : 4,
+                          "hide-diag inode_path ino=0x%llx source=%s action=%d old=%s new=%s "
+                          "pruned_marks=%zu pruned_recent=%zu evicted=%zu ignored_visible=%d",
+                          static_cast<unsigned long long>(ino),
+                          authoritative ? "authoritative" : "inferred",
+                          static_cast<int>(update.kind), DebugPreview(update.previousPath).c_str(),
+                          DebugPreview(path).c_str(), prunedMarks, prunedRecent, update.evicted,
+                          ignoredVisible ? 1 : 0);
         }
-        deferredInode = state->deferredInodes.erase(ino) != 0;
     }
     for (const auto& name : deferredNames) {
         const std::string child = HiddenPathPolicy::JoinPathComponent(path, name);
@@ -1968,8 +2094,215 @@ void RememberTrackedPathForInode(SessionToken token, uint64_t ino, std::string_v
         ScheduleHiddenEntryInvalidation(token, true);
 }
 
-void RememberTrackedPathForInode(uint64_t ino, std::string_view path) {
-    RememberTrackedPathForInode(CurrentSessionToken(), ino, path);
+void RememberTrackedPathForInode(uint64_t ino, std::string_view path, bool authoritative) {
+    RememberTrackedPathForInode(CurrentSessionToken(), ino, path, authoritative);
+}
+
+void ForgetTrackedInode(SessionToken token, uint64_t ino, const char* reason) {
+    const auto state = TrackingForToken(token);
+    if (!state || ino == 0)
+        return;
+    size_t removed = 0;
+    size_t marked = 0;
+    size_t recent = 0;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (state->rootIno == ino) {
+            // The visible root is also a MediaProvider node*, not an eternal
+            // identity. A subsequent root lookup must learn its new address.
+            state->rootIno = 0;
+            state->rootRefreshNeeded = true;
+        }
+        if (const auto old = state->inodeToPath.find(ino); old != state->inodeToPath.end())
+            recent = PruneRecentParentPaths(*state, old->second);
+        const auto forgetMarks = [&](uint64_t oldIno) {
+            marked += RetireInodeStateLocked(*state, oldIno);
+        };
+        removed = inode_tracking::EraseInode(state->inodeToPath, state->pathToInode,
+                                             state->authoritativePathInodes, ino, forgetMarks);
+        if (removed)
+            ++state->pathEpoch;
+    }
+    if constexpr (kEnableDebugHooks) {
+        if (removed || marked || recent) {
+            static std::atomic<int> sampled{0};
+            if (marked || recent || ShouldLogLimited(sampled, 96)) {
+                DebugLogPrint(
+                    4, "hide-diag forget ino=0x%llx reason=%s path=%zu marks=%zu recent=%zu",
+                    static_cast<unsigned long long>(ino), reason, removed, marked, recent);
+            }
+        }
+    }
+}
+
+void ForgetTrackedPathSubtree(SessionToken token, std::string_view prefix, const char* reason) {
+    const auto state = TrackingForToken(token);
+    if (!state || prefix.empty())
+        return;
+    size_t marked = 0;
+    size_t removed = 0;
+    size_t recent = 0;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        const auto forgetMarks = [&](uint64_t oldIno) {
+            marked += RetireInodeStateLocked(*state, oldIno);
+        };
+        removed = inode_tracking::EraseSubtree(state->inodeToPath, state->pathToInode,
+                                               state->authoritativePathInodes, prefix, forgetMarks);
+        if (removed)
+            ++state->pathEpoch;
+        recent = PruneRecentParentPaths(*state, prefix);
+    }
+    if constexpr (kEnableDebugHooks) {
+        if (removed || marked || recent) {
+            DebugLogPrint(
+                4, "hide-diag invalidate_paths reason=%s prefix=%s nodes=%zu marks=%zu recent=%zu",
+                reason, DebugPreview(prefix).c_str(), removed, marked, recent);
+        }
+    }
+}
+
+bool ReconcileTrackedRename(SessionToken token, uint64_t sourceParent, std::string_view sourceName,
+                            uint64_t targetParent, std::string_view targetName) {
+    const auto state = TrackingForToken(token);
+    if (!state || sourceName.empty() || targetName.empty() ||
+        sourceName.find('/') != std::string_view::npos ||
+        targetName.find('/') != std::string_view::npos)
+        return false;
+
+    struct RenameSnapshot {
+        uint64_t pathEpoch = 0;
+        std::string sourceParentPath;
+        std::string targetParentPath;
+        std::string source;
+        std::string destination;
+        std::unordered_set<uint32_t> affectedUids;
+    } snapshot;
+    const auto verifiedParent = [&](uint64_t ino) -> std::optional<std::string> {
+        const auto found = state->inodeToPath.find(ino);
+        if (found == state->inodeToPath.end())
+            return std::nullopt;
+        if (state->authoritativePathInodes.contains(ino) ||
+            (state->rootIno == ino && found->second == state->rootPath))
+            return found->second;
+        return std::nullopt;
+    };
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        snapshot.pathEpoch = state->pathEpoch;
+        const auto from = verifiedParent(sourceParent);
+        const auto to = verifiedParent(targetParent);
+        if (!from || !to)
+            return false;
+        snapshot.sourceParentPath = *from;
+        snapshot.targetParentPath = *to;
+        snapshot.source = HiddenPathPolicy::JoinPathComponent(*from, sourceName);
+        snapshot.destination = HiddenPathPolicy::JoinPathComponent(*to, targetName);
+        if (snapshot.source == snapshot.destination)
+            return true;
+        if (inode_tracking::IsSameOrChild(snapshot.source, snapshot.destination) ||
+            inode_tracking::IsSameOrChild(snapshot.destination, snapshot.source))
+            return false;
+        snapshot.affectedUids =
+            inode_tracking::RecentRenameUids(state->recentParentByPath, snapshot.source);
+        if (state->recentAnyUid != 0 &&
+            inode_tracking::IsSameOrChild(state->recentAnyParent, snapshot.source))
+            snapshot.affectedUids.insert(state->recentAnyUid);
+    }
+
+    // Resolve UID policies only after dropping the SessionTracking lock.
+    // A cache miss can reach PackageManager/JNI/Binder, which must never block
+    // unrelated FUSE requests waiting on this mutex.
+    const uint64_t configGen = gHideConfigGeneration.load(std::memory_order_acquire);
+    const uint64_t packagesGen = gUidPackageSetGeneration.load(std::memory_order_acquire);
+    std::unordered_map<uint32_t, std::shared_ptr<const CompiledHideRule>> rules;
+    rules.reserve(snapshot.affectedUids.size());
+    for (uint32_t uid : snapshot.affectedUids)
+        rules.emplace(uid, ResolveHideRuleForUid(uid));
+
+    bool applied = false;
+    bool ruleSnapshotCurrent = false;
+    size_t removedMarks = 0;
+    size_t retainedRecent = 0;
+    inode_tracking::RenameResult outcome;
+    struct PrunedMarkLog {
+        uint64_t ino;
+        std::string oldPath;
+        std::string newPath;
+        size_t count;
+    };
+    std::vector<PrunedMarkLog> samples;
+    {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        // The parent paths may have changed while UID rules were resolved.
+        // If so the caller must take the conservative invalidation path.
+        const auto from = verifiedParent(sourceParent);
+        const auto to = verifiedParent(targetParent);
+        if (state->pathEpoch == snapshot.pathEpoch && from && to &&
+            *from == snapshot.sourceParentPath && *to == snapshot.targetParentPath) {
+            ruleSnapshotCurrent =
+                configGen == gHideConfigGeneration.load(std::memory_order_acquire) &&
+                packagesGen == gUidPackageSetGeneration.load(std::memory_order_acquire);
+            const auto retire = [&](uint64_t ino) {
+                removedMarks += RetireInodeStateLocked(*state, ino);
+            };
+            const auto moved = [&](uint64_t ino, const std::string& oldPath,
+                                   const std::string& newPath) {
+                if (state->authoritativePathInodes.contains(ino))
+                    state->renamedVerifiedInodes.insert(ino);
+                if (auto it = state->hiddenSubtreeRules.find(ino);
+                    it != state->hiddenSubtreeRules.end()) {
+                    auto& marks = it->second;
+                    const size_t before = marks.size();
+                    std::erase_if(marks, [&](const auto& rule) {
+                        return !rule || !HiddenPathPolicy::IsAnyHiddenSubtreePath(*rule, newPath);
+                    });
+                    const size_t pruned = before - marks.size();
+                    removedMarks += pruned;
+                    if (marks.empty())
+                        state->hiddenSubtreeRules.erase(it);
+                    if constexpr (kEnableDebugHooks) {
+                        if (pruned && samples.size() < 8)
+                            samples.push_back({ino, oldPath, newPath, pruned});
+                    }
+                }
+            };
+            outcome = inode_tracking::RenameSubtrees(
+                state->inodeToPath, state->pathToInode, state->authoritativePathInodes,
+                snapshot.source, snapshot.destination, retire, moved);
+            if (!outcome.invalid) {
+                retainedRecent = inode_tracking::RenameRecentParents(
+                    state->recentParent, state->recentParentByPath, state->recentAnyParent,
+                    state->recentAnyUid, snapshot.source, snapshot.destination,
+                    [&](uint32_t uid, const std::string& path) {
+                        const auto it = rules.find(uid);
+                        return ruleSnapshotCurrent && it != rules.end() && it->second &&
+                               IsParentOfExactHiddenTargetPath(*it->second, path);
+                    });
+                applied = true;
+                // Even if the source was untracked, a successful rename makes
+                // another in-flight snapshot of this session stale.
+                ++state->pathEpoch;
+            }
+        }
+    }
+    if constexpr (kEnableDebugHooks) {
+        for (const auto& entry : samples) {
+            DebugLogPrint(4, "hide-diag rename_node ino=0x%llx pruned_marks=%zu old=%s new=%s",
+                          static_cast<unsigned long long>(entry.ino), entry.count,
+                          DebugPreview(entry.oldPath).c_str(), DebugPreview(entry.newPath).c_str());
+        }
+        DebugLogPrint(applied ? 4 : 5,
+                      "hide-diag rename_migrate applied=%d source_parent=0x%llx "
+                      "target_parent=0x%llx source=%s destination=%s moved=%zu "
+                      "replaced=%zu removed_marks=%zu recent=%zu rule_snapshot_current=%d",
+                      applied ? 1 : 0, static_cast<unsigned long long>(sourceParent),
+                      static_cast<unsigned long long>(targetParent),
+                      DebugPreview(snapshot.source).c_str(),
+                      DebugPreview(snapshot.destination).c_str(), outcome.moved, outcome.replaced,
+                      removedMarks, retainedRecent, ruleSnapshotCurrent ? 1 : 0);
+    }
+    return applied;
 }
 
 std::vector<std::pair<uint64_t, std::string>> SnapshotTrackedPaths(SessionToken token) {
@@ -1987,6 +2320,7 @@ void ResetSessionRuleTracking(SessionToken token) {
     std::lock_guard<std::mutex> lock(state->mutex);
     state->hiddenSubtreeRules.clear();
     state->recentParent.clear();
+    state->recentParentByPath.clear();
     state->recentAnyParent.clear();
     state->recentAnyUid = 0;
     state->uidErrRemap.clear();
@@ -2036,7 +2370,8 @@ void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path) {
     state->recentAnyParent.assign(path.data(), path.size());
     state->recentAnyUid = uid;
     if (uid != 0)
-        state->recentParent[uid] = state->recentAnyParent;
+        inode_tracking::RememberRecentParent(state->recentParent, state->recentParentByPath, uid,
+                                             path);
 }
 
 std::optional<std::string> LookupRecentHiddenParentPath(uint32_t uid, uint32_t* matchedHiddenUid) {
@@ -2065,7 +2400,7 @@ void ClearRecentHiddenParentPath(uint32_t uid) {
         return;
     std::lock_guard<std::mutex> lock(state->mutex);
     if (uid != 0)
-        state->recentParent.erase(uid);
+        inode_tracking::EraseRecentParent(state->recentParent, state->recentParentByPath, uid);
     if (uid == 0 || uid == state->recentAnyUid) {
         state->recentAnyParent.clear();
         state->recentAnyUid = 0;

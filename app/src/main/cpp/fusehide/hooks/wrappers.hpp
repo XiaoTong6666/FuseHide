@@ -28,6 +28,9 @@ void WrappedAddDirectoryEntriesFromLowerFsShared(DIR* dirp, LowerFsDirentFilterF
 void WrappedAddDirectoryEntriesFromLowerFsValue(DIR* dirp, LowerFsDirentFilterFn filter,
                                                 ValueDirectoryEntries* entries);
 extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* name);
+extern "C" void WrappedPfForget(fuse_req_t req, uint64_t ino, uint64_t nlookup);
+extern "C" void WrappedPfForgetMulti(fuse_req_t req, size_t count, FuseForgetData* forgets);
+extern "C" void WrappedNodeDeleted(void* tracker, const void* node);
 extern "C" void WrappedPfReaddirPostfilter(fuse_req_t req, uint64_t ino, uint32_t error_in,
                                            off_t off_in, off_t off_out, size_t size_out,
                                            const void* dirents_in, void* fi);

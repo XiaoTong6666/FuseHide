@@ -30,6 +30,9 @@ static_assert(std::is_same_v<decltype(&WrappedAddDirectoryEntriesFromLowerFsShar
 static_assert(std::is_same_v<decltype(&WrappedAddDirectoryEntriesFromLowerFsValue),
                              AddValueDirectoryEntriesFromLowerFsFn>);
 static_assert(std::is_same_v<decltype(&WrappedPfLookup), PfLookupFn>);
+static_assert(std::is_same_v<decltype(&WrappedPfForget), PfForgetFn>);
+static_assert(std::is_same_v<decltype(&WrappedPfForgetMulti), PfForgetMultiFn>);
+static_assert(std::is_same_v<decltype(&WrappedNodeDeleted), NodeDeletedFn>);
 static_assert(std::is_same_v<decltype(&WrappedPfLookupPostfilter), PfLookupPostfilterFn>);
 static_assert(std::is_same_v<decltype(&WrappedPfAccess), PfAccessFn>);
 static_assert(std::is_same_v<decltype(&WrappedPfOpen), PfFileInfoFn>);
@@ -73,6 +76,9 @@ struct HookInstallProcessState {
     void*& originalStrcasecmp = gOriginalStrcasecmp.rawStorage();
     void*& originalEqualsIgnoreCase = gOriginalEqualsIgnoreCase.rawStorage();
     void*& originalPfLookup = gOriginalPfLookup.rawStorage();
+    void*& originalPfForget = gOriginalPfForget.rawStorage();
+    void*& originalPfForgetMulti = gOriginalPfForgetMulti.rawStorage();
+    void*& originalNodeDeleted = gOriginalNodeDeleted.rawStorage();
     void*& originalPfLookupPostfilter = gOriginalPfLookupPostfilter.rawStorage();
     void*& originalPfAccess = gOriginalPfAccess.rawStorage();
     void*& originalPfOpen = gOriginalPfOpen.rawStorage();
@@ -1569,6 +1575,22 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
 // inside the wrappers stays gated by kEnableDebugHooks.
 void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fileContext) {
     auto& process = Process();
+    if (process.originalNodeDeleted == nullptr)
+        TryInstallFileInlineHook(module,
+                                 "_ZN13mediaprovider4fuse11NodeTracker11NodeDeletedEPKNS0_4nodeE",
+                                 (void*)WrappedNodeDeleted, &process.originalNodeDeleted,
+                                 "hook NodeTracker::NodeDeleted failed");
+    // These private static callbacks are optional: unknown device symbol layouts
+    // must never be hooked using an assumed offset.
+    if (process.originalPfForget == nullptr)
+        TryInstallFileInlineHook(module, "_ZN13mediaprovider4fuseL9pf_forgetEP8fuse_reqmm",
+                                 (void*)WrappedPfForget, &process.originalPfForget,
+                                 "hook pf_forget failed");
+    if (process.originalPfForgetMulti == nullptr)
+        TryInstallFileInlineHook(
+            module, "_ZN13mediaprovider4fuseL15pf_forget_multiEP8fuse_reqmP16fuse_forget_data",
+            (void*)WrappedPfForgetMulti, &process.originalPfForgetMulti,
+            "hook pf_forget_multi failed");
     const DeviceHookInstallPlan installPlan = ResolveDeviceHookInstallPlan(module);
     const DeviceHookProfile& deviceProfile = installPlan.profile;
     const bool canInstallDirectoryEntries = CanInstallDirectoryEntriesHooks(installPlan);
@@ -2173,6 +2195,23 @@ void InstallLowlevelCallbackFallback(const ModuleInfo& module, const RuntimeDyna
 // imported symbols.
 void InstallAdvancedDebugHooks(const ModuleInfo& module) {
     auto& process = Process();
+    if (process.originalNodeDeleted == nullptr)
+        InstallHookForSymbol("_ZN13mediaprovider4fuse11NodeTracker11NodeDeletedEPKNS0_4nodeE",
+                             (void*)WrappedNodeDeleted, &process.originalNodeDeleted,
+                             "hook NodeTracker::NodeDeleted failed");
+    if (process.originalPfForget == nullptr)
+        InstallHookForSymbol("_ZN13mediaprovider4fuseL9pf_forgetEP8fuse_reqmm",
+                             (void*)WrappedPfForget, &process.originalPfForget,
+                             "hook pf_forget failed");
+    if (process.originalPfForgetMulti == nullptr)
+        InstallHookForSymbol(
+            "_ZN13mediaprovider4fuseL15pf_forget_multiEP8fuse_reqmP16fuse_forget_data",
+            (void*)WrappedPfForgetMulti, &process.originalPfForgetMulti,
+            "hook pf_forget_multi failed");
+    DebugLogPrint(4, "hide-diag forget_hook_status single=%d multi=%d node_deleted=%d",
+                  process.originalPfForget != nullptr ? 1 : 0,
+                  process.originalPfForgetMulti != nullptr ? 1 : 0,
+                  process.originalNodeDeleted != nullptr ? 1 : 0);
     const DeviceHookInstallPlan installPlan = ResolveDeviceHookInstallPlan(module);
     const DeviceHookProfile& deviceProfile = installPlan.profile;
     const bool canInstallDirectoryEntries = CanInstallDirectoryEntriesHooks(installPlan);

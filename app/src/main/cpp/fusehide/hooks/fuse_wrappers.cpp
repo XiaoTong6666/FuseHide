@@ -31,6 +31,19 @@ thread_local uint32_t gActiveCreateScopeDepth = 0;
 thread_local uint32_t gActivePathPolicyUid = 0;
 thread_local std::string_view gActivePathPolicyPath;
 thread_local bool gCrossUidSensitiveLookup = false;
+struct RenameTracking {
+    fuse_req_t req = nullptr;
+    bool success = false;
+    bool reconciled = false;
+    uint64_t sourceParent = 0;
+    uint64_t targetParent = 0;
+    std::string sourceName;
+    std::string targetName;
+    uint32_t flags = 0;
+    std::string source;
+    std::string destination;
+};
+thread_local RenameTracking* gActiveRenameTracking = nullptr;
 
 // Keep entry-point diagnostics for future device ABI investigations. Compile
 // them out entirely with the existing global NDEBUG / kEnableDebugHooks flag.
@@ -267,7 +280,7 @@ void UpdateActiveReaddirPath(uint64_t reqUnique, std::string_view path) {
 
     const uint64_t ino = gActiveReaddirContext.pending.ino;
     if (ino != 0) {
-        RememberTrackedPathForInode(ino, path);
+        RememberTrackedPathForInode(ino, path, true);
         if (IsVisibleRootPath(path)) {
             RememberVisibleRootParentInode(ino, "readdir_path");
         }
@@ -848,6 +861,22 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
     gCurrentLookupName = name != nullptr ? std::string_view(name) : std::string_view();
     gTrackRootHiddenLookup = IsHiddenLookupCacheTarget(uid, parent, name);
     gTrackHiddenSubtreeLookup = IsTrackedHiddenSubtreeInode(uid, parent);
+    if constexpr (kEnableDebugHooks) {
+        if (gTrackHiddenSubtreeLookup) {
+            const auto tracked = LookupTrackedPathForInode(parent);
+            const bool pathHidden =
+                tracked && HiddenPathPolicy::IsAnyHiddenSubtreePath(uid, *tracked);
+            static std::atomic<int> sampled{0};
+            if (!pathHidden || ShouldLogLimited(sampled, 96)) {
+                DebugLogPrint(pathHidden ? 4 : 5,
+                              "hide-diag lookup_mark uid=%u parent=0x%llx tracked_path=%s "
+                              "name=%s tracked_path_hidden=%d",
+                              static_cast<unsigned>(uid), static_cast<unsigned long long>(parent),
+                              tracked ? DebugPreview(*tracked).c_str() : "(unknown)",
+                              name ? DebugPreview(name).c_str() : "(null)", pathHidden ? 1 : 0);
+            }
+        }
+    }
     gCrossUidSensitiveLookup = IsCrossUidSensitiveLookup(parent, name);
     DebugLogPrint(3, "lookup: req=%lu parent=%s name=%s", (unsigned long)req->unique,
                   InodePath(parent).c_str(), name ? DebugPreview(name).c_str() : "null");
@@ -862,6 +891,73 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
     gTrackHiddenSubtreeLookup = false;
     gTrackRootHiddenLookup = false;
     gCrossUidSensitiveLookup = false;
+}
+
+// FUSE_FORGET decrements the lookup refcount, but other handles may keep the
+// MediaProvider node alive. Never evict the identity here.
+extern "C" void WrappedPfForget(fuse_req_t req, uint64_t ino, uint64_t nlookup) {
+    const ScopedFuseRequestSession scopedSession(req);
+    if constexpr (kEnableDebugHooks) {
+        static std::atomic<int> sampled{0};
+        if (ShouldLogLimited(sampled, 128)) {
+            DebugLogPrint(4,
+                          "hide-diag forget_request ino=0x%llx nlookup=%llu "
+                          "node_deleted_hook=%d",
+                          static_cast<unsigned long long>(ino),
+                          static_cast<unsigned long long>(nlookup),
+                          gOriginalNodeDeleted.get() != nullptr ? 1 : 0);
+        }
+    }
+    if (const auto fn = gOriginalPfForget.get())
+        fn(req, ino, nlookup);
+}
+
+extern "C" void WrappedPfForgetMulti(fuse_req_t req, size_t count, FuseForgetData* forgets) {
+    const ScopedFuseRequestSession scopedSession(req);
+    if constexpr (kEnableDebugHooks) {
+        static std::atomic<int> sampled{0};
+        if (ShouldLogLimited(sampled, 128)) {
+            DebugLogPrint(4,
+                          "hide-diag forget_multi_request count=%zu "
+                          "node_deleted_hook=%d",
+                          count, gOriginalNodeDeleted.get() != nullptr ? 1 : 0);
+        }
+    }
+    if (const auto fn = gOriginalPfForgetMulti.get())
+        fn(req, count, forgets);
+}
+
+// Unlike FUSE_FORGET, NodeTracker::NodeDeleted is called by node::~node()
+// after the final reference is gone, while the node* address is still owned.
+// This is the exact point at which an inode can safely lose its identity.
+extern "C" void WrappedNodeDeleted(void* tracker, const void* node) {
+    const uint64_t ino = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(node));
+    const SessionToken token = CurrentSessionToken();
+    if constexpr (kEnableDebugHooks) {
+        static std::atomic<int> sampled{0};
+        if (ShouldLogLimited(sampled, 128)) {
+            DebugLogPrint(4,
+                          "hide-diag node_deleted ino=0x%llx se=%p generation=%llu "
+                          "session_known=%d",
+                          static_cast<unsigned long long>(ino), token.se,
+                          static_cast<unsigned long long>(token.generation), token ? 1 : 0);
+        }
+    }
+    // The original method removes the node from MediaProvider's own tracker.
+    // Our state is purged before the address can be reused by its allocator.
+    // Destruction is not necessarily caused by a wrapped FUSE request; the
+    // pointer identifies one live node process-wide, so on session-less calls
+    // clear the matching inode in each active FUSE session.
+    if (node != nullptr) {
+        if (token) {
+            ForgetTrackedInode(token, ino, "node_deleted");
+        } else {
+            for (const SessionToken session : SnapshotActiveSessions())
+                ForgetTrackedInode(session, ino, "node_deleted_without_request");
+        }
+    }
+    if (const auto fn = gOriginalNodeDeleted.get())
+        fn(tracker, node);
 }
 
 bool ShouldFilterDirectoryEntry(uint32_t uid, std::string_view parentPath, std::string_view name) {
@@ -1266,7 +1362,30 @@ extern "C" void WrappedPfRename(fuse_req_t req, uint64_t parent, const char* nam
     }
     const auto fn = gOriginalPfRename.get();
     if (fn) {
+        RenameTracking tracking;
+        tracking.req = req;
+        tracking.sourceParent = parent;
+        tracking.targetParent = new_parent;
+        if (name)
+            tracking.sourceName = name;
+        if (new_name)
+            tracking.targetName = new_name;
+        tracking.flags = flags;
+        if (srcTrackedParentPath && name)
+            tracking.source = HiddenPathPolicy::JoinPathComponent(*srcTrackedParentPath, name);
+        if (dstTrackedParentPath && new_name)
+            tracking.destination =
+                HiddenPathPolicy::JoinPathComponent(*dstTrackedParentPath, new_name);
+        auto* previous = gActiveRenameTracking;
+        gActiveRenameTracking = &tracking;
         fn(req, parent, name, new_parent, new_name, flags);
+        gActiveRenameTracking = previous;
+        if constexpr (kEnableDebugHooks) {
+            DebugLogPrint(4, "hide-diag rename success=%d reconciled=%d source=%s destination=%s",
+                          tracking.success ? 1 : 0, tracking.reconciled ? 1 : 0,
+                          DebugPreview(tracking.source).c_str(),
+                          DebugPreview(tracking.destination).c_str());
+        }
     }
 }
 
@@ -1436,6 +1555,41 @@ extern "C" int WrappedReplyEntry(fuse_req_t req, const struct fuse_entry_param* 
     const ScopedFuseRequestSession scopedSession(req);
     const auto fn = gOriginalReplyEntry.get();
     const uint32_t lookupUid = RuntimeState::ReqUid(req);
+    // A positive MediaProvider lookup is direct evidence of the returned
+    // child's current parent/name, *provided that the parent itself has a
+    // verified path*. This closes the rename fallback gap on devices whose
+    // FUSE ABI does not permit installing the pf_rename wrapper (x86_64 AVD).
+    // Do it before consulting historical hidden inode marks, so an old
+    // hidden directory moved to a visible path cannot poison its children.
+    if (e != nullptr && e->ino != 0 && gInPfLookup && gCurrentLookupParentInode != 0 &&
+        !gCurrentLookupName.empty()) {
+        if (const auto verifiedParent =
+                LookupVerifiedTrackedPathForInode(gCurrentLookupParentInode)) {
+            RememberTrackedPathForInode(
+                e->ino, HiddenPathPolicy::JoinPathComponent(*verifiedParent, gCurrentLookupName),
+                true);
+        }
+    }
+    // A concurrent authoritative readdir/lstat may have corrected this parent
+    // since WrappedPfLookup captured its old hidden mark. Revalidate before
+    // sending an irreversible ENOENT to the kernel.
+    if (gTrackHiddenSubtreeLookup &&
+        !IsTrackedHiddenSubtreeInode(lookupUid, gCurrentLookupParentInode)) {
+        DebugLogPrint(4, "hide-diag drop_stale_lookup uid=%u parent=0x%llx name=%s",
+                      static_cast<unsigned>(lookupUid),
+                      static_cast<unsigned long long>(gCurrentLookupParentInode),
+                      DebugPreview(gCurrentLookupName).c_str());
+        gTrackHiddenSubtreeLookup = false;
+    }
+    if (gTrackRootHiddenLookup &&
+        !IsHiddenLookupCacheTarget(
+            lookupUid, gCurrentLookupParentInode,
+            gCurrentLookupName.empty() ? nullptr : gCurrentLookupName.data())) {
+        DebugLogPrint(4, "hide-diag drop_stale_root_lookup uid=%u parent=0x%llx",
+                      static_cast<unsigned>(lookupUid),
+                      static_cast<unsigned long long>(gCurrentLookupParentInode));
+        gTrackRootHiddenLookup = false;
+    }
     const bool hiddenLookupForUid = HiddenPathPolicy::IsTestHiddenUid(lookupUid) &&
                                     (gTrackRootHiddenLookup || gTrackHiddenSubtreeLookup);
     // An ENOENT root lookup cannot learn e->ino through a successful reply.
@@ -1674,7 +1828,7 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
                                    : (canBorrowFallbackUid ? fallbackHiddenUid : 0);
 
     if (filterIno != 0 && !pendingContext.path.empty()) {
-        RememberTrackedPathForInode(filterIno, pendingContext.path);
+        RememberTrackedPathForInode(filterIno, pendingContext.path, true);
     }
 
     if (HiddenPathPolicy::IsTestHiddenUid(filterUid)) {
@@ -1886,7 +2040,44 @@ extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
     if (pendingRootMutation.has_value() && err == 0) {
         BumpRootSnapshotParentGeneration(*pendingRootMutation);
     }
+    if (err == 0 && gActiveRenameTracking != nullptr && gActiveRenameTracking->req == req &&
+        !gActiveRenameTracking->reconciled) {
+        // The MediaProvider rename already succeeded but its FUSE response is
+        // not yet published. Atomically migrate the tracked live identities
+        // before the kernel can issue a new lookup for the destination.
+        auto& rename = *gActiveRenameTracking;
+        rename.reconciled = true;
+        bool reconciled = false;
+        // Without a verified destruction callback, an old node* address may
+        // still carry a stale path. Never promote it across a rename.
+        if (gOriginalNodeDeleted.get() != nullptr && rename.flags == 0) {
+            reconciled =
+                ReconcileTrackedRename(CurrentSessionToken(), rename.sourceParent,
+                                       rename.sourceName, rename.targetParent, rename.targetName);
+        } else if (rename.flags != 0) {
+            DebugLogPrint(5, "hide-diag rename_migrate skipped=unsupported_flags flags=0x%x",
+                          rename.flags);
+        } else if constexpr (kEnableDebugHooks) {
+            DebugLogPrint(5, "hide-diag rename_migrate skipped=no_node_deleted_hook req=%lu",
+                          req ? static_cast<unsigned long>(req->unique) : 0UL);
+        }
+        if (!reconciled && rename.source != rename.destination) {
+            // Unverified parents or unrecognized rename semantics: never
+            // promote an inferred path into a trusted inode identity.
+            ForgetTrackedPathSubtree(CurrentSessionToken(), rename.source,
+                                     "rename_unverified_source");
+            ForgetTrackedPathSubtree(CurrentSessionToken(), rename.destination,
+                                     "rename_unverified_destination");
+        }
+        if (!rename.sourceName.empty())
+            RuntimeState::ScheduleSpecificEntryInvalidation(rename.sourceParent, rename.sourceName);
+        if (!rename.targetName.empty())
+            RuntimeState::ScheduleSpecificEntryInvalidation(rename.targetParent, rename.targetName);
+    }
     int ret = fn ? fn(req, err) : -1;
+    if (gActiveRenameTracking != nullptr && gActiveRenameTracking->req == req && err == 0 &&
+        ret == 0)
+        gActiveRenameTracking->success = true;
     if (gInPfLookupPostfilter) {
         DebugLogPrint(3, "pf_lookup_postfilter fuse_reply_err req=%p %d", req, err);
     } else {
@@ -1970,7 +2161,7 @@ extern "C" int WrappedLstat(const char* path, struct stat* st) {
             }
         }
         if (ret == 0 && gInPfGetattr && gPfGetattrIno != 0) {
-            RememberTrackedPathForInode(gPfGetattrIno, pathView);
+            RememberTrackedPathForInode(gPfGetattrIno, pathView, true);
             if (HiddenPathPolicy::IsTestHiddenUid(gPfGetattrUid) &&
                 fusehide::IsParentOfExactHiddenTargetPath(gPfGetattrUid, pathView)) {
                 // Some device builds enumerate the parent directory after only touching it through

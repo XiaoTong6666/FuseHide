@@ -342,6 +342,10 @@ bool IsParentOfExactHiddenTargetPath(std::string_view path) {
     return rule != nullptr && IsParentOfExactHiddenTargetPathForRule(*rule, path);
 }
 
+bool IsParentOfExactHiddenTargetPath(const CompiledHideRule& rule, std::string_view path) {
+    return IsParentOfExactHiddenTargetPathForRule(rule, path);
+}
+
 std::string HiddenPathPolicy::JoinPathComponent(std::string_view parent, std::string_view child) {
     std::string joined(parent);
     if (joined.empty() || joined.back() != '/') {

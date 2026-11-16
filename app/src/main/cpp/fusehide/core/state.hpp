@@ -189,6 +189,16 @@ using AddDirectoryEntriesFromLowerFsFn = void (*)(DIR* dirp, LowerFsDirentFilter
 using AddValueDirectoryEntriesFromLowerFsFn = void (*)(DIR* dirp, LowerFsDirentFilterFn filter,
                                                        ValueDirectoryEntries* entries);
 using PfLookupFn = void (*)(fuse_req_t req, uint64_t parent, const char* name);
+struct FuseForgetData {
+    uint64_t ino;
+    uint64_t nlookup;
+};
+static_assert(sizeof(FuseForgetData) == 16);
+using PfForgetFn = void (*)(fuse_req_t req, uint64_t ino, uint64_t nlookup);
+using PfForgetMultiFn = void (*)(fuse_req_t req, size_t count, FuseForgetData* forgets);
+// Called by node::~node() only when MediaProvider actually retires a node.
+// Do not infer retirement from a FUSE_FORGET nlookup decrement.
+using NodeDeletedFn = void (*)(void* tracker, const void* node);
 using PfLookupPostfilterFn = void (*)(fuse_req_t req, uint64_t parent, uint32_t errorIn,
                                       const char* name, fuse_entry_out* entryOut,
                                       fuse_entry_bpf_out* bpfOut);
@@ -636,6 +646,9 @@ int CompareCaseFoldIgnoringDefaultIgnorables(const uint8_t* lhsData, size_t lhsL
                                              const uint8_t* rhsData, size_t rhsLen);
 
 extern HookOriginal<PfLookupFn> gOriginalPfLookup;
+extern HookOriginal<PfForgetFn> gOriginalPfForget;
+extern HookOriginal<PfForgetMultiFn> gOriginalPfForgetMulti;
+extern HookOriginal<NodeDeletedFn> gOriginalNodeDeleted;
 extern HookOriginal<PfLookupPostfilterFn> gOriginalPfLookupPostfilter;
 extern HookOriginal<PfAccessFn> gOriginalPfAccess;
 extern HookOriginal<PfFileInfoFn> gOriginalPfOpen;
@@ -707,6 +720,8 @@ void RememberRootParentInode(uint64_t ino, const char* reason);
 std::vector<SessionToken> SnapshotActiveSessions();
 std::vector<std::pair<uint64_t, std::string>> SnapshotTrackedPaths(SessionToken token);
 void ResetSessionRuleTracking(SessionToken token);
+void ForgetTrackedInode(SessionToken token, uint64_t ino, const char* reason);
+void ForgetTrackedPathSubtree(SessionToken token, std::string_view prefix, const char* reason);
 void PutPendingReaddirContext(uint64_t unique, const struct PendingReaddirContext& context);
 std::optional<struct PendingReaddirContext> GetPendingReaddirContext(uint64_t unique);
 void RemovePendingReaddirContext(uint64_t unique);
@@ -777,12 +792,18 @@ void ClearRootSnapshotCacheForSession(SessionToken token);
 bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino);
 bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino);
 bool RemoveTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino);
+bool ReconcileTrackedRename(SessionToken token, uint64_t sourceParent, std::string_view sourceName,
+                            uint64_t targetParent, std::string_view targetName);
 std::optional<std::string> LookupTrackedPathForInode(uint64_t ino);
+// Only paths learned from MediaProvider or the verified visible root. A
+// parent/name guess must never be promoted into a second trusted identity.
+std::optional<std::string> LookupVerifiedTrackedPathForInode(uint64_t ino);
 std::optional<uint64_t> LookupTrackedInodeForPath(std::string_view path);
-void RememberTrackedPathForInode(uint64_t ino, std::string_view path);
+void RememberTrackedPathForInode(uint64_t ino, std::string_view path, bool authoritative = false);
 std::optional<std::string> LookupTrackedPathForInode(SessionToken token, uint64_t ino);
 std::optional<uint64_t> LookupTrackedInodeForPath(SessionToken token, std::string_view path);
-void RememberTrackedPathForInode(SessionToken token, uint64_t ino, std::string_view path);
+void RememberTrackedPathForInode(SessionToken token, uint64_t ino, std::string_view path,
+                                 bool authoritative = false);
 void NoteHiddenSubtreePathForCache(uint32_t uid, std::string_view path);
 void RememberRecentHiddenParentPath(uint32_t uid, std::string_view path);
 std::optional<std::string> LookupRecentHiddenParentPath(uint32_t uid,
