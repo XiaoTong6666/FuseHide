@@ -49,5 +49,8 @@ bool ShouldHideWildcardRootEntryByParent(uint64_t parent, uint64_t rootParent,
                                          std::string_view name);
 bool IsParentOfExactHiddenTargetPath(uint32_t uid, std::string_view path);
 bool IsParentOfExactHiddenTargetPath(std::string_view path);
+// Pure rule-snapshot overload. Safe to call while holding SessionTracking::mutex;
+// never resolves a UID or touches PackageManager/JNI.
+bool IsParentOfExactHiddenTargetPath(const CompiledHideRule& rule, std::string_view path);
 
 }  // namespace fusehide
