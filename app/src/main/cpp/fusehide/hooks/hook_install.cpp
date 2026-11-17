@@ -264,68 +264,15 @@ std::optional<void*> ResolveTargetSymbol(const ModuleInfo& module, std::string_v
     }
     std::optional<uintptr_t> offset;
     if (auto dynamicInfo = ParseDynamicInfo(*mapped); dynamicInfo.has_value()) {
-        // Try GNU hash first
+        // Share GNU/SysV hash and linear fallback with the other ELF callers.
+        // Unlike relocation lookup, an inline hook target must be defined.
         const auto* nameData = reinterpret_cast<const uint8_t*>(symbolName.data());
-        const size_t nameLen = symbolName.size();
-        const uint32_t gnuH = ComputeGnuHash(nameData, nameLen);
-
-        auto symIdx =
-            FindDynamicSymbolIndexWithGnuHash(*mapped, *dynamicInfo, nameData, nameLen, gnuH);
-        if (symIdx.has_value()) {
-            const ElfSymbol* symbols = DynamicSymbolTable(*mapped, *dynamicInfo);
-            if (symbols != nullptr && symbols[*symIdx].st_value != 0) {
-                offset = static_cast<uintptr_t>(symbols[*symIdx].st_value);
-            }
-        }
-
-        // Fall back to SysV hash chain
-        if (!offset.has_value() && dynamicInfo->hash != 0) {
-            const auto hashOffset = VirtualAddressToFileOffset(*mapped, dynamicInfo->hash);
-            if (hashOffset.has_value()) {
-                const ElfSymbol* symbols = DynamicSymbolTable(*mapped, *dynamicInfo);
-                const char* strings = DynamicStringTable(*mapped, *dynamicInfo);
-                if (symbols && strings) {
-                    const auto* words =
-                        reinterpret_cast<const uint32_t*>(mapped->bytes() + *hashOffset);
-                    const uint32_t nbucket = words[0];
-                    const uint32_t nchain = words[1];
-                    const auto* buckets = words + 2;
-                    const auto* chains = buckets + nbucket;
-                    const uint32_t elfH = ComputeElfHash(nameData, nameLen);
-
-                    uint32_t idx = buckets[elfH % nbucket];
-                    while (idx != 0 && idx < nchain) {
-                        const auto& sym = symbols[idx];
-                        const char* n = strings + sym.st_name;
-                        const size_t nlen = std::strlen(n);
-                        if (nameLen == nlen && std::memcmp(nameData, n, nameLen) == 0 &&
-                            sym.st_value != 0) {
-                            offset = static_cast<uintptr_t>(sym.st_value);
-                            break;
-                        }
-                        idx = chains[idx];
-                    }
-                }
-            }
-        }
-
-        // Fall back to linear scan
-        if (!offset.has_value()) {
-            const ElfSymbol* symbols = DynamicSymbolTable(*mapped, *dynamicInfo);
-            const char* strings = DynamicStringTable(*mapped, *dynamicInfo);
-            const size_t symbolCount = DynamicSymbolCount(*mapped, *dynamicInfo);
-            if (symbols && strings && symbolCount > 0) {
-                for (size_t i = 0; i < symbolCount; ++i) {
-                    const auto& sym = symbols[i];
-                    if (sym.st_name == 0 || sym.st_value == 0)
-                        continue;
-                    const char* n = strings + sym.st_name;
-                    if (symbolName == n) {
-                        offset = static_cast<uintptr_t>(sym.st_value);
-                        break;
-                    }
-                }
-            }
+        const auto index =
+            FindDefinedDynamicSymbolIndex(*mapped, *dynamicInfo, nameData, symbolName.size());
+        if (index.has_value()) {
+            if (const ElfSymbol* symbols = DynamicSymbolTable(*mapped, *dynamicInfo);
+                symbols != nullptr)
+                offset = static_cast<uintptr_t>(symbols[*index].st_value);
         }
     }
 

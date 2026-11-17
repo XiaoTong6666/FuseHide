@@ -337,6 +337,11 @@ uint32_t ComputeGnuHash(const uint8_t* name, size_t len);
 uint32_t ComputeElfHash(const uint8_t* name, size_t len);
 std::optional<uint32_t> FindDynamicSymbolIndex(const MappedFile& file, const DynamicInfo& info,
                                                const uint8_t* name, size_t nameLen);
+// Hook targets must have code addresses; imported/undefined dynamic symbols
+// remain discoverable through FindDynamicSymbolIndex() for relocation callers.
+std::optional<uint32_t> FindDefinedDynamicSymbolIndex(const MappedFile& file,
+                                                      const DynamicInfo& info, const uint8_t* name,
+                                                      size_t nameLen);
 std::optional<uint32_t> FindDynamicSymbolIndexWithGnuHash(const MappedFile& file,
                                                           const DynamicInfo& info,
                                                           const uint8_t* name, size_t nameLen,

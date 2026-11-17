@@ -495,44 +495,65 @@ std::optional<MappedFile> DecompressGnuDebugdata(const std::byte* compressed, si
     }
 }
 
-// Section-based symbol lookup (fallback path)
-std::optional<uintptr_t> FindSymbolOffsetImpl(const MappedFile& file, std::string_view symbolName,
-                                              int depth) {
+// All file-backed symbol queries share a bounded section/string-table walk.
+// Runtime PT_DYNAMIC symbols use separate loaded-image address semantics.
+namespace {
+
+template <typename Visitor>
+void ForEachFileSymbol(const MappedFile& file, Visitor&& visit) {
+    if (file.bytes() == nullptr || file.size < sizeof(ElfHeader))
+        return;
     const auto* header = reinterpret_cast<const ElfHeader*>(file.bytes());
-    if (header == nullptr || std::memcmp(header->e_ident, ELFMAG, SELFMAG) != 0 ||
-        header->e_shoff == 0 || header->e_shnum == 0 || header->e_shentsize != sizeof(ElfSection)) {
-        return std::nullopt;
-    }
+    if (std::memcmp(header->e_ident, ELFMAG, SELFMAG) != 0 || header->e_shoff == 0 ||
+        header->e_shnum == 0 || header->e_shentsize != sizeof(ElfSection) ||
+        header->e_shoff > file.size ||
+        header->e_shnum > (file.size - header->e_shoff) / sizeof(ElfSection))
+        return;
 
     const auto* sections = reinterpret_cast<const ElfSection*>(file.bytes() + header->e_shoff);
     for (uint16_t sectionIndex = 0; sectionIndex < header->e_shnum; ++sectionIndex) {
         const auto& section = sections[sectionIndex];
-        if (section.sh_type != SHT_SYMTAB && section.sh_type != SHT_DYNSYM) {
+        if (section.sh_type != SHT_SYMTAB && section.sh_type != SHT_DYNSYM)
             continue;
-        }
         if (section.sh_link >= header->e_shnum || section.sh_entsize != sizeof(ElfSymbol) ||
-            section.sh_size == 0) {
+            section.sh_offset > file.size || section.sh_size > file.size - section.sh_offset)
             continue;
-        }
         const auto& strtab = sections[section.sh_link];
-        if (strtab.sh_offset + strtab.sh_size > file.size ||
-            section.sh_offset + section.sh_size > file.size) {
+        if (strtab.sh_offset > file.size || strtab.sh_size > file.size - strtab.sh_offset)
             continue;
-        }
         const char* strings = reinterpret_cast<const char*>(file.bytes() + strtab.sh_offset);
         const auto* symbols = reinterpret_cast<const ElfSymbol*>(file.bytes() + section.sh_offset);
-        const size_t symbolCount = section.sh_size / sizeof(ElfSymbol);
-        for (size_t symbolIndex = 0; symbolIndex < symbolCount; ++symbolIndex) {
-            const auto& symbol = symbols[symbolIndex];
-            if (symbol.st_name == 0 || symbol.st_value == 0) {
+        for (size_t i = 0; i < section.sh_size / sizeof(ElfSymbol); ++i) {
+            const auto& symbol = symbols[i];
+            if (symbol.st_value == 0 || symbol.st_name >= strtab.sh_size)
                 continue;
-            }
-            const char* currentName = strings + symbol.st_name;
-            if (currentName != nullptr && symbolName == currentName) {
-                return static_cast<uintptr_t>(symbol.st_value);
-            }
+            const char* name = strings + symbol.st_name;
+            const size_t available = strtab.sh_size - symbol.st_name;
+            const void* end = std::memchr(name, '\0', available);
+            if (end == nullptr)
+                continue;
+            const auto symbolName = std::string_view(name, static_cast<const char*>(end) - name);
+            if (!visit(symbol, symbolName))
+                return;
         }
     }
+}
+
+}  // namespace
+
+// Section-based symbol lookup (fallback path)
+std::optional<uintptr_t> FindSymbolOffsetImpl(const MappedFile& file, std::string_view symbolName,
+                                              int depth) {
+    std::optional<uintptr_t> found;
+    ForEachFileSymbol(file, [&](const ElfSymbol& symbol, std::string_view name) {
+        if (symbol.st_name != 0 && name == symbolName) {
+            found = static_cast<uintptr_t>(symbol.st_value);
+            return false;
+        }
+        return true;
+    });
+    if (found.has_value())
+        return found;
 
     if (depth >= 2) {
         return std::nullopt;
@@ -568,44 +589,13 @@ std::vector<std::optional<uintptr_t>> FindSymbolOffsetsOnce(
     const MappedFile& file, std::span<const std::string_view> names) {
     std::vector<std::optional<uintptr_t>> values(names.size());
     const auto scan = [&](const MappedFile& image) {
-        if (image.bytes() == nullptr || image.size < sizeof(ElfHeader))
-            return;
-        const auto* header = reinterpret_cast<const ElfHeader*>(image.bytes());
-        if (std::memcmp(header->e_ident, ELFMAG, SELFMAG) != 0 ||
-            header->e_shentsize != sizeof(ElfSection) || header->e_shoff > image.size ||
-            header->e_shnum > (image.size - header->e_shoff) / sizeof(ElfSection))
-            return;
-        const auto* sections = reinterpret_cast<const ElfSection*>(image.bytes() + header->e_shoff);
-        for (uint16_t i = 0; i < header->e_shnum; ++i) {
-            const auto& section = sections[i];
-            if (section.sh_type != SHT_SYMTAB && section.sh_type != SHT_DYNSYM)
-                continue;
-            if (section.sh_link >= header->e_shnum || section.sh_entsize != sizeof(ElfSymbol) ||
-                section.sh_offset > image.size || section.sh_size > image.size - section.sh_offset)
-                continue;
-            const auto& strtab = sections[section.sh_link];
-            if (strtab.sh_offset > image.size || strtab.sh_size > image.size - strtab.sh_offset)
-                continue;
-            const char* strings = reinterpret_cast<const char*>(image.bytes() + strtab.sh_offset);
-            const auto* symbols =
-                reinterpret_cast<const ElfSymbol*>(image.bytes() + section.sh_offset);
-            for (size_t s = 0; s < section.sh_size / sizeof(ElfSymbol); ++s) {
-                const auto& symbol = symbols[s];
-                if (symbol.st_value == 0 || symbol.st_name >= strtab.sh_size)
-                    continue;
-                const char* currentName = strings + symbol.st_name;
-                const size_t remaining = strtab.sh_size - symbol.st_name;
-                const void* terminator = std::memchr(currentName, 0, remaining);
-                if (terminator == nullptr)
-                    continue;
-                const auto actual = std::string_view(
-                    currentName, static_cast<const char*>(terminator) - currentName);
-                for (size_t n = 0; n < names.size(); ++n) {
-                    if (!values[n].has_value() && names[n] == actual)
-                        values[n] = static_cast<uintptr_t>(symbol.st_value);
-                }
+        ForEachFileSymbol(image, [&](const ElfSymbol& symbol, std::string_view name) {
+            for (size_t n = 0; n < names.size(); ++n) {
+                if (!values[n].has_value() && names[n] == name)
+                    values[n] = static_cast<uintptr_t>(symbol.st_value);
             }
-        }
+            return true;
+        });
     };
     scan(file);
     if (std::all_of(values.begin(), values.end(),
@@ -622,55 +612,20 @@ std::vector<std::optional<uintptr_t>> FindSymbolOffsetsOnce(
 
 void CollectSymbolsContainingImpl(const MappedFile& file, std::string_view needle, int depth,
                                   std::vector<SymbolMatch>* matches) {
-    const auto* header = reinterpret_cast<const ElfHeader*>(file.bytes());
-    if (header == nullptr || std::memcmp(header->e_ident, ELFMAG, SELFMAG) != 0 ||
-        header->e_shoff == 0 || header->e_shnum == 0 || header->e_shentsize != sizeof(ElfSection)) {
-        return;
-    }
-
-    const auto* sections = reinterpret_cast<const ElfSection*>(file.bytes() + header->e_shoff);
-    for (uint16_t sectionIndex = 0; sectionIndex < header->e_shnum; ++sectionIndex) {
-        const auto& section = sections[sectionIndex];
-        if (section.sh_type != SHT_SYMTAB && section.sh_type != SHT_DYNSYM) {
-            continue;
+    ForEachFileSymbol(file, [&](const ElfSymbol& symbol, std::string_view name) {
+        if (symbol.st_name == 0 || name.find(needle) == std::string_view::npos)
+            return true;
+        const bool duplicate =
+            std::any_of(matches->begin(), matches->end(), [&](const SymbolMatch& existing) {
+                return existing.value == symbol.st_value && existing.size == symbol.st_size &&
+                       existing.name == name;
+            });
+        if (!duplicate) {
+            matches->push_back(SymbolMatch{static_cast<uintptr_t>(symbol.st_value),
+                                           static_cast<size_t>(symbol.st_size), std::string(name)});
         }
-        if (section.sh_link >= header->e_shnum || section.sh_entsize != sizeof(ElfSymbol) ||
-            section.sh_size == 0) {
-            continue;
-        }
-        const auto& strtab = sections[section.sh_link];
-        if (strtab.sh_offset + strtab.sh_size > file.size ||
-            section.sh_offset + section.sh_size > file.size) {
-            continue;
-        }
-        const char* strings = reinterpret_cast<const char*>(file.bytes() + strtab.sh_offset);
-        const auto* symbols = reinterpret_cast<const ElfSymbol*>(file.bytes() + section.sh_offset);
-        const size_t symbolCount = section.sh_size / sizeof(ElfSymbol);
-        for (size_t symbolIndex = 0; symbolIndex < symbolCount; ++symbolIndex) {
-            const auto& symbol = symbols[symbolIndex];
-            if (symbol.st_name == 0 || symbol.st_value == 0) {
-                continue;
-            }
-            const char* currentName = strings + symbol.st_name;
-            if (currentName == nullptr) {
-                continue;
-            }
-            const std::string_view currentNameView(currentName);
-            if (currentNameView.find(needle) == std::string_view::npos) {
-                continue;
-            }
-            const bool duplicate =
-                std::any_of(matches->begin(), matches->end(), [&](const SymbolMatch& existing) {
-                    return existing.value == symbol.st_value && existing.size == symbol.st_size &&
-                           existing.name == currentNameView;
-                });
-            if (!duplicate) {
-                matches->push_back(SymbolMatch{static_cast<uintptr_t>(symbol.st_value),
-                                               static_cast<size_t>(symbol.st_size),
-                                               std::string(currentNameView)});
-            }
-        }
-    }
+        return true;
+    });
 
     if (depth >= 2) {
         return;
@@ -1046,7 +1001,7 @@ std::optional<uint32_t> FindDynamicSymbolIndexWithSysvHash(const MappedFile& fil
 
 std::optional<uint32_t> FindDynamicSymbolIndexLinear(const MappedFile& file,
                                                      const DynamicInfo& info, const uint8_t* name,
-                                                     size_t nameLen) {
+                                                     size_t nameLen, bool requireDefined) {
     const ElfSymbol* symbols = DynamicSymbolTable(file, info);
     const char* strings = DynamicStringTable(file, info);
     const size_t symbolCount = DynamicSymbolCount(file, info);
@@ -1055,6 +1010,8 @@ std::optional<uint32_t> FindDynamicSymbolIndexLinear(const MappedFile& file,
 
     for (size_t i = 0; i < symbolCount; ++i) {
         const auto& sym = symbols[i];
+        if (requireDefined && sym.st_value == 0)
+            continue;
         const char* currentName = strings + sym.st_name;
         const size_t currentLen = std::strlen(currentName);
         if (nameLen == currentLen && std::memcmp(name, currentName, nameLen) == 0) {
@@ -1064,21 +1021,43 @@ std::optional<uint32_t> FindDynamicSymbolIndexLinear(const MappedFile& file,
     return std::nullopt;
 }
 
-std::optional<uint32_t> FindDynamicSymbolIndex(const MappedFile& file, const DynamicInfo& info,
-                                               const uint8_t* name, size_t nameLen) {
+namespace {
+
+std::optional<uint32_t> FindDynamicSymbolIndexImpl(const MappedFile& file, const DynamicInfo& info,
+                                                   const uint8_t* name, size_t nameLen,
+                                                   bool requireDefined) {
+    const ElfSymbol* symbols = requireDefined ? DynamicSymbolTable(file, info) : nullptr;
+    if (requireDefined && symbols == nullptr)
+        return std::nullopt;
+    const auto usable = [&](std::optional<uint32_t> index) {
+        return index.has_value() && (!requireDefined || symbols[*index].st_value != 0);
+    };
     const uint32_t gnuHash = ComputeGnuHash(name, nameLen);
     if (auto index = FindDynamicSymbolIndexWithGnuHash(file, info, name, nameLen, gnuHash);
-        index.has_value()) {
+        usable(index)) {
         return index;
     }
 
     const uint32_t elfHash = ComputeElfHash(name, nameLen);
     if (auto index = FindDynamicSymbolIndexWithSysvHash(file, info, name, nameLen, elfHash);
-        index.has_value()) {
+        usable(index)) {
         return index;
     }
 
-    return FindDynamicSymbolIndexLinear(file, info, name, nameLen);
+    return FindDynamicSymbolIndexLinear(file, info, name, nameLen, requireDefined);
+}
+
+}  // namespace
+
+std::optional<uint32_t> FindDynamicSymbolIndex(const MappedFile& file, const DynamicInfo& info,
+                                               const uint8_t* name, size_t nameLen) {
+    return FindDynamicSymbolIndexImpl(file, info, name, nameLen, false);
+}
+
+std::optional<uint32_t> FindDefinedDynamicSymbolIndex(const MappedFile& file,
+                                                      const DynamicInfo& info, const uint8_t* name,
+                                                      size_t nameLen) {
+    return FindDynamicSymbolIndexImpl(file, info, name, nameLen, true);
 }
 
 std::optional<uint32_t> FindRuntimeSymbolIndexWithGnuHash(const RuntimeDynamicInfo& info,
