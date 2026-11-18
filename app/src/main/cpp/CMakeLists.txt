@@ -12,6 +12,10 @@ add_library(
     fusehide/filters/dirent_filter.cpp
     fusehide/filters/reply_buf_filter.cpp
     fusehide/hooks/fuse_wrappers.cpp
+    fusehide/hooks/hook_resolver.cpp
+    fusehide/hooks/hook_backend.cpp
+    fusehide/hooks/hook_install_paths.cpp
+    fusehide/hooks/hook_session.cpp
     fusehide/hooks/hook_install.cpp
     fusehide/jni/jni_entry.cpp
     fusehide/policy/path_policy.cpp
