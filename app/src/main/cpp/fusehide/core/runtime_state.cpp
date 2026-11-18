@@ -1227,8 +1227,13 @@ void RuntimeState::RetireFuseSession(void* session) {
         queue.cv.notify_all();
     }
     const auto started = std::chrono::steady_clock::now();
-    while (queue.runningSession == session ||
-           (state != queue.sessions.end() && state->second.rootProbeReaders != 0)) {
+    while (true) {
+        // wait_for releases queue.mutex. Another Session may be registered and
+        // rehash queue.sessions while we wait, invalidating the earlier iterator.
+        const auto current = queue.sessions.find(session);
+        if (queue.runningSession != session &&
+            (current == queue.sessions.end() || current->second.rootProbeReaders == 0))
+            break;
         if (queue.cv.wait_for(lock, std::chrono::seconds(1)) == std::cv_status::timeout) {
             __android_log_print(
                 ANDROID_LOG_WARN, kLogTag,

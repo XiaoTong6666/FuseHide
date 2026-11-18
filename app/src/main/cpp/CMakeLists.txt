@@ -8,10 +8,17 @@ add_library(
     local_atexit.cpp
     fusehide.cpp
     fusehide/core/runtime_state.cpp
+    fusehide/core/root_snapshot_cache.cpp
     fusehide/elf/elf_utils.cpp
     fusehide/filters/dirent_filter.cpp
     fusehide/filters/reply_buf_filter.cpp
+    fusehide/hooks/wrapper_context.cpp
     fusehide/hooks/fuse_wrappers.cpp
+    fusehide/hooks/fuse_directory_hooks.cpp
+    fusehide/hooks/fuse_mutation_hooks.cpp
+    fusehide/hooks/fuse_reply_hooks.cpp
+    fusehide/hooks/fuse_lower_fs_hooks.cpp
+    fusehide/hooks/fuse_path_gate_hooks.cpp
     fusehide/hooks/hook_resolver.cpp
     fusehide/hooks/hook_backend.cpp
     fusehide/hooks/hook_install_paths.cpp
