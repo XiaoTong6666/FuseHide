@@ -1454,9 +1454,12 @@ extern "C" void WrappedDoReaddirCommon(fuse_req_t req, uint64_t ino, size_t size
     DebugLogPrint(3, "do_readdir_common uid=%u ino=%s size=%zu off=%lld plus=%d",
                   static_cast<unsigned>(uid), InodePath(ino).c_str(), size,
                   static_cast<long long>(off), plus ? 1 : 0);
+    // MediaProvider calls this synchronously from pf_readdir / pf_readdirplus
+    // with the same req. Keep the caller's request tag until its wrapper exits.
+    const uint64_t previousReqUnique = gCurrentReaddirReqUnique;
     gCurrentReaddirReqUnique = req != nullptr ? req->unique : 0;
     fn(req, ino, size, off, fi, plus);
-    gCurrentReaddirReqUnique = 0;
+    gCurrentReaddirReqUnique = previousReqUnique;
 }
 
 // readdirplus is the common enumeration path on recent Android builds because do_readdir_common()
