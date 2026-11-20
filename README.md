@@ -1,14 +1,14 @@
-# FuseHide 1.212
+# FuseHide 1.213
 
-- **Version:** `1.212`
-- **VersionCode:** `212`
-- **Commit:** [`c3020ab`](https://github.com/XiaoTong6666/FuseHide/commit/c3020ab9a2a1cd9c1b3101ef9d3483dc1595f288)
-- **Build time:** `4m 50s`
-- **SHA256:** `32ed87ee3ffac4b824a3d3fdbc6b29b1a48e0bfc4a0c56dca72c60da69c8cee5`
+- **Version:** `1.213`
+- **VersionCode:** `213`
+- **Commit:** [`8be0b7e`](https://github.com/XiaoTong6666/FuseHide/commit/8be0b7e492bb5d2c67f536bd23207f9f6c06a205)
+- **Build time:** `4m 16s`
+- **SHA256:** `a3be11367aff320bdfa4372bfd1a11d4077a164e4f4f254285c833e55775fb05`
 
 ## Message
 
 ```text
-refactor(native): modularize FUSE wrappers and root snapshots, Meow
+fix(installer): extract Zygisk library via shared helper, Meow
 
 ```
