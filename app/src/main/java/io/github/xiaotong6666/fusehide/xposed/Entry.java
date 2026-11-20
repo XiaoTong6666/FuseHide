@@ -49,6 +49,7 @@ public class Entry extends XposedModule {
     private volatile Application hookedApplication;
     private boolean configLoadCompleted;
     private boolean configLoadInFlight;
+    private boolean reloadAfterUnlock;
     private int pendingConfigRetryCount;
     private final Runnable configRetryRunnable = new Runnable() {
         @Override
@@ -165,6 +166,13 @@ public class Entry extends XposedModule {
 
     private void onConfigReloadFinished(String source, boolean applied) {
         configLoadInFlight = false;
+        if (reloadAfterUnlock) {
+            reloadAfterUnlock = false;
+            pendingConfigRetryCount = 0;
+            getMainHandler().removeCallbacks(configRetryRunnable);
+            startConfigReload("user_unlocked_pending");
+            return;
+        }
         if (applied) {
             configLoadCompleted = true;
             pendingConfigRetryCount = 0;
@@ -355,6 +363,10 @@ public class Entry extends XposedModule {
                 public void onReceive(Context context, Intent intent) {
                     final String action = intent != null ? intent.getAction() : null;
                     if (action == null || configLoadCompleted) {
+                        return;
+                    }
+                    if (Intent.ACTION_USER_UNLOCKED.equals(action) && configLoadInFlight) {
+                        reloadAfterUnlock = true;
                         return;
                     }
                     pendingConfigRetryCount = 0;

@@ -68,6 +68,8 @@ object HideConfigStore {
     private const val KEY_SNAPSHOT_VERSION = "snapshot_version"
     private const val REQUEST_TIMEOUT_MS = 3000L
 
+    private var snapshotRestoredInProcess = false
+
     private val providerUri: Uri = Uri.parse("content://$AUTHORITY")
 
     private fun snapshotContext(context: Context): Context = context.createDeviceProtectedStorageContext()
@@ -425,9 +427,15 @@ object HideConfigStore {
         callback: ReloadConfigCallback?,
     ): Boolean {
         val localSnapshotBundle = loadInjectedProcessSnapshotBundle(context)
-        val snapshotApplied = applyBundleToNative(localSnapshotBundle)
-        if (snapshotApplied) {
-            Log.d("FuseHide", "initial config loaded from media snapshot")
+        val snapshotApplied = synchronized(this) {
+            if (snapshotRestoredInProcess) {
+                true
+            } else {
+                applyBundleToNative(localSnapshotBundle).also { applied ->
+                    snapshotRestoredInProcess = applied
+                    if (applied) Log.d("FuseHide", "initial config loaded from media snapshot")
+                }
+            }
         }
         val providerBundle = loadViaProviderBundle(context)
         val providerApplied = when {
@@ -463,9 +471,8 @@ object HideConfigStore {
                     saveInjectedProcessSnapshot(context, it, reloadTokenFromBundle(bundle))
                 }
             }
-            val result = applied || snapshotApplied
             Log.d("FuseHide", "initial config fallback applied=$applied snapshotApplied=$snapshotApplied")
-            callback?.onResult(result)
+            callback?.onResult(applied)
         }
         return snapshotApplied
     }

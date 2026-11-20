@@ -46,6 +46,7 @@ public final class ZygiskEntry {
     private static Context appContext;
     private static boolean configLoadCompleted;
     private static boolean configLoadInFlight;
+    private static boolean reloadAfterUnlock;
     private static int pendingConfigRetryCount;
     private static final Runnable configRetryRunnable = new Runnable() {
         @Override
@@ -163,6 +164,13 @@ public final class ZygiskEntry {
 
     private static void onConfigReloadFinished(String source, boolean applied) {
         configLoadInFlight = false;
+        if (reloadAfterUnlock) {
+            reloadAfterUnlock = false;
+            pendingConfigRetryCount = 0;
+            getMainHandler().removeCallbacks(configRetryRunnable);
+            startConfigReload("user_unlocked_pending");
+            return;
+        }
         if (applied) {
             configLoadCompleted = true;
             pendingConfigRetryCount = 0;
@@ -291,6 +299,10 @@ public final class ZygiskEntry {
                 public void onReceive(Context context, Intent intent) {
                     final String action = intent != null ? intent.getAction() : null;
                     if (action == null || configLoadCompleted) {
+                        return;
+                    }
+                    if (Intent.ACTION_USER_UNLOCKED.equals(action) && configLoadInFlight) {
+                        reloadAfterUnlock = true;
                         return;
                     }
                     pendingConfigRetryCount = 0;
