@@ -37,8 +37,10 @@ extract "$ZIPFILE" 'sepolicy.rule' "$MODPATH"
 
 ui_print "- Extracting FuseHide native libraries for $APK_ABI"
 extract "$ZIPFILE" "lib/$APK_ABI/libfusehide.so" "$MODPATH"
-mkdir -p "$MODPATH/zygisk"
-unzip -p "$ZIPFILE" "lib/$APK_ABI/libzygisk.so" > "$MODPATH/zygisk/$APK_ABI.so" 2>/dev/null || abort "Failed to extract libzygisk.so"
+extract "$ZIPFILE" "lib/$APK_ABI/libzygisk.so" "$MODPATH"
+[ -s "$MODPATH/lib/$APK_ABI/libzygisk.so" ] || abort "libzygisk.so is missing or empty"
+mkdir -p "$MODPATH/zygisk" || abort "Failed to create Zygisk directory"
+mv "$MODPATH/lib/$APK_ABI/libzygisk.so" "$MODPATH/zygisk/$APK_ABI.so" || abort "Failed to move libzygisk.so"
 [ -s "$MODPATH/zygisk/$APK_ABI.so" ] || abort "libzygisk.so is empty"
 
 ui_print "- Extracting injected dex payload"
