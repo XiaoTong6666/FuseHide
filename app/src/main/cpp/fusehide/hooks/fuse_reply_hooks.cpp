@@ -527,6 +527,20 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
         gReaddirplusContinuation->replySent = true;
 #endif
     int ret = fn ? fn(req, replyBuf, replySize) : -1;
+    if constexpr (kEnableDebugHooks) {
+        if (filterPlainReaddir || filterReaddirplus || filterPostfilterReaddir ||
+            (hasPendingContext && filterIno != 0)) {
+            DebugLogPrint(4,
+                          "hide-diag readdir_reply req=%llu req_uid=%u filter_uid=%u ino=0x%llx "
+                          "mode=%d/%d/%d input_bytes=%zu output_bytes=%zu removed=%zu "
+                          "filter=%s ret=%d",
+                          req ? static_cast<unsigned long long>(req->unique) : 0ULL,
+                          static_cast<unsigned>(reqUid), static_cast<unsigned>(filterUid),
+                          static_cast<unsigned long long>(filterIno), filterPlainReaddir ? 1 : 0,
+                          filterReaddirplus ? 1 : 0, filterPostfilterReaddir ? 1 : 0, size,
+                          replySize, removedCount, filterMode ? filterMode : "none", ret);
+        }
+    }
     if (hasPendingContext) {
         CompletePendingReaddirContext(req, reqUid);
     }

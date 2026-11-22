@@ -146,6 +146,16 @@ Entries WrappedGetDirectoryEntriesForAbi(OriginalFn fn, void* wrapper, uint32_t 
         if (auto cachedEntries =
                 LookupRootSnapshotCache<Entries>(uid, CanonicalRootSnapshotPath(path), rule);
             cachedEntries.has_value()) {
+            if constexpr (kEnableDebugHooks) {
+                if (IsVisibleRootPath(path)) {
+                    DebugLogPrint(4,
+                                  "hide-diag get_dir req=%llu uid=%u source=cache entries=%zu "
+                                  "path=%s",
+                                  static_cast<unsigned long long>(gCurrentReaddirReqUnique),
+                                  static_cast<unsigned>(uid), cachedEntries->size(),
+                                  DebugPreview(path).c_str());
+                }
+            }
             return std::move(*cachedEntries);
         }
     }
@@ -155,7 +165,18 @@ Entries WrappedGetDirectoryEntriesForAbi(OriginalFn fn, void* wrapper, uint32_t 
         const ScopedPathPolicyContext scopedPath(uid, path);
         entries = fn ? fn(wrapper, uid, pathArg, dirp) : Entries();
     }
+    const size_t rawCount = entries.size();
     entries = FilterHiddenDirectoryEntries(uid, path, std::move(entries));
+    if constexpr (kEnableDebugHooks) {
+        if (IsVisibleRootPath(path) || (rawCount != entries.size())) {
+            DebugLogPrint(4,
+                          "hide-diag get_dir req=%llu uid=%u source=original dirp=%d fn=%d "
+                          "raw=%zu filtered=%zu path=%s",
+                          static_cast<unsigned long long>(gCurrentReaddirReqUnique),
+                          static_cast<unsigned>(uid), dirp != nullptr ? 1 : 0, fn ? 1 : 0, rawCount,
+                          entries.size(), DebugPreview(path).c_str());
+        }
+    }
     if (dirp != nullptr && fn != nullptr) {
         MaybeStoreRootSnapshotCache(uid, CanonicalRootSnapshotPath(path), rule, entries);
     }
