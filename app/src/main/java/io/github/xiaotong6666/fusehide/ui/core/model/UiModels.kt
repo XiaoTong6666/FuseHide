@@ -114,6 +114,7 @@ data class SettingsUiState(
     val enableMiuixBlur: Boolean,
     val enableMiuixFloatingBottomBar: Boolean,
     val enableDebugLogging: Boolean,
+    val launcherIconHidden: Boolean,
 )
 
 @Immutable
@@ -122,4 +123,5 @@ data class SettingsCallbacks(
     val onToggleMiuixBlur: () -> Unit,
     val onToggleMiuixFloatingBottomBar: () -> Unit,
     val onToggleDebugLogging: () -> Unit,
+    val onToggleLauncherIcon: () -> Unit,
 )

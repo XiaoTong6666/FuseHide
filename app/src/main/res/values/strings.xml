@@ -17,6 +17,8 @@
     <string name="section_debugging">Diagnostics</string>
     <string name="settings_debug_logging">Detailed debug logs</string>
     <string name="settings_debug_logging_desc">Write detailed FUSE hook diagnostics to logcat, including file paths. Also available in Release; disable after troubleshooting.</string>
+    <string name="settings_hide_launcher_icon">Hide launcher icon</string>
+    <string name="settings_hide_launcher_icon_desc">Open via Xposed manager. Some Android 10+ launchers may still show an app-info icon.</string>
     <string name="section_about">About</string>
     <string name="section_editable_draft">Editable Config</string>
     <string name="section_editable_draft_desc">These fields are your editable config. Apply persists them locally and syncs MediaProvider.</string>

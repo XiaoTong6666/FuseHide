@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CallToAction
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -102,6 +103,14 @@ private fun SettingsPageContent(
                     onToggle = callbacks.onToggleMiuixFloatingBottomBar,
                 )
             }
+            SettingsGroupDivider()
+            SettingsToggleItem(
+                checked = state.launcherIconHidden,
+                title = stringResource(R.string.settings_hide_launcher_icon),
+                description = stringResource(R.string.settings_hide_launcher_icon_desc),
+                icon = Icons.Rounded.VisibilityOff,
+                onToggle = callbacks.onToggleLauncherIcon,
+            )
         }
 
         SettingsSection(stringResource(R.string.section_debugging)) {

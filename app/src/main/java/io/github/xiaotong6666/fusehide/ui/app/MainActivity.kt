@@ -157,6 +157,7 @@ class MainActivity :
         val enableMiuixBlur = FuseHideUiModeStore.isMiuixBlurEnabled(this)
         val enableMiuixFloatingBottomBar = FuseHideUiModeStore.isMiuixFloatingBottomBarEnabled(this)
         val enableDebugLogging = DebugLogSettings.isEnabled(this)
+        val launcherIconHidden = LauncherIconSettings.isHidden(this)
         val infoText = buildInfoText()
         val savedConfig = HideConfigStore.loadSavedConfigOrNull(this)
         mainViewModel.initialize(
@@ -164,6 +165,7 @@ class MainActivity :
             enableMiuixBlur = enableMiuixBlur,
             enableMiuixFloatingBottomBar = enableMiuixFloatingBottomBar,
             enableDebugLogging = enableDebugLogging,
+            launcherIconHidden = launcherIconHidden,
             infoText = infoText,
             savedConfig = savedConfig,
             configStatusText = getString(
@@ -306,12 +308,14 @@ class MainActivity :
                             uiState.enableMiuixBlur,
                             uiState.enableMiuixFloatingBottomBar,
                             uiState.enableDebugLogging,
+                            uiState.launcherIconHidden,
                         ) {
                             SettingsUiState(
                                 uiMode = uiState.uiMode,
                                 enableMiuixBlur = uiState.enableMiuixBlur,
                                 enableMiuixFloatingBottomBar = uiState.enableMiuixFloatingBottomBar,
                                 enableDebugLogging = uiState.enableDebugLogging,
+                                launcherIconHidden = uiState.launcherIconHidden,
                             )
                         }
                         val homeCallbacks = remember(navigator) {
@@ -353,6 +357,18 @@ class MainActivity :
                                         DebugLogSettings.refreshInjectedProcesses(this@MainActivity)
                                     } else {
                                         Log.e("FuseHide", "failed to persist debug logging setting")
+                                    }
+                                },
+                                onToggleLauncherIcon = {
+                                    val hidden = !mainViewModel.uiState.value.launcherIconHidden
+                                    try {
+                                        if (LauncherIconSettings.setHidden(this@MainActivity, hidden)) {
+                                            mainViewModel.setLauncherIconHidden(hidden)
+                                        } else {
+                                            Log.e("FuseHide", "launcher icon state did not change")
+                                        }
+                                    } catch (e: RuntimeException) {
+                                        Log.e("FuseHide", "failed to change launcher icon visibility", e)
                                     }
                                 },
                             )

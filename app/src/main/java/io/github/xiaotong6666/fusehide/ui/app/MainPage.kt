@@ -236,12 +236,14 @@ private fun PreviewMainPage() {
                 enableMiuixBlur = false,
                 enableMiuixFloatingBottomBar = false,
                 enableDebugLogging = false,
+                launcherIconHidden = false,
             ),
             settingsCallbacks = SettingsCallbacks(
                 onToggleUiMode = {},
                 onToggleMiuixBlur = {},
                 onToggleMiuixFloatingBottomBar = {},
                 onToggleDebugLogging = {},
+                onToggleLauncherIcon = {},
             ),
         )
     }

@@ -36,6 +36,7 @@ data class MainActivityUiState(
     val enableMiuixBlur: Boolean = false,
     val enableMiuixFloatingBottomBar: Boolean = false,
     val enableDebugLogging: Boolean = false,
+    val launcherIconHidden: Boolean = false,
     val infoText: String = "",
     val statusText: String = "",
     val hookBackend: HookBackend? = null,
@@ -73,6 +74,7 @@ class MainActivityViewModel : ViewModel() {
         enableMiuixBlur: Boolean,
         enableMiuixFloatingBottomBar: Boolean,
         enableDebugLogging: Boolean,
+        launcherIconHidden: Boolean,
         infoText: String,
         savedConfig: HideConfig?,
         configStatusText: String,
@@ -86,6 +88,7 @@ class MainActivityViewModel : ViewModel() {
                 enableMiuixBlur = enableMiuixBlur,
                 enableMiuixFloatingBottomBar = enableMiuixFloatingBottomBar,
                 enableDebugLogging = enableDebugLogging,
+                launcherIconHidden = launcherIconHidden,
                 infoText = infoText,
                 currentHideConfig = savedConfig ?: HideConfigDefaults.value,
                 localConfigMissing = savedConfig == null,
@@ -105,6 +108,8 @@ class MainActivityViewModel : ViewModel() {
     fun setMiuixFloatingBottomBarEnabled(enabled: Boolean) = update { copy(enableMiuixFloatingBottomBar = enabled) }
 
     fun setDebugLoggingEnabled(enabled: Boolean) = update { copy(enableDebugLogging = enabled) }
+
+    fun setLauncherIconHidden(hidden: Boolean) = update { copy(launcherIconHidden = hidden) }
 
     fun beginHookStatusCheck(statusText: String) = update {
         copy(

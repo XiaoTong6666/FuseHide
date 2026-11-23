@@ -17,6 +17,8 @@
     <string name="section_debugging">调试日志</string>
     <string name="settings_debug_logging">启用详细调试日志</string>
     <string name="settings_debug_logging_desc">将 FUSE Hook 的详细诊断信息输出到 logcat（可能包含文件路径），Release 版同样可用，排查后建议关闭</string>
+    <string name="settings_hide_launcher_icon">隐藏桌面图标</string>
+    <string name="settings_hide_launcher_icon_desc">可从 Xposed 管理器打开；部分 Android 10+ 桌面仍可能显示应用信息图标</string>
     <string name="section_about">关于</string>
     <string name="section_editable_draft">编辑配置</string>
     <string name="section_editable_draft_desc">这些字段是可编辑配置。点击“应用”会保存到本地并同步到 MediaProvider。</string>
