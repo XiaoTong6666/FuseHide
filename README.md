@@ -2,9 +2,9 @@
 
 - **Version:** `1.219`
 - **VersionCode:** `219`
-- **Commit:** [`074f086`](https://github.com/XiaoTong6666/FuseHide/commit/074f086324e487049579b973983b0ec27f04eb0e)
-- **Build time:** `4m 18s`
-- **SHA256:** `bcb510e0f0da90bf8f1c5b4f6485387f75f88a25caffec49c86547fb36c71bb6`
+- **Commit:** [`518b820`](https://github.com/XiaoTong6666/FuseHide/commit/518b820457366774bb828d4872d95711502d0139)
+- **Build time:** `5m 52s`
+- **SHA256:** `d6166f1dee733213199b067d37079fb80f8c985e688ed660e3c7c84355d5d7d6`
 
 ## Message
 
