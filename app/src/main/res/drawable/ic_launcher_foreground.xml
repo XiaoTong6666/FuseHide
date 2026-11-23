@@ -14,6 +14,14 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License.
   -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#00000000" />
-</shape>
+<!-- Generated from artwork/fusehide-icon.svg; edit the SVG, not this XML. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="2050" android:viewportHeight="2050">
+    <group android:pivotX="1025" android:pivotY="1025" android:scaleX="0.6" android:scaleY="0.6" android:translateX="40" android:translateY="18">
+        <path android:fillColor="@color/ic_launcher_color_secondary" android:pathData="M 498,440 H 885 C 920,440 938,457 956,482 L 1036,578 C 1054,600 1076,610 1108,610 H 1547 C 1556,610 1560,620 1553,627 L 1454,725 H 565 C 512,725 468,769 468,822 V 1437 C 468,1495 503,1533 565,1533 H 638 L 563,1610 H 555 C 464,1610 395,1546 395,1452 V 543 C 395,485 441,440 498,440 Z" />
+        <path android:fillColor="@color/ic_launcher_color_secondary" android:fillAlpha="0.5" android:pathData="M 1596,672 C 1625,672 1648,696 1648,725 V 1385 C 1648,1509 1545,1606 1415,1606 H 650 L 1568,685 C 1576,677 1585,672 1596,672 Z" />
+        <path android:fillColor="@color/ic_launcher_color_secondary" android:pathData="M 598,904 H 1260 L 1108,1056 H 598 C 578,1056 563,1041 563,1021 V 940 C 563,920 578,904 598,904 Z" />
+        <path android:fillColor="@color/ic_launcher_color_secondary" android:pathData="M603,1161 H730 A35,35 0 0 1 765,1196 V1320 A35,35 0 0 1 730,1355 H603 A35,35 0 0 1 568,1320 V1196 A35,35 0 0 1 603,1161 Z" />
+        <path android:fillColor="@color/ic_launcher_color_primary" android:fillType="evenOdd" android:pathData="M 1080,1333 C 1147,1235 1239,1185 1333,1185 C 1428,1185 1516,1237 1578,1322 C 1583,1331 1583,1339 1578,1347 C 1515,1438 1428,1475 1333,1475 C 1236,1475 1148,1424 1080,1347 C 1074,1340 1074,1339 1080,1333 Z M 1177,1338 C 1223,1378 1275,1411 1333,1411 C 1394,1411 1445,1382 1485,1336 C 1444,1290 1395,1250 1333,1250 C 1278,1250 1225,1286 1177,1338 Z" />
+        <path android:fillColor="#00000000" android:strokeColor="@color/ic_launcher_color_primary" android:strokeWidth="48" android:strokeLineCap="round" android:pathData="M 1156,1490 L 1515,1147" />
+    </group>
+</vector>
