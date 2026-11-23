@@ -14,16 +14,18 @@
   ~ See the License for the specific language governing permissions and
   ~ limitations under the License.
   -->
-<!-- Generated from artwork/fusehide-icon.svg; edit the SVG, not this XML. -->
+<!-- Generated from artwork/fusehide-monochrome-outline.svg -->
 <inset xmlns:android="http://schemas.android.com/apk/res/android" android:insetLeft="0dp" android:insetTop="0dp" android:insetRight="0dp" android:insetBottom="0dp">
-    <vector android:width="108dp" android:height="108dp" android:viewportWidth="2050" android:viewportHeight="2050">
-        <group android:pivotX="1025" android:pivotY="1025" android:scaleX="0.68" android:scaleY="0.68" android:translateX="12" android:translateY="18">
-            <path android:fillColor="#FF000000" android:pathData="M 498,440 H 885 C 920,440 938,457 956,482 L 1036,578 C 1054,600 1076,610 1108,610 H 1547 C 1556,610 1560,620 1553,627 L 1454,725 H 565 C 512,725 468,769 468,822 V 1437 C 468,1495 503,1533 565,1533 H 638 L 563,1610 H 555 C 464,1610 395,1546 395,1452 V 543 C 395,485 441,440 498,440 Z" />
-            <path android:fillColor="#FF000000" android:fillAlpha="0.5" android:pathData="M 1596,672 C 1625,672 1648,696 1648,725 V 1385 C 1648,1509 1545,1606 1415,1606 H 650 L 1568,685 C 1576,677 1585,672 1596,672 Z" />
-            <path android:fillColor="#FF000000" android:pathData="M 598,904 H 1260 L 1108,1056 H 598 C 578,1056 563,1041 563,1021 V 940 C 563,920 578,904 598,904 Z" />
-            <path android:fillColor="#FF000000" android:pathData="M603,1161 H730 A35,35 0 0 1 765,1196 V1320 A35,35 0 0 1 730,1355 H603 A35,35 0 0 1 568,1320 V1196 A35,35 0 0 1 603,1161 Z" />
-            <path android:fillColor="#FF000000" android:fillType="evenOdd" android:pathData="M 1080,1333 C 1147,1235 1239,1185 1333,1185 C 1428,1185 1516,1237 1578,1322 C 1583,1331 1583,1339 1578,1347 C 1515,1438 1428,1475 1333,1475 C 1236,1475 1148,1424 1080,1347 C 1074,1340 1074,1339 1080,1333 Z M 1177,1338 C 1223,1378 1275,1411 1333,1411 C 1394,1411 1445,1382 1485,1336 C 1444,1290 1395,1250 1333,1250 C 1278,1250 1225,1286 1177,1338 Z" />
-            <path android:fillColor="#00000000" android:strokeColor="#FF000000" android:strokeWidth="48" android:strokeLineCap="round" android:pathData="M 1156,1490 L 1515,1147" />
+    <vector android:width="108dp" android:height="108dp" android:viewportWidth="1536" android:viewportHeight="1536">
+        <group android:pivotX="768" android:pivotY="768" android:scaleX="0.76" android:scaleY="0.76" android:translateX="9" android:translateY="13.5">
+            <path android:pathData="M 475,410 H 659 C 695,410 714,430 733,460 L 765,502 C 772,512 781,516 797,516 H 1046 C 1101,516 1144,560 1144,610 V 713 C 1124,709 1106,716 1088,731 V 616 C 1088,592 1072,574 1050,574 H 790 C 762,574 749,566 734,548 L 702,490 C 690,473 680,465 658,465 H 485 C 443,465 411,498 411,540 V 943 C 411,984 439,1010 479,1010 H 692 L 746,1065 H 477 C 408,1065 356,1017 356,950 V 529 C 356,462 406,410 475,410 Z" android:fillColor="#FF000000" />
+            <path android:pathData="M502.5,646 H927.5 A27.5,27.5 0 0 1 955,673.5 V673.5 A27.5,27.5 0 0 1 927.5,701 H502.5 A27.5,27.5 0 0 1 475,673.5 V673.5 A27.5,27.5 0 0 1 502.5,646 Z" android:fillColor="#FF000000" />
+            <path android:pathData="M502.5,762 H750.5 A27.5,27.5 0 0 1 778,789.5 V789.5 A27.5,27.5 0 0 1 750.5,817 H502.5 A27.5,27.5 0 0 1 475,789.5 V789.5 A27.5,27.5 0 0 1 502.5,762 Z" android:fillColor="#FF000000" />
+            <path android:pathData="M 1046,789 L 1010,826 C 922,803 821,835 747,938 C 766,968 786,993 819,1019 L 788,1053 C 751,1020 723,990 702,953 C 696,943 695,933 702,921 C 777,810 889,756 987,773 C 1009,776 1030,781 1046,789 Z" android:fillColor="#FF000000" />
+            <path android:pathData="M 1103,880 L 1134,848 C 1168,884 1188,917 1198,933 C 1204,944 1204,952 1197,966 C 1144,1068 1047,1123 950,1123 C 923,1123 898,1119 875,1110 L 913,1071 C 1010,1091 1113,1045 1151,945 C 1139,924 1124,902 1103,880 Z" android:fillColor="#FF000000" />
+            <path android:pathData="M 981,854 L 947,890 C 922,889 898,909 897,931 C 895,938 896,941 897,945 L 860,979 C 851,960 852,939 855,923 C 863,877 898,850 942,850 C 957,850 970,852 981,854 Z" android:fillColor="#FF000000" />
+            <path android:pathData="M 1047,936 L 946,1040 C 985,1038 1023,1010 1041,975 C 1046,962 1049,949 1047,936 Z" android:fillColor="#FF000000" />
+            <path android:pathData="M 790,1121 L 1135,774" android:fillColor="#00000000" android:strokeColor="#FF000000" android:strokeWidth="55" android:strokeLineCap="round" />
         </group>
     </vector>
 </inset>
