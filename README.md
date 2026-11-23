@@ -1,14 +1,14 @@
-# FuseHide 1.217
+# FuseHide 1.218
 
-- **Version:** `1.217`
-- **VersionCode:** `217`
-- **Commit:** [`31d6fa2`](https://github.com/XiaoTong6666/FuseHide/commit/31d6fa289c44002d30db5b60432e683abff949a1)
-- **Build time:** `5m 51s`
-- **SHA256:** `c9cdec6a261382f041ed3099c0ca42d821f87e35575cacd65cfb8b40719cad42`
+- **Version:** `1.218`
+- **VersionCode:** `218`
+- **Commit:** [`11d7059`](https://github.com/XiaoTong6666/FuseHide/commit/11d70590bbd05914f7b62b3fa991c1a3bba8c16a)
+- **Build time:** `4m 07s`
+- **SHA256:** `9a1e6697346c32cb2f495d216f16b6fafee7ce046d4ca80bac169fce94e01cf1`
 
 ## Message
 
 ```text
-fix(icon): balance adaptive launcher glyph alignment, Meow
+fix(icon): restore refined logo and update themed icon, Meow
 
 ```
