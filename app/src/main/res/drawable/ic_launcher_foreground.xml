@@ -16,7 +16,7 @@
   -->
 <!-- Generated from artwork/fusehide-icon.svg; edit the SVG, not this XML. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="2050" android:viewportHeight="2050">
-    <group android:pivotX="1025" android:pivotY="1025" android:scaleX="0.6" android:scaleY="0.6" android:translateX="40" android:translateY="18">
+    <group android:pivotX="1025" android:pivotY="1025" android:scaleX="0.6" android:scaleY="0.6" android:translateX="12" android:translateY="18">
         <path android:fillColor="@color/ic_launcher_color_secondary" android:pathData="M 498,440 H 885 C 920,440 938,457 956,482 L 1036,578 C 1054,600 1076,610 1108,610 H 1547 C 1556,610 1560,620 1553,627 L 1454,725 H 565 C 512,725 468,769 468,822 V 1437 C 468,1495 503,1533 565,1533 H 638 L 563,1610 H 555 C 464,1610 395,1546 395,1452 V 543 C 395,485 441,440 498,440 Z" />
         <path android:fillColor="@color/ic_launcher_color_secondary" android:fillAlpha="0.5" android:pathData="M 1596,672 C 1625,672 1648,696 1648,725 V 1385 C 1648,1509 1545,1606 1415,1606 H 650 L 1568,685 C 1576,677 1585,672 1596,672 Z" />
         <path android:fillColor="@color/ic_launcher_color_secondary" android:pathData="M 598,904 H 1260 L 1108,1056 H 598 C 578,1056 563,1041 563,1021 V 940 C 563,920 578,904 598,904 Z" />
