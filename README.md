@@ -1,14 +1,14 @@
-# FuseHide 1.215
+# FuseHide 1.216
 
-- **Version:** `1.215`
-- **VersionCode:** `215`
-- **Commit:** [`d21bd79`](https://github.com/XiaoTong6666/FuseHide/commit/d21bd7936a78ae3b588350809c84b3d493df020e)
-- **Build time:** `4m 30s`
-- **SHA256:** `8079479b3989b7a81562c2338691e2cfb19e6ff753b0e30f123e2c344766b417`
+- **Version:** `1.216`
+- **VersionCode:** `216`
+- **Commit:** [`1840166`](https://github.com/XiaoTong6666/FuseHide/commit/1840166e2d5c6d73d5d4e842e1c72a70bf1876b6)
+- **Build time:** `4m 21s`
+- **SHA256:** `03f8afe88f088b3a3fd9aa0e3eacc133602bdfbb991f87e5529d33a888c275ed`
 
 ## Message
 
 ```text
-chore(native): keep readdir diagnostics in debug logs, Meow
+fix(icon): refine launcher assets and support themed icons, Meow
 
 ```
