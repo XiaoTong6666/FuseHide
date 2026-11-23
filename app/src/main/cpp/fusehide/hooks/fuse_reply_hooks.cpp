@@ -527,7 +527,7 @@ extern "C" int WrappedReplyBuf(fuse_req_t req, const char* buf, size_t size) {
         gReaddirplusContinuation->replySent = true;
 #endif
     int ret = fn ? fn(req, replyBuf, replySize) : -1;
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         if (filterPlainReaddir || filterReaddirplus || filterPostfilterReaddir ||
             (hasPendingContext && filterIno != 0)) {
             DebugLogPrint(4,
@@ -571,7 +571,7 @@ extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
     const auto pendingRootMutation = TakePendingRootSnapshotMutation(req);
     CompletePendingReaddirContext(req, RuntimeState::ReqUid(req));
     err = MaybeRewriteHiddenLeakErrno(req, err, "fuse_reply_err");
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         if (err == ENOENT) {
             // The error may come from MediaProvider itself, not necessarily our
             // filtering. Capture the enclosing lookup context to distinguish them.
@@ -590,7 +590,7 @@ extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
                 gInPfLookup && IsTrackedHiddenSubtreeInode(uid, gCurrentLookupParentInode);
             const bool mismatch = trackedParent && parentPath && !policyHidden;
             static std::atomic<int> sampled{0};
-            if (mismatch || ShouldLogLimited(sampled, 192)) {
+            if (mismatch || ShouldDebugLogLimited(sampled, 192)) {
                 DebugLogPrint(mismatch ? 5 : 4,
                               "hide-diag reply_err uid=%u req=%lu original_err=%d err=%d "
                               "lookup=%d parent=0x%llx parent_path=%s name=%s policy_hidden=%d "
@@ -625,7 +625,7 @@ extern "C" int WrappedReplyErr(fuse_req_t req, int err) {
         } else if (rename.flags != 0) {
             DebugLogPrint(5, "hide-diag rename_migrate skipped=unsupported_flags flags=0x%x",
                           rename.flags);
-        } else if constexpr (kEnableDebugHooks) {
+        } else if (DebugLoggingEnabled()) {
             DebugLogPrint(5, "hide-diag rename_migrate skipped=no_node_deleted_hook req=%lu",
                           req ? static_cast<unsigned long>(req->unique) : 0UL);
         }

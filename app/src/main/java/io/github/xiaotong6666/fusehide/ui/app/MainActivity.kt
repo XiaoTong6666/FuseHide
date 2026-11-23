@@ -51,6 +51,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.xiaotong6666.fusehide.BuildConfig
 import io.github.xiaotong6666.fusehide.R
+import io.github.xiaotong6666.fusehide.config.DebugLogSettings
 import io.github.xiaotong6666.fusehide.config.HideConfigDefaults
 import io.github.xiaotong6666.fusehide.config.HideConfigStore
 import io.github.xiaotong6666.fusehide.config.buildAppliedConfigSnapshot
@@ -155,12 +156,14 @@ class MainActivity :
         val uiMode = FuseHideUiModeStore.fromPrefs(this)
         val enableMiuixBlur = FuseHideUiModeStore.isMiuixBlurEnabled(this)
         val enableMiuixFloatingBottomBar = FuseHideUiModeStore.isMiuixFloatingBottomBarEnabled(this)
+        val enableDebugLogging = DebugLogSettings.isEnabled(this)
         val infoText = buildInfoText()
         val savedConfig = HideConfigStore.loadSavedConfigOrNull(this)
         mainViewModel.initialize(
             uiMode = uiMode,
             enableMiuixBlur = enableMiuixBlur,
             enableMiuixFloatingBottomBar = enableMiuixFloatingBottomBar,
+            enableDebugLogging = enableDebugLogging,
             infoText = infoText,
             savedConfig = savedConfig,
             configStatusText = getString(
@@ -302,11 +305,13 @@ class MainActivity :
                             uiState.uiMode,
                             uiState.enableMiuixBlur,
                             uiState.enableMiuixFloatingBottomBar,
+                            uiState.enableDebugLogging,
                         ) {
                             SettingsUiState(
                                 uiMode = uiState.uiMode,
                                 enableMiuixBlur = uiState.enableMiuixBlur,
                                 enableMiuixFloatingBottomBar = uiState.enableMiuixFloatingBottomBar,
+                                enableDebugLogging = uiState.enableDebugLogging,
                             )
                         }
                         val homeCallbacks = remember(navigator) {
@@ -340,6 +345,15 @@ class MainActivity :
                                     val enabled = !mainViewModel.uiState.value.enableMiuixFloatingBottomBar
                                     FuseHideUiModeStore.saveMiuixFloatingBottomBarEnabled(this@MainActivity, enabled)
                                     mainViewModel.setMiuixFloatingBottomBarEnabled(enabled)
+                                },
+                                onToggleDebugLogging = {
+                                    val enabled = !mainViewModel.uiState.value.enableDebugLogging
+                                    if (DebugLogSettings.setEnabled(this@MainActivity, enabled)) {
+                                        mainViewModel.setDebugLoggingEnabled(enabled)
+                                        DebugLogSettings.refreshInjectedProcesses(this@MainActivity)
+                                    } else {
+                                        Log.e("FuseHide", "failed to persist debug logging setting")
+                                    }
                                 },
                             )
                         }

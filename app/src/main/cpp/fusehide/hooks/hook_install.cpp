@@ -249,7 +249,7 @@ void InstallFuseHooks() {
     }
 
     // Release builds still need these hooks for reply filtering, named target interception, and
-    // cache invalidation. kEnableDebugHooks only suppresses the verbose trace logging inside the
+    // cache invalidation. DebugLoggingEnabled() only suppresses verbose traces inside the
     // wrappers themselves.
 #if !defined(__x86_64__)
     InstallAdvancedDebugHooks(*module);

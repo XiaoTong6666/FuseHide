@@ -23,8 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CallToAction
-import androidx.compose.material.icons.rounded.Dashboard
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -35,7 +35,6 @@ import io.github.xiaotong6666.fusehide.ui.core.model.SettingsUiState
 import io.github.xiaotong6666.uihelper.adaptive.AdaptiveScrollColumn
 import io.github.xiaotong6666.uihelper.adaptive.SettingsDropdownItem
 import io.github.xiaotong6666.uihelper.adaptive.SettingsGroupDivider
-import io.github.xiaotong6666.uihelper.adaptive.SettingsInfoItem
 import io.github.xiaotong6666.uihelper.adaptive.SettingsNavigationItem
 import io.github.xiaotong6666.uihelper.adaptive.SettingsSection
 import io.github.xiaotong6666.uihelper.adaptive.SettingsToggleItem
@@ -105,10 +104,19 @@ private fun SettingsPageContent(
             }
         }
 
+        SettingsSection(stringResource(R.string.section_debugging)) {
+            SettingsToggleItem(
+                checked = state.enableDebugLogging,
+                title = stringResource(R.string.settings_debug_logging),
+                description = stringResource(R.string.settings_debug_logging_desc),
+                icon = Icons.Rounded.BugReport,
+                onToggle = callbacks.onToggleDebugLogging,
+            )
+        }
+
         SettingsSection(stringResource(R.string.section_about)) {
-            SettingsInfoItem(
+            CurrentUiStyleInfoItem(
                 title = stringResource(R.string.label_current_ui_family),
-                icon = Icons.Rounded.Dashboard,
                 value = if (state.uiMode == UiMode.Miuix) {
                     stringResource(R.string.value_ui_family_miuix)
                 } else {

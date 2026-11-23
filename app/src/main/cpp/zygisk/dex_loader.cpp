@@ -102,6 +102,7 @@ constexpr NativeMethodEntry kNativeMethods[] = {
      "(Z[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;"
      "[Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;Z[Ljava/lang/String;)V",
      "applyHideConfig"},
+    {"setDebugLoggingEnabled", "(Z)V", "setDebugLoggingEnabled"},
     {"notifyPackageSetChanged", "(Ljava/lang/String;)V", "notifyPackageSetChanged"},
     {"hasCompleteFuseCallbackCoverage", "()Z", "hasCompleteFuseCallbackCoverage"},
     {"waitForHideInvalidations", "(J)Z", "waitForHideInvalidations"},

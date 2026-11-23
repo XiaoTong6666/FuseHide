@@ -883,7 +883,7 @@ void ResolveUnknownPrimaryRootNodes() {
         }
     }
     bool logProbe = false;
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         logProbe = diagnosticCount.fetch_add(1, std::memory_order_relaxed) < 8;
         if (logProbe)
             DebugLogPrint(4, "primary root tree probe candidates=%zu sessions=%zu", probes.size(),
@@ -1566,7 +1566,7 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     }
     const uint64_t rootParent = CurrentRootParentInode();
     if (parent != 0 && parent != rootParent && IsTrackedHiddenSubtreeInode(uid, parent)) {
-        if constexpr (kEnableDebugHooks) {
+        if (DebugLoggingEnabled()) {
             // A stale inode mark can hide a child even when the full path is exempt.
             // Always report that contradiction, not only the first N ordinary matches.
             const auto parentPath = LookupTrackedPathForInode(parent);
@@ -1576,7 +1576,7 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
                 parentPath && HiddenPathPolicy::IsAnyHiddenSubtreePath(uid, childPath);
             const bool mismatch = parentPath && !pathHidden;
             static std::atomic<int> sampled{0};
-            if (mismatch || ShouldLogLimited(sampled, 96)) {
+            if (mismatch || ShouldDebugLogLimited(sampled, 96)) {
                 DebugLogPrint(
                     mismatch ? 5 : 4,
                     "hide-diag named uid=%u source=tracked_parent parent=0x%llx root=0x%llx "
@@ -1591,9 +1591,9 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     }
     if (rootParent != 0 && parent == rootParent &&
         HiddenPathPolicy::IsHiddenRootEntryName(uid, name)) {
-        if constexpr (kEnableDebugHooks) {
+        if (DebugLoggingEnabled()) {
             static std::atomic<int> sampled{0};
-            if (ShouldLogLimited(sampled, 96)) {
+            if (ShouldDebugLogLimited(sampled, 96)) {
                 DebugLogPrint(4, "hide-diag named uid=%u source=root_entry parent=0x%llx name=%s",
                               static_cast<unsigned>(uid), static_cast<unsigned long long>(parent),
                               DebugPreview(name).c_str());
@@ -1603,9 +1603,9 @@ HiddenNamedTargetKind ClassifyHiddenNamedTarget(uint32_t uid, uint64_t parent, c
     }
     if (const auto trackedPathKind = ClassifyHiddenNamedTargetByTrackedPath(uid, parent, name);
         trackedPathKind.has_value()) {
-        if constexpr (kEnableDebugHooks) {
+        if (DebugLoggingEnabled()) {
             static std::atomic<int> sampled{0};
-            if (ShouldLogLimited(sampled, 96)) {
+            if (ShouldDebugLogLimited(sampled, 96)) {
                 const auto parentPath = LookupTrackedPathForInode(parent);
                 DebugLogPrint(4,
                               "hide-diag named uid=%u source=tracked_path kind=%d parent=0x%llx "
@@ -1851,7 +1851,7 @@ bool IsTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
         const auto path = state->inodeToPath.find(ino);
         if (path != state->inodeToPath.end() && state->authoritativePathInodes.contains(ino) &&
             !HiddenPathPolicy::IsAnyHiddenSubtreePath(*rule, path->second)) {
-            if constexpr (kEnableDebugHooks) {
+            if (DebugLoggingEnabled()) {
                 DebugLogPrint(5, "hide-diag reject_stale_mark uid=%u ino=0x%llx path=%s",
                               static_cast<unsigned>(uid), static_cast<unsigned long long>(ino),
                               DebugPreview(path->second).c_str());
@@ -1872,7 +1872,7 @@ bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
         const auto known = state->inodeToPath.find(ino);
         if (known != state->inodeToPath.end() && state->authoritativePathInodes.contains(ino) &&
             !HiddenPathPolicy::IsAnyHiddenSubtreePath(*rule, known->second)) {
-            if constexpr (kEnableDebugHooks) {
+            if (DebugLoggingEnabled()) {
                 DebugLogPrint(5, "hide-diag refuse_mark_visible uid=%u ino=0x%llx path=%s",
                               static_cast<unsigned>(uid), static_cast<unsigned long long>(ino),
                               DebugPreview(known->second).c_str());
@@ -1888,13 +1888,13 @@ bool TrackHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
             return false;
         rules.push_back(rule);
     }
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         // Resolve the path after releasing state->mutex: path lookup takes the same lock.
         const auto path = LookupTrackedPathForInode(ino);
         const bool pathHidden = path && HiddenPathPolicy::IsAnyHiddenSubtreePath(uid, *path);
         const bool mismatch = path && !pathHidden;
         static std::atomic<int> sampled{0};
-        if (mismatch || ShouldLogLimited(sampled, 128)) {
+        if (mismatch || ShouldDebugLogLimited(sampled, 128)) {
             DebugLogPrint(
                 mismatch ? 5 : 4,
                 "hide-diag inode_mark uid=%u ino=0x%llx path=%s path_hidden=%d mismatch=%d",
@@ -1928,10 +1928,10 @@ bool RemoveTrackedHiddenSubtreeInode(uint32_t uid, uint64_t ino) {
         if (rules.empty())
             state->hiddenSubtreeRules.erase(it);
     }
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         if (changed) {
             static std::atomic<int> sampled{0};
-            if (ShouldLogLimited(sampled, 128)) {
+            if (ShouldDebugLogLimited(sampled, 128)) {
                 const auto path = LookupTrackedPathForInode(ino);
                 DebugLogPrint(4, "hide-diag inode_unmark uid=%u ino=0x%llx path=%s",
                               static_cast<unsigned>(uid), static_cast<unsigned long long>(ino),
@@ -2070,12 +2070,12 @@ void RememberTrackedPathForInode(SessionToken token, uint64_t ino, std::string_v
             deferredInode = state->deferredInodes.erase(ino) != 0;
         }
     }
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         const bool noteworthy = update.kind == inode_tracking::UpdateKind::Replaced ||
                                 update.kind == inode_tracking::UpdateKind::ConflictingInference ||
                                 prunedMarks != 0 || prunedRecent != 0;
         static std::atomic<int> sampled{0};
-        if (noteworthy || (authoritative && ShouldLogLimited(sampled, 96))) {
+        if (noteworthy || (authoritative && ShouldDebugLogLimited(sampled, 96))) {
             DebugLogPrint(noteworthy ? 5 : 4,
                           "hide-diag inode_path ino=0x%llx source=%s action=%d old=%s new=%s "
                           "pruned_marks=%zu pruned_recent=%zu evicted=%zu ignored_visible=%d",
@@ -2128,10 +2128,10 @@ void ForgetTrackedInode(SessionToken token, uint64_t ino, const char* reason) {
         if (removed)
             ++state->pathEpoch;
     }
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         if (removed || marked || recent) {
             static std::atomic<int> sampled{0};
-            if (marked || recent || ShouldLogLimited(sampled, 96)) {
+            if (marked || recent || ShouldDebugLogLimited(sampled, 96)) {
                 DebugLogPrint(
                     4, "hide-diag forget ino=0x%llx reason=%s path=%zu marks=%zu recent=%zu",
                     static_cast<unsigned long long>(ino), reason, removed, marked, recent);
@@ -2158,7 +2158,7 @@ void ForgetTrackedPathSubtree(SessionToken token, std::string_view prefix, const
             ++state->pathEpoch;
         recent = PruneRecentParentPaths(*state, prefix);
     }
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         if (removed || marked || recent) {
             DebugLogPrint(
                 4, "hide-diag invalidate_paths reason=%s prefix=%s nodes=%zu marks=%zu recent=%zu",
@@ -2266,7 +2266,7 @@ bool ReconcileTrackedRename(SessionToken token, uint64_t sourceParent, std::stri
                     removedMarks += pruned;
                     if (marks.empty())
                         state->hiddenSubtreeRules.erase(it);
-                    if constexpr (kEnableDebugHooks) {
+                    if (DebugLoggingEnabled()) {
                         if (pruned && samples.size() < 8)
                             samples.push_back({ino, oldPath, newPath, pruned});
                     }
@@ -2291,7 +2291,7 @@ bool ReconcileTrackedRename(SessionToken token, uint64_t sourceParent, std::stri
             }
         }
     }
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         for (const auto& entry : samples) {
             DebugLogPrint(4, "hide-diag rename_node ino=0x%llx pruned_marks=%zu old=%s new=%s",
                           static_cast<unsigned long long>(entry.ino), entry.count,

@@ -235,11 +235,13 @@ private fun PreviewMainPage() {
                 uiMode = UiMode.Miuix,
                 enableMiuixBlur = false,
                 enableMiuixFloatingBottomBar = false,
+                enableDebugLogging = false,
             ),
             settingsCallbacks = SettingsCallbacks(
                 onToggleUiMode = {},
                 onToggleMiuixBlur = {},
                 onToggleMiuixFloatingBottomBar = {},
+                onToggleDebugLogging = {},
             ),
         )
     }

@@ -60,7 +60,7 @@ void InstallMinimalCoreHooks(const ModuleInfo& module, const FileElfContext& fil
 }
 
 // These hooks are functionally required for hidden-path semantics. Only the verbose trace logging
-// inside the wrappers stays gated by kEnableDebugHooks.
+// inside the wrappers stays gated by DebugLoggingEnabled().
 void InstallMinimalDebugHooks(const ModuleInfo& module, const FileElfContext& fileContext) {
     auto& process = Process();
     if (process.originalNodeDeleted == nullptr)

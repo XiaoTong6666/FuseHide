@@ -69,6 +69,9 @@ public final class HideConfigNativeBridge {
             boolean enableHideAllPublicRootEntries,
             String[] hideAllPublicRootEntriesExemptions);
 
+    // Enables existing native DebugLogPrint diagnostics in both Debug and Release builds.
+    public static native void setDebugLoggingEnabled(boolean enabled);
+
     // Package add/remove can change the effective hide rule for an already-seen uid even when the
     // serialized config is unchanged.
     public static native void notifyPackageSetChanged(String reason);

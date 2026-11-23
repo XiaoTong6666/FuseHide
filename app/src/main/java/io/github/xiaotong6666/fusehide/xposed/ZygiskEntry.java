@@ -26,6 +26,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import androidx.core.content.ContextCompat;
+import io.github.xiaotong6666.fusehide.config.DebugLogSettings;
 import io.github.xiaotong6666.fusehide.config.HideConfig;
 import io.github.xiaotong6666.fusehide.config.HideConfigNativeBridge;
 import io.github.xiaotong6666.fusehide.config.HideConfigStore;
@@ -354,6 +355,7 @@ public final class ZygiskEntry {
                         app, packageStateReceiver, packageFilter, ContextCompat.RECEIVER_NOT_EXPORTED);
             }
 
+            DebugLogSettings.registerInjectedProcess(app);
             startConfigReload("initial");
             Log.d("FuseHide", "registered");
         } catch (Throwable th) {

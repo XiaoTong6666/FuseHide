@@ -39,7 +39,7 @@ bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid
     const bool hasHideRule = BorrowHideRuleForUid(uid) != nullptr;
     if (!UnicodePolicy::NeedsSanitization(path)) {
         UnicodePolicy::LogSuspiciousDirectPath("app_accessible", path);
-        if (ShouldLogLimited(gAppAccessibleLogCount)) {
+        if (ShouldDebugLogLimited(gAppAccessibleLogCount)) {
             DebugLogPrint(3, "app_accessible direct uid=%u path=%s", uid,
                           DebugPreview(path).c_str());
         }
@@ -57,7 +57,7 @@ bool WrappedIsAppAccessiblePath(void* fuse, AbiStringParam pathArg, uint32_t uid
     }
     std::string sanitized(path);
     UnicodePolicy::RewriteString(sanitized);
-    if (ShouldLogLimited(gAppAccessibleLogCount)) {
+    if (ShouldDebugLogLimited(gAppAccessibleLogCount)) {
         DebugLogPrint(3, "app_accessible rewrite uid=%u old=%s new=%s", uid,
                       DebugPreview(path).c_str(), DebugPreview(sanitized).c_str());
     }
@@ -85,7 +85,7 @@ bool WrappedIsPackageOwnedPath(AbiStringParam lhsArg, AbiStringParam rhsArg) {
     const std::string_view rhs = AbiStringView(rhsArg);
     if (!UnicodePolicy::NeedsSanitization(lhs)) {
         UnicodePolicy::LogSuspiciousDirectPath("package_owned", lhs);
-        if (ShouldLogLimited(gPackageOwnedLogCount)) {
+        if (ShouldDebugLogLimited(gPackageOwnedLogCount)) {
             DebugLogPrint(3, "package_owned direct lhs=%s rhs=%s", DebugPreview(lhs).c_str(),
                           DebugPreview(rhs).c_str());
         }
@@ -93,7 +93,7 @@ bool WrappedIsPackageOwnedPath(AbiStringParam lhsArg, AbiStringParam rhsArg) {
     }
     std::string sanitizedLhs(lhs);
     UnicodePolicy::RewriteString(sanitizedLhs);
-    if (ShouldLogLimited(gPackageOwnedLogCount)) {
+    if (ShouldDebugLogLimited(gPackageOwnedLogCount)) {
         DebugLogPrint(3, "package_owned rewrite lhs=%s new=%s rhs=%s", DebugPreview(lhs).c_str(),
                       DebugPreview(sanitizedLhs).c_str(), DebugPreview(rhs).c_str());
     }
@@ -110,14 +110,14 @@ bool WrappedIsBpfBackingPath(AbiStringParam pathArg) {
     const std::string_view path = AbiStringView(pathArg);
     if (!UnicodePolicy::NeedsSanitization(path)) {
         UnicodePolicy::LogSuspiciousDirectPath("bpf_backing", path);
-        if (ShouldLogLimited(gBpfBackingLogCount)) {
+        if (ShouldDebugLogLimited(gBpfBackingLogCount)) {
             DebugLogPrint(3, "bpf_backing direct path=%s", DebugPreview(path).c_str());
         }
         return original(pathArg);
     }
     std::string sanitized(path);
     UnicodePolicy::RewriteString(sanitized);
-    if (ShouldLogLimited(gBpfBackingLogCount)) {
+    if (ShouldDebugLogLimited(gBpfBackingLogCount)) {
         DebugLogPrint(3, "bpf_backing rewrite old=%s new=%s", DebugPreview(path).c_str(),
                       DebugPreview(sanitized).c_str());
     }
@@ -130,8 +130,8 @@ extern "C" int WrappedStrcasecmp(const char* lhs, const char* rhs) {
     const char* lhsSafe = lhs != nullptr ? lhs : "";
     const char* rhsSafe = rhs != nullptr ? rhs : "";
     const auto finishAscii = [&](int result) {
-        if constexpr (kEnableDebugHooks) {
-            if (ShouldLogLimited(gStrcasecmpLogCount)) {
+        if (DebugLoggingEnabled()) {
+            if (ShouldDebugLogLimited(gStrcasecmpLogCount)) {
                 const size_t lhsLen = std::strlen(lhsSafe);
                 const size_t rhsLen = std::strlen(rhsSafe);
                 DebugLogPrint(3, "strcasecmp lhs=%s rhs=%s result=%d",
@@ -170,7 +170,7 @@ extern "C" int WrappedStrcasecmp(const char* lhs, const char* rhs) {
     const int result = UnicodePolicy::CompareCaseFoldIgnoringDefaultIgnorables(
         reinterpret_cast<const uint8_t*>(lhsSafe), lhsLen,
         reinterpret_cast<const uint8_t*>(rhsSafe), rhsLen);
-    if (ShouldLogLimited(gStrcasecmpLogCount)) {
+    if (ShouldDebugLogLimited(gStrcasecmpLogCount)) {
         DebugLogPrint(3, "strcasecmp lhs=%s rhs=%s result=%d",
                       DebugPreview(std::string_view(lhsSafe, lhsLen)).c_str(),
                       DebugPreview(std::string_view(rhsSafe, rhsLen)).c_str(), result);
@@ -184,7 +184,7 @@ extern "C" bool WrappedEqualsIgnoreCaseAbi(const char* lhsData, size_t lhsSize, 
     const int result = UnicodePolicy::CompareCaseFoldIgnoringDefaultIgnorables(
         reinterpret_cast<const uint8_t*>(lhsData ? lhsData : ""), lhsSize,
         reinterpret_cast<const uint8_t*>(rhsData ? rhsData : ""), rhsSize);
-    if (ShouldLogLimited(gEqualsIgnoreCaseLogCount)) {
+    if (ShouldDebugLogLimited(gEqualsIgnoreCaseLogCount)) {
         DebugLogPrint(3, "equals_ignore_case lhs=%s rhs=%s result=%d",
                       DebugPreview(std::string_view(lhsData ? lhsData : "", lhsSize)).c_str(),
                       DebugPreview(std::string_view(rhsData ? rhsData : "", rhsSize)).c_str(),

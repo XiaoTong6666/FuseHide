@@ -381,6 +381,15 @@ Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_applyHideConf
     fusehide::ApplyHideConfig(std::move(config));
 }
 
+JNIEXPORT void JNICALL
+Java_io_github_xiaotong6666_fusehide_config_HideConfigNativeBridge_setDebugLoggingEnabled(
+    JNIEnv*, jclass, jboolean enabled) {
+    const bool on = enabled == JNI_TRUE;
+    fusehide::gDetailedDebugLogging.store(on, std::memory_order_relaxed);
+    __android_log_print(ANDROID_LOG_INFO, fusehide::kLogTag, "native detailed debugging %s",
+                        on ? "enabled" : "disabled");
+}
+
 // Package add/remove is observed from the injected MediaProvider process and forwarded here so the
 // native uid-rule caches track PackageManager-visible changes without a full config reload.
 JNIEXPORT jboolean JNICALL

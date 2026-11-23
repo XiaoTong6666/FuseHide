@@ -21,11 +21,11 @@ namespace fusehide {
 
 namespace {
 
-// Keep entry-point diagnostics for future device ABI investigations. Compile
-// them out entirely with the existing global NDEBUG / kEnableDebugHooks flag.
+// Keep entry-point diagnostics for device ABI investigations. The runtime
+// switch avoids expensive probes in Release without compiling the code out.
 void DebugRootCallbackProbe(size_t kind, const char* operation, uint64_t inode,
                             const void* fileInfo) {
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         static std::atomic<uint32_t> counts[4]{};
         if (kind < 4 && counts[kind].fetch_add(1, std::memory_order_relaxed) < 12) {
             const SessionToken token = CurrentSessionToken();
@@ -109,13 +109,13 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
     gCurrentLookupName = name != nullptr ? std::string_view(name) : std::string_view();
     gTrackRootHiddenLookup = IsHiddenLookupCacheTarget(uid, parent, name);
     gTrackHiddenSubtreeLookup = IsTrackedHiddenSubtreeInode(uid, parent);
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         if (gTrackHiddenSubtreeLookup) {
             const auto tracked = LookupTrackedPathForInode(parent);
             const bool pathHidden =
                 tracked && HiddenPathPolicy::IsAnyHiddenSubtreePath(uid, *tracked);
             static std::atomic<int> sampled{0};
-            if (!pathHidden || ShouldLogLimited(sampled, 96)) {
+            if (!pathHidden || ShouldDebugLogLimited(sampled, 96)) {
                 DebugLogPrint(pathHidden ? 4 : 5,
                               "hide-diag lookup_mark uid=%u parent=0x%llx tracked_path=%s "
                               "name=%s tracked_path_hidden=%d",
@@ -145,9 +145,9 @@ extern "C" void WrappedPfLookup(fuse_req_t req, uint64_t parent, const char* nam
 // MediaProvider node alive. Never evict the identity here.
 extern "C" void WrappedPfForget(fuse_req_t req, uint64_t ino, uint64_t nlookup) {
     const ScopedFuseRequestSession scopedSession(req);
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         static std::atomic<int> sampled{0};
-        if (ShouldLogLimited(sampled, 128)) {
+        if (ShouldDebugLogLimited(sampled, 128)) {
             DebugLogPrint(4,
                           "hide-diag forget_request ino=0x%llx nlookup=%llu "
                           "node_deleted_hook=%d",
@@ -162,9 +162,9 @@ extern "C" void WrappedPfForget(fuse_req_t req, uint64_t ino, uint64_t nlookup) 
 
 extern "C" void WrappedPfForgetMulti(fuse_req_t req, size_t count, FuseForgetData* forgets) {
     const ScopedFuseRequestSession scopedSession(req);
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         static std::atomic<int> sampled{0};
-        if (ShouldLogLimited(sampled, 128)) {
+        if (ShouldDebugLogLimited(sampled, 128)) {
             DebugLogPrint(4,
                           "hide-diag forget_multi_request count=%zu "
                           "node_deleted_hook=%d",
@@ -181,9 +181,9 @@ extern "C" void WrappedPfForgetMulti(fuse_req_t req, size_t count, FuseForgetDat
 extern "C" void WrappedNodeDeleted(void* tracker, const void* node) {
     const uint64_t ino = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(node));
     const SessionToken token = CurrentSessionToken();
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         static std::atomic<int> sampled{0};
-        if (ShouldLogLimited(sampled, 128)) {
+        if (ShouldDebugLogLimited(sampled, 128)) {
             DebugLogPrint(4,
                           "hide-diag node_deleted ino=0x%llx se=%p generation=%llu "
                           "session_known=%d",

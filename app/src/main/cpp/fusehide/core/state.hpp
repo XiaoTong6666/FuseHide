@@ -139,11 +139,17 @@ inline constexpr std::string_view kFuseHidePackageRuleRootEntries1[] = {
     "xinhao",
 };
 
+// Dynamic diagnostics must remain compiled into Release. Keep the default
+// build-dependent, but use one cheap atomic load to avoid path formatting,
+// logcat writes and diagnostic-only allocations while logging is disabled.
 #if defined(NDEBUG)
-inline constexpr bool kEnableDebugHooks = false;
+inline std::atomic<bool> gDetailedDebugLogging{false};
 #else
-inline constexpr bool kEnableDebugHooks = true;
+inline std::atomic<bool> gDetailedDebugLogging{true};
 #endif
+inline bool DebugLoggingEnabled() noexcept {
+    return gDetailedDebugLogging.load(std::memory_order_relaxed);
+}
 
 // Platform libc++ may use std::__1 while the module is built against std::__ndk1. A const string
 // reference is one object pointer on every supported ABI, so keep the boundary untyped and decode
@@ -579,16 +585,35 @@ inline bool ShouldLogLimited(std::atomic<int>& counter, int limit = 8) {
     return old < limit;
 }
 
+inline bool ShouldDebugLogLimited(std::atomic<int>& counter, int limit = 8) {
+    // Preserve ShouldLogLimited for always-on error/warning diagnostics.
+    // Detailed debug sampling starts only after the user enables it, so
+    // earlier FUSE traffic cannot exhaust the first-event quota in Release.
+    return DebugLoggingEnabled() && ShouldLogLimited(counter, limit);
+}
+
 template <typename... Args>
-inline void DebugLogPrint(int priority, const char* fmt, Args... args) {
-    if constexpr (kEnableDebugHooks) {
-        if constexpr (sizeof...(Args) == 0) {
-            __android_log_write(priority, kLogTag, fmt);
-        } else {
-            __android_log_print(priority, kLogTag, fmt, args...);
-        }
+inline void DebugLogPrintUnchecked(int priority, const char* fmt, Args... args) {
+    if constexpr (sizeof...(Args) == 0) {
+        __android_log_write(priority, kLogTag, fmt);
+    } else {
+        __android_log_print(priority, kLogTag, fmt, args...);
     }
 }
+
+// Guard call-site expressions, not just the logcat write. Many diagnostics
+// build temporary path strings in hot FUSE callbacks, which should have zero
+// formatting/allocation overhead while disabled in Release. Preserve errno
+// across formatting and logging: libc hook callers may inspect it even when
+// a wrapped function returns -1.
+#define DebugLogPrint(...)                                   \
+    do {                                                     \
+        if (::fusehide::DebugLoggingEnabled()) {             \
+            const int saved_debug_errno = errno;             \
+            ::fusehide::DebugLogPrintUnchecked(__VA_ARGS__); \
+            errno = saved_debug_errno;                       \
+        }                                                    \
+    } while (false)
 
 std::shared_ptr<const CompiledHideRule> ResolveHideRuleForUid(uint32_t uid);
 const std::shared_ptr<const CompiledHideRule>& BorrowHideRuleForUid(uint32_t uid);

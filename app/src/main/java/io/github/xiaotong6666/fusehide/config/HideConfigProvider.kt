@@ -33,6 +33,13 @@ class HideConfigProvider : ContentProvider() {
     override fun onCreate(): Boolean = true
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
+        if (method == DebugLogSettings.METHOD_GET_DEBUG_LOGGING) {
+            val appContext = context ?: return null
+            if (!isTrustedCaller(appContext)) {
+                return null
+            }
+            return DebugLogSettings.toProviderBundle(appContext)
+        }
         if (method == "get_hide_config") {
             val appContext = context ?: return null
             if (!isTrustedCaller(appContext)) {

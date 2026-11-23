@@ -68,12 +68,12 @@ extern "C" int WrappedLstat(const char* path, struct stat* st) {
     const auto fn = gOriginalLstat.get();
     if (fn) {
         const int ret = fn(path, st);
-        if constexpr (kEnableDebugHooks) {
+        if (DebugLoggingEnabled()) {
             if (ret == -1 && errno == ENOENT && gInPfGetattr) {
                 // Logging must not change the errno observed by MediaProvider.
                 const int savedErrno = errno;
                 static std::atomic<int> sampled{0};
-                if (ShouldLogLimited(sampled, 192)) {
+                if (ShouldDebugLogLimited(sampled, 192)) {
                     DebugLogPrint(
                         4,
                         "hide-diag lower_lstat uid=%u ino=0x%llx path=%s "
@@ -119,11 +119,11 @@ extern "C" int WrappedStat(const char* path, struct stat* st) {
     const auto fn = gOriginalStat.get();
     if (fn) {
         const int ret = fn(path, st);
-        if constexpr (kEnableDebugHooks) {
+        if (DebugLoggingEnabled()) {
             if (ret == -1 && errno == ENOENT && gInPfReaddirPostfilter) {
                 const int savedErrno = errno;
                 static std::atomic<int> sampled{0};
-                if (ShouldLogLimited(sampled, 192)) {
+                if (ShouldDebugLogLimited(sampled, 192)) {
                     DebugLogPrint(
                         4,
                         "hide-diag lower_stat uid=%u path=%s original_enoent=1 "

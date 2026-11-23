@@ -4,6 +4,12 @@
 
     <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.blur" />
 
+    <!-- Only FuseHide itself may request a diagnostic refresh in MediaProvider. -->
+    <permission
+        android:name="io.github.xiaotong6666.fusehide.permission.REFRESH_DEBUG_LOGGING"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="io.github.xiaotong6666.fusehide.permission.REFRESH_DEBUG_LOGGING" />
+
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="PackageVisibilityPolicy,QueryAllPackagesPermission" />

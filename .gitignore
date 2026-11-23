@@ -20,3 +20,6 @@ jadx
 libfusefixer.so
 __pycache__/
 *.py[cod]
+/tests/
+/app/src/test/
+/app/src/androidTest/

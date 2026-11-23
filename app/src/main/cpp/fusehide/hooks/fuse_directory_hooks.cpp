@@ -146,7 +146,7 @@ Entries WrappedGetDirectoryEntriesForAbi(OriginalFn fn, void* wrapper, uint32_t 
         if (auto cachedEntries =
                 LookupRootSnapshotCache<Entries>(uid, CanonicalRootSnapshotPath(path), rule);
             cachedEntries.has_value()) {
-            if constexpr (kEnableDebugHooks) {
+            if (DebugLoggingEnabled()) {
                 if (IsVisibleRootPath(path)) {
                     DebugLogPrint(4,
                                   "hide-diag get_dir req=%llu uid=%u source=cache entries=%zu "
@@ -167,7 +167,7 @@ Entries WrappedGetDirectoryEntriesForAbi(OriginalFn fn, void* wrapper, uint32_t 
     }
     const size_t rawCount = entries.size();
     entries = FilterHiddenDirectoryEntries(uid, path, std::move(entries));
-    if constexpr (kEnableDebugHooks) {
+    if (DebugLoggingEnabled()) {
         if (IsVisibleRootPath(path) || (rawCount != entries.size())) {
             DebugLogPrint(4,
                           "hide-diag get_dir req=%llu uid=%u source=original dirp=%d fn=%d "

@@ -200,7 +200,7 @@ extern "C" void WrappedPfRename(fuse_req_t req, uint64_t parent, const char* nam
         gActiveRenameTracking = &tracking;
         fn(req, parent, name, new_parent, new_name, flags);
         gActiveRenameTracking = previous;
-        if constexpr (kEnableDebugHooks) {
+        if (DebugLoggingEnabled()) {
             DebugLogPrint(4, "hide-diag rename success=%d reconciled=%d source=%s destination=%s",
                           tracking.success ? 1 : 0, tracking.reconciled ? 1 : 0,
                           DebugPreview(tracking.source).c_str(),
